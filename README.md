@@ -6,6 +6,7 @@ Features
 - Add individual audio files or an entire folder (recursively).
 - Play / Pause / Stop / Next / Previous controls.
 - Volume control.
+- Filter and select tracks by genre (reads tags using `mutagen`).
 
 Requirements
 - Python 3.8+
@@ -25,6 +26,9 @@ Usage
 - Use "Add Files" to add audio files (mp3, wav, ogg, flac).
 - Use "Add Folder" to add all audio files from a directory.
 - Double-click a track in the list to play it.
+
+Filtering by genre
+- Use the Genre dropdown in the right panel to filter the playlist by the detected genre tag. Select "All" to show every track.
 
 Notes
 - This is a small demonstration player. It focuses on playback control and a simple playlist UI.
