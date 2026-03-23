@@ -134,16 +134,20 @@ class MusicPlayer(tk.Tk):
             return False
         title = os.path.basename(path)
         genre = 'Unknown'
+        comment = ''
         if MutagenFile is not None:
             try:
                 tags = MutagenFile(path, easy=True)
                 if tags is not None:
                     title = tags.get('title', [title])[0]
                     genre = tags.get('genre', [genre])[0]
+                    # Extract comment (may be a list or single value)
+                    comment_val = tags.get('comment', [''])[0]
+                    comment = str(comment_val) if comment_val else ''
             except Exception:
                 # ignore metadata read errors
                 pass
-        entry = {'path': path, 'title': title, 'basename': os.path.basename(path), 'genre': genre}
+        entry = {'path': path, 'title': title, 'basename': os.path.basename(path), 'genre': genre, 'comment': comment}
         self.playlist.append(entry)
         self.genres.add(genre)
         return True
@@ -160,7 +164,12 @@ class MusicPlayer(tk.Tk):
         self.display_indices = []
         for idx, entry in enumerate(self.playlist):
             if sel == 'All' or not sel or entry.get('genre') == sel:
-                display = f"{entry.get('title', entry['basename'])} ({entry.get('genre','')})"
+                comment = entry.get('comment', '')
+                # Include comment in display if present
+                if comment:
+                    display = f"{entry.get('title', entry['basename'])} ({entry.get('genre','')}) - {comment}"
+                else:
+                    display = f"{entry.get('title', entry['basename'])} ({entry.get('genre','')})"
                 self.listbox.insert('end', display)
                 self.display_indices.append(idx)
 
