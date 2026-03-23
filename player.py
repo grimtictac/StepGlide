@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A small music player using tkinter + pygame.mixer
+"""A small music player using tkinter + VLC
 
 Features:
 - Add files / folders to a playlist
@@ -14,9 +14,9 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 try:
-    import pygame
+    import vlc
 except Exception:
-    print("Missing dependency: pygame. Install with: pip install pygame")
+    print("Missing dependency: python-vlc. Install with: pip install python-vlc")
     raise
 
 try:
@@ -31,7 +31,7 @@ class MusicPlayer(tk.Tk):
         self.title('Python Music Player')
         self.geometry('640x360')
 
-        # playlist: list of dicts {path, title, basename, genre}
+        # playlist: list of dicts {path, title, basename, genre, comment}
         self.playlist = []
         # display_indices maps the current listbox positions -> playlist indices
         self.display_indices = []
@@ -42,7 +42,10 @@ class MusicPlayer(tk.Tk):
         self.is_paused = False
         self._last_action = None  # 'playing' | 'stopped' | 'paused'
 
-        pygame.mixer.init()
+        # VLC instance and player
+        self.vlc_instance = vlc.Instance()
+        self.vlc_player = self.vlc_instance.media_list_player_new()
+        self.vlc_media_list = self.vlc_instance.media_list_new()
 
         self._build_ui()
         # poll to detect end of track
@@ -101,7 +104,8 @@ class MusicPlayer(tk.Tk):
         self.vol = tk.DoubleVar(value=0.8)
         vol = ttk.Scale(vol_frame, from_=0.0, to=1.0, orient='horizontal', variable=self.vol, command=self._on_volume)
         vol.pack(side='left', fill='x', expand=True, padx=6)
-        pygame.mixer.music.set_volume(self.vol.get())
+        # Initial volume set is deferred until VLC player is ready
+        self._on_volume()
 
         ttk.Separator(ctrl, orient='horizontal').pack(fill='x', pady=6)
         self.lbl_status = ttk.Label(ctrl, text='Stopped', wraplength=180)
@@ -184,7 +188,13 @@ class MusicPlayer(tk.Tk):
             return False
         path = self.playlist[index]['path']
         try:
-            pygame.mixer.music.load(path)
+            # Create VLC media and add to player
+            media = self.vlc_instance.media_new(path)
+            # Clear existing media by recreating the media list
+            self.vlc_media_list = self.vlc_instance.media_list_new()
+            self.vlc_media_list.add_media(media)
+            self.vlc_player.set_media_list(self.vlc_media_list)
+            
             self.current_index = index
             # highlight in current view if present
             # Clear all selections first
@@ -209,7 +219,7 @@ class MusicPlayer(tk.Tk):
     def play_pause(self):
         if self.is_playing and not self.is_paused:
             # pause
-            pygame.mixer.music.pause()
+            self.vlc_player.pause()
             self.is_paused = True
             self.is_playing = False
             self._last_action = 'paused'
@@ -218,7 +228,7 @@ class MusicPlayer(tk.Tk):
             return
 
         if self.is_paused:
-            pygame.mixer.music.unpause()
+            self.vlc_player.play()
             self.is_paused = False
             self.is_playing = True
             self._last_action = 'playing'
@@ -241,7 +251,7 @@ class MusicPlayer(tk.Tk):
         if not loaded:
             return
         try:
-            pygame.mixer.music.play()
+            self.vlc_player.play()
             self.is_playing = True
             self.is_paused = False
             self._last_action = 'playing'
@@ -251,7 +261,7 @@ class MusicPlayer(tk.Tk):
             messagebox.showerror('Playback error', str(e))
 
     def stop(self):
-        pygame.mixer.music.stop()
+        self.vlc_player.stop()
         self.is_playing = False
         self.is_paused = False
         self._last_action = 'stopped'
@@ -272,7 +282,7 @@ class MusicPlayer(tk.Tk):
         else:
             nxt = 0 if self.current_index is None else (self.current_index + 1) % len(self.playlist)
         self._load(nxt)
-        pygame.mixer.music.play()
+        self.vlc_player.play()
         self.is_playing = True
         self.is_paused = False
         self._last_action = 'playing'
@@ -292,7 +302,7 @@ class MusicPlayer(tk.Tk):
         else:
             prev = 0 if self.current_index is None else (self.current_index - 1) % len(self.playlist)
         self._load(prev)
-        pygame.mixer.music.play()
+        self.vlc_player.play()
         self.is_playing = True
         self.is_paused = False
         self._last_action = 'playing'
@@ -301,7 +311,8 @@ class MusicPlayer(tk.Tk):
 
     def _on_volume(self, _=None):
         v = float(self.vol.get())
-        pygame.mixer.music.set_volume(v)
+        # VLC volume is 0-100
+        self.vlc_player.get_media_player().audio_set_volume(int(v * 100))
 
     def _on_double(self, ev):
         sel = self.tree.selection()
@@ -319,7 +330,7 @@ class MusicPlayer(tk.Tk):
         self.current_index = playlist_idx
         loaded = self._load(playlist_idx)
         if loaded:
-            pygame.mixer.music.play()
+            self.vlc_player.play()
             self.is_playing = True
             self.is_paused = False
             self._last_action = 'playing'
@@ -328,9 +339,10 @@ class MusicPlayer(tk.Tk):
 
     def _poll(self):
         # Called periodically to detect end of track and auto-advance
-        busy = pygame.mixer.music.get_busy()
-        # If nothing is busy, and we expected playing, advance to next
-        if not busy and self._last_action == 'playing' and not self.is_paused:
+        # VLC returns -1 when no media is playing
+        is_playing = self.vlc_player.is_playing()
+        # If nothing is playing, and we expected playing, advance to next
+        if not is_playing and self._last_action == 'playing' and not self.is_paused:
             # small safety: if playlist has more than one entry
             if self.playlist:
                 # advance respecting filter
@@ -348,7 +360,7 @@ class MusicPlayer(tk.Tk):
                     self.stop()
                 else:
                     self._load(next_idx)
-                    pygame.mixer.music.play()
+                    self.vlc_player.play()
                     self.is_playing = True
                     self.is_paused = False
                     self._last_action = 'playing'
