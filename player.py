@@ -55,13 +55,20 @@ class MusicPlayer(tk.Tk):
         left = ttk.Frame(main)
         left.pack(side='left', fill='both', expand=True)
 
-        self.listbox = tk.Listbox(left, activestyle='none')
-        self.listbox.pack(side='left', fill='both', expand=True)
-        self.listbox.bind('<Double-1>', self._on_double)
+        # Create Treeview with three columns: Title, Genre, Comment
+        self.tree = ttk.Treeview(left, columns=('Title', 'Genre', 'Comment'), show='headings', height=15)
+        self.tree.column('Title', width=200, anchor='w')
+        self.tree.column('Genre', width=80, anchor='w')
+        self.tree.column('Comment', width=200, anchor='w')
+        self.tree.heading('Title', text='Title')
+        self.tree.heading('Genre', text='Genre')
+        self.tree.heading('Comment', text='Comment')
+        self.tree.pack(side='left', fill='both', expand=True)
+        self.tree.bind('<Double-1>', self._on_double)
 
-        sb = ttk.Scrollbar(left, orient='vertical', command=self.listbox.yview)
+        sb = ttk.Scrollbar(left, orient='vertical', command=self.tree.yview)
         sb.pack(side='left', fill='y')
-        self.listbox.config(yscrollcommand=sb.set)
+        self.tree.config(yscrollcommand=sb.set)
 
         ctrl = ttk.Frame(main)
         ctrl.pack(side='right', fill='y')
@@ -160,17 +167,16 @@ class MusicPlayer(tk.Tk):
 
     def _apply_filter(self):
         sel = self.genre_var.get()
-        self.listbox.delete(0, 'end')
+        # Clear all items from tree
+        for item in self.tree.get_children():
+            self.tree.delete(item)
         self.display_indices = []
         for idx, entry in enumerate(self.playlist):
             if sel == 'All' or not sel or entry.get('genre') == sel:
+                title = entry.get('title', entry['basename'])
+                genre = entry.get('genre', '')
                 comment = entry.get('comment', '')
-                # Include comment in display if present
-                if comment:
-                    display = f"{entry.get('title', entry['basename'])} ({entry.get('genre','')}) - {comment}"
-                else:
-                    display = f"{entry.get('title', entry['basename'])} ({entry.get('genre','')})"
-                self.listbox.insert('end', display)
+                self.tree.insert('', 'end', values=(title, genre, comment))
                 self.display_indices.append(idx)
 
     def _load(self, index):
@@ -293,15 +299,18 @@ class MusicPlayer(tk.Tk):
         pygame.mixer.music.set_volume(v)
 
     def _on_double(self, ev):
-        sel = self.listbox.curselection()
+        sel = self.tree.selection()
         if not sel:
             return
-        idx = sel[0]
-        # map displayed index to playlist index
+        # sel is a tuple of item IDs; get the first selected item
+        item = sel[0]
+        # Find the index of this item in the tree's children
+        all_items = self.tree.get_children()
         try:
+            idx = all_items.index(item)
             playlist_idx = self.display_indices[idx]
         except Exception:
-            playlist_idx = idx
+            return
         self.current_index = playlist_idx
         loaded = self._load(playlist_idx)
         if loaded:
