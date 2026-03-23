@@ -16,6 +16,9 @@ If you have a pre-built `MusicPlayer.exe`:
 - **Python 3.11 or 3.12** (download from https://www.python.org/downloads/)
   - ⚠️ **IMPORTANT:** Do NOT use Python 3.14+ yet (pygame not available)
   - ⚠️ **IMPORTANT:** Check "Add Python to PATH" during installation
+- **VLC Media Player** (required for audio playback)
+  - Download from https://www.videolan.org/vlc/
+  - Install normally (just click "Next" through the installer)
 
 ### Check Your Python Version
 Run this first:
@@ -32,6 +35,14 @@ If you have Python 3.14:
 - Download Python 3.12: https://www.python.org/downloads/release/python-3120/
 - Install it with "Add to PATH" checked
 - Use `python3.12` instead of `python` in commands below
+
+### Install VLC (Important!)
+1. Download VLC from https://www.videolan.org/vlc/
+2. Run the installer
+3. Click through the setup (defaults are fine)
+4. Close the installer when done
+
+**Why VLC is needed:** The music player uses the VLC media engine for audio playback, which supports many more formats than built-in Windows audio.
 
 ### Option 1: Automated Build (Easiest)
 
