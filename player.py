@@ -32,6 +32,11 @@ try:
 except Exception:
     MutagenFile = None
 
+try:
+    import aubio
+except ImportError:
+    aubio = None
+
 
 class MusicPlayer(tk.Tk):
     def __init__(self):
@@ -95,13 +100,19 @@ class MusicPlayer(tk.Tk):
             )
         """)
         con.commit()
+        # Migration: add bpm column if missing
+        cur = con.execute("PRAGMA table_info(tracks)")
+        columns = [row[1] for row in cur.fetchall()]
+        if 'bpm' not in columns:
+            con.execute("ALTER TABLE tracks ADD COLUMN bpm REAL")
+            con.commit()
         con.close()
 
     def _load_tracks_from_db(self):
         """Reload all previously-added tracks from the database on startup."""
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
-        cur.execute("SELECT file_path, title, play_count, first_played, last_played, file_created FROM tracks ORDER BY title")
+        cur.execute("SELECT file_path, title, play_count, first_played, last_played, file_created, bpm FROM tracks ORDER BY title")
         rows = cur.fetchall()
         con.close()
 
@@ -116,7 +127,7 @@ class MusicPlayer(tk.Tk):
         self.lbl_load.pack(fill='x')
         self.lbl_status.config(text='Loading library…')
 
-        for i, (path, db_title, play_count, first_played, last_played, file_created) in enumerate(rows, 1):
+        for i, (path, db_title, play_count, first_played, last_played, file_created, bpm) in enumerate(rows, 1):
             if not os.path.isfile(path):
                 continue
             if any(t['path'] == path for t in self.playlist):
@@ -142,6 +153,7 @@ class MusicPlayer(tk.Tk):
                 'basename': os.path.basename(path),
                 'genre': genre,
                 'comment': comment,
+                'bpm': bpm,
                 'play_count': play_count or 0,
                 'first_played': first_played,
                 'last_played': last_played,
@@ -249,6 +261,67 @@ class MusicPlayer(tk.Tk):
             return f'{days}d ago'
         return dt.strftime('%b %d, %Y')
 
+    def _analyze_bpm(self, path):
+        """Detect BPM using aubio. Returns float BPM or None."""
+        if aubio is None:
+            return None
+        try:
+            win_s = 1024
+            hop_s = 512
+            src = aubio.source(path, 0, hop_s)
+            samplerate = src.samplerate
+            tempo = aubio.tempo("default", win_s, hop_s, samplerate)
+            beats = []
+            total_frames = 0
+            while True:
+                samples, read = src()
+                is_beat = tempo(samples)
+                if is_beat:
+                    beats.append(tempo.get_last_s())
+                total_frames += read
+                if read < hop_s:
+                    break
+            if len(beats) > 1:
+                intervals = [beats[i+1] - beats[i] for i in range(len(beats)-1)]
+                avg_interval = sum(intervals) / len(intervals)
+                if avg_interval > 0:
+                    return round(60.0 / avg_interval, 1)
+            bpm = tempo.get_bpm()
+            return round(bpm, 1) if bpm > 0 else None
+        except Exception:
+            return None
+
+    def _get_or_analyze_bpm(self, playlist_idx):
+        """Get BPM from DB cache, or analyze and store it."""
+        entry = self.playlist[playlist_idx]
+        path = entry['path']
+
+        # Already cached in memory?
+        if entry.get('bpm') is not None:
+            return entry['bpm']
+
+        # Check database
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute("SELECT bpm FROM tracks WHERE file_path = ?", (path,))
+        row = cur.fetchone()
+        con.close()
+        if row and row[0] is not None:
+            entry['bpm'] = row[0]
+            return row[0]
+
+        # Analyze
+        self.lbl_status.config(text=f'Analyzing BPM…')
+        self.update_idletasks()
+        bpm = self._analyze_bpm(path)
+        if bpm is not None:
+            entry['bpm'] = bpm
+            con = sqlite3.connect(DB_PATH)
+            con.execute("UPDATE tracks SET bpm = ? WHERE file_path = ?", (bpm, path))
+            con.commit()
+            con.close()
+        return bpm
+
     def _build_ui(self):
         main = ttk.Frame(self)
         main.pack(fill='both', expand=True, padx=8, pady=8)
@@ -256,11 +329,12 @@ class MusicPlayer(tk.Tk):
         left = ttk.Frame(main)
         left.pack(side='left', fill='both', expand=True)
 
-        # Create Treeview with columns: Title, Genre, Comment, Plays, First Played, Last Played, File Created
-        self.tree = ttk.Treeview(left, columns=('Title', 'Genre', 'Comment', 'Plays', 'First Played', 'Last Played', 'File Created'), show='headings', height=15)
+        # Create Treeview with columns: Title, Genre, Comment, BPM, Plays, First Played, Last Played, File Created
+        self.tree = ttk.Treeview(left, columns=('Title', 'Genre', 'Comment', 'BPM', 'Plays', 'First Played', 'Last Played', 'File Created'), show='headings', height=15)
         self.tree.column('Title', width=180, anchor='w')
         self.tree.column('Genre', width=60, anchor='w')
         self.tree.column('Comment', width=120, anchor='w')
+        self.tree.column('BPM', width=50, anchor='center')
         self.tree.column('Plays', width=45, anchor='center')
         self.tree.column('First Played', width=90, anchor='w')
         self.tree.column('Last Played', width=90, anchor='w')
@@ -268,6 +342,7 @@ class MusicPlayer(tk.Tk):
         self.tree.heading('Title', text='Title')
         self.tree.heading('Genre', text='Genre')
         self.tree.heading('Comment', text='Comment')
+        self.tree.heading('BPM', text='BPM')
         self.tree.heading('Plays', text='Plays')
         self.tree.heading('First Played', text='First Played')
         self.tree.heading('Last Played', text='Last Played')
@@ -275,6 +350,7 @@ class MusicPlayer(tk.Tk):
         self.tree.pack(side='left', fill='both', expand=True)
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<Button-3>', self._on_right_click)  # Right-click menu
+        self.tree.bind('<<TreeviewSelect>>', self._on_select)  # Single-click: BPM analysis
 
         sb = ttk.Scrollbar(left, orient='vertical', command=self.tree.yview)
         sb.pack(side='left', fill='y')
@@ -442,11 +518,13 @@ class MusicPlayer(tk.Tk):
                 title = entry.get('title', entry['basename'])
                 genre = entry.get('genre', '')
                 comment = entry.get('comment', '')
+                bpm = entry.get('bpm')
+                bpm_str = str(int(bpm)) if bpm else '—'
                 plays = entry.get('play_count', 0)
                 first_p = self._format_ts(entry.get('first_played'), relative=False)
                 last_p = self._format_ts(entry.get('last_played'), relative=True)
                 file_c = self._format_ts(entry.get('file_created'), relative=False)
-                self.tree.insert('', 'end', values=(title, genre, comment, plays, first_p, last_p, file_c))
+                self.tree.insert('', 'end', values=(title, genre, comment, bpm_str, plays, first_p, last_p, file_c))
                 self.display_indices.append(idx)
 
     def _load(self, index):
@@ -653,6 +731,32 @@ class MusicPlayer(tk.Tk):
             if 0 <= playlist_idx < len(self.playlist):
                 title = self.playlist[playlist_idx].get('title', self.playlist[playlist_idx]['basename'])
                 self.queue_tree.insert('', 'end', values=(title,))
+
+    def _on_select(self, ev):
+        """Single-click on a track: analyze BPM if not yet known."""
+        sel = self.tree.selection()
+        if not sel:
+            return
+        item = sel[0]
+        all_items = self.tree.get_children()
+        try:
+            idx = all_items.index(item)
+            playlist_idx = self.display_indices[idx]
+        except (ValueError, IndexError):
+            return
+        entry = self.playlist[playlist_idx]
+        if entry.get('bpm') is not None:
+            self.lbl_status.config(text=f"{entry['title']}  •  {int(entry['bpm'])} BPM")
+            return
+        bpm = self._get_or_analyze_bpm(playlist_idx)
+        if bpm is not None:
+            # Update the BPM cell in the treeview
+            current_vals = list(self.tree.item(item, 'values'))
+            current_vals[3] = str(int(bpm))
+            self.tree.item(item, values=current_vals)
+            self.lbl_status.config(text=f"{entry['title']}  •  {int(bpm)} BPM")
+        else:
+            self.lbl_status.config(text=f"{entry['title']}  •  BPM: N/A")
 
     def _on_double(self, ev):
         sel = self.tree.selection()
