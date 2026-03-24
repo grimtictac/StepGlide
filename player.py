@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+import customtkinter as ctk
 
 # ── Configuration ────────────────────────────────────────
 PLAY_MIN_SECONDS = 5        # Only count a play after this many seconds
@@ -40,11 +41,15 @@ except ImportError:
     aubio = None
 
 
-class MusicPlayer(tk.Tk):
+class MusicPlayer(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title('Python Music Player')
-        self.geometry('1100x500')
+        self.geometry('1200x600')
+
+        # Appearance
+        ctk.set_appearance_mode('dark')
+        ctk.set_default_color_theme('blue')
 
         # playlist: list of dicts {path, title, basename, genre, comment}
         self.playlist = []
@@ -123,11 +128,11 @@ class MusicPlayer(tk.Tk):
 
         # Show progress bar
         total = len(rows)
-        self.load_progress['maximum'] = total
-        self.load_progress['value'] = 0
-        self.load_progress.pack(fill='x', pady=2)
-        self.lbl_load.pack(fill='x')
-        self.lbl_status.config(text='Loading library…')
+        self._progress_max = total
+        self.load_progress.set(0)
+        self.load_progress.pack(fill='x', padx=10, pady=2)
+        self.lbl_load.pack(fill='x', padx=10)
+        self.lbl_status.configure(text='Loading library…')
 
         for i, (path, db_title, play_count, first_played, last_played, file_created, bpm) in enumerate(rows, 1):
             if not os.path.isfile(path):
@@ -164,8 +169,8 @@ class MusicPlayer(tk.Tk):
             self.playlist.append(entry)
             self.genres.add(genre)
 
-            self.load_progress['value'] = i
-            self.lbl_load.config(text=f'Loading {i}/{total}…')
+            self.load_progress.set(i / total)
+            self.lbl_load.configure(text=f'Loading {i}/{total}…')
             if i % 50 == 0 or i == total:
                 self.update_idletasks()
 
@@ -175,7 +180,7 @@ class MusicPlayer(tk.Tk):
 
         self._update_genre_options()
         self._apply_filter()
-        self.lbl_status.config(text=f'Loaded {len(self.playlist)} tracks')
+        self.lbl_status.configure(text=f'Loaded {len(self.playlist)} tracks')
 
     def _ensure_track_in_db(self, path, title=''):
         """Make sure a track row exists; return (play_count, first_played, last_played, file_created)."""
@@ -333,7 +338,7 @@ class MusicPlayer(tk.Tk):
             return row[0]
 
         # Analyze
-        self.lbl_status.config(text=f'Analyzing BPM…')
+        self.lbl_status.configure(text='Analyzing BPM…')
         self.update_idletasks()
         bpm = self._analyze_bpm(path)
         if bpm is not None:
@@ -345,22 +350,43 @@ class MusicPlayer(tk.Tk):
         return bpm
 
     def _build_ui(self):
-        main = ttk.Frame(self)
-        main.pack(fill='both', expand=True, padx=8, pady=8)
+        # ── Style the ttk Treeview to match dark theme ──
+        style = ttk.Style(self)
+        style.theme_use('clam')
+        style.configure('Treeview',
+                        background='#2b2b2b',
+                        foreground='#dce4ee',
+                        fieldbackground='#2b2b2b',
+                        borderwidth=0,
+                        rowheight=26,
+                        font=('Segoe UI', 10))
+        style.configure('Treeview.Heading',
+                        background='#3b3b3b',
+                        foreground='#dce4ee',
+                        font=('Segoe UI', 10, 'bold'),
+                        borderwidth=0)
+        style.map('Treeview',
+                  background=[('selected', '#1f6aa5')],
+                  foreground=[('selected', '#ffffff')])
+        style.map('Treeview.Heading',
+                  background=[('active', '#4a4a4a')])
 
-        left = ttk.Frame(main)
+        main = ctk.CTkFrame(self)
+        main.pack(fill='both', expand=True, padx=10, pady=10)
+
+        left = ctk.CTkFrame(main, fg_color='transparent')
         left.pack(side='left', fill='both', expand=True)
 
         # Create Treeview with columns: Title, Genre, Comment, BPM, Plays, First Played, Last Played, File Created
-        self.tree = ttk.Treeview(left, columns=('Title', 'Genre', 'Comment', 'BPM', 'Plays', 'First Played', 'Last Played', 'File Created'), show='headings', height=15)
-        self.tree.column('Title', width=180, anchor='w')
-        self.tree.column('Genre', width=60, anchor='w')
-        self.tree.column('Comment', width=120, anchor='w')
+        self.tree = ttk.Treeview(left, columns=('Title', 'Genre', 'Comment', 'BPM', 'Plays', 'First Played', 'Last Played', 'File Created'), show='headings', height=18)
+        self.tree.column('Title', width=200, anchor='w')
+        self.tree.column('Genre', width=70, anchor='w')
+        self.tree.column('Comment', width=130, anchor='w')
         self.tree.column('BPM', width=50, anchor='center')
-        self.tree.column('Plays', width=45, anchor='center')
-        self.tree.column('First Played', width=90, anchor='w')
-        self.tree.column('Last Played', width=90, anchor='w')
-        self.tree.column('File Created', width=90, anchor='w')
+        self.tree.column('Plays', width=50, anchor='center')
+        self.tree.column('First Played', width=100, anchor='w')
+        self.tree.column('Last Played', width=100, anchor='w')
+        self.tree.column('File Created', width=100, anchor='w')
         self.tree.heading('Title', text='Title')
         self.tree.heading('Genre', text='Genre')
         self.tree.heading('Comment', text='Comment')
@@ -374,68 +400,64 @@ class MusicPlayer(tk.Tk):
         self.tree.bind('<Button-3>', self._on_right_click)  # Right-click menu
         self.tree.bind('<<TreeviewSelect>>', self._on_select)  # Single-click: BPM analysis
 
-        sb = ttk.Scrollbar(left, orient='vertical', command=self.tree.yview)
+        sb = ctk.CTkScrollbar(left, command=self.tree.yview)
         sb.pack(side='left', fill='y')
         self.tree.config(yscrollcommand=sb.set)
 
         # Middle section: Queue panel
-        queue_frame = ttk.LabelFrame(main, text='Queue', padding=4)
-        queue_frame.pack(side='left', fill='both', expand=False, padx=(8, 0))
+        queue_frame = ctk.CTkFrame(main)
+        queue_frame.pack(side='left', fill='both', expand=False, padx=(10, 0))
+        ctk.CTkLabel(queue_frame, text='Queue', font=ctk.CTkFont(size=13, weight='bold')).pack(pady=(6, 2))
 
-        self.queue_tree = ttk.Treeview(queue_frame, columns=('Track',), show='headings', height=15)
-        self.queue_tree.column('Track', width=150, anchor='w')
+        self.queue_tree = ttk.Treeview(queue_frame, columns=('Track',), show='headings', height=16)
+        self.queue_tree.column('Track', width=160, anchor='w')
         self.queue_tree.heading('Track', text='Upcoming')
-        self.queue_tree.pack(side='left', fill='both', expand=True)
+        self.queue_tree.pack(side='left', fill='both', expand=True, padx=6, pady=(0, 6))
         self.queue_tree.bind('<Button-3>', self._on_queue_right_click)
 
-        queue_sb = ttk.Scrollbar(queue_frame, orient='vertical', command=self.queue_tree.yview)
-        queue_sb.pack(side='left', fill='y')
+        queue_sb = ctk.CTkScrollbar(queue_frame, command=self.queue_tree.yview)
+        queue_sb.pack(side='left', fill='y', pady=(0, 6))
         self.queue_tree.config(yscrollcommand=queue_sb.set)
 
-        ctrl = ttk.Frame(main)
-        ctrl.pack(side='right', fill='y')
+        ctrl = ctk.CTkFrame(main, width=200)
+        ctrl.pack(side='right', fill='y', padx=(10, 0))
 
-        ttk.Button(ctrl, text='Add Files', command=self.add_files).pack(fill='x', pady=2)
-        ttk.Button(ctrl, text='Add Folder', command=self.add_folder).pack(fill='x', pady=2)
-        ttk.Separator(ctrl, orient='horizontal').pack(fill='x', pady=6)
+        ctk.CTkButton(ctrl, text='Add Files', command=self.add_files).pack(fill='x', padx=10, pady=(10, 4))
+        ctk.CTkButton(ctrl, text='Add Folder', command=self.add_folder).pack(fill='x', padx=10, pady=4)
 
         # Genre filter
-        ttk.Label(ctrl, text='Genre').pack(fill='x')
+        ctk.CTkLabel(ctrl, text='Genre', font=ctk.CTkFont(size=12)).pack(fill='x', padx=10, pady=(12, 2))
         self.genre_var = tk.StringVar(value='All')
-        self.genre_box = ttk.Combobox(ctrl, textvariable=self.genre_var, state='readonly')
-        self.genre_box.pack(fill='x', pady=2)
-        self.genre_box.bind('<<ComboboxSelected>>', lambda e: self._apply_filter())
+        self.genre_box = ctk.CTkComboBox(ctrl, variable=self.genre_var, state='readonly',
+                                         command=lambda _: self._apply_filter())
+        self.genre_box.pack(fill='x', padx=10, pady=2)
         self._update_genre_options()
 
-        btn_frame = ttk.Frame(ctrl)
-        btn_frame.pack(fill='x')
-        ttk.Button(btn_frame, text='Prev', command=self.prev_track).grid(row=0, column=0, padx=2)
-        self.btn_play = ttk.Button(btn_frame, text='Play', command=self.play_pause)
+        btn_frame = ctk.CTkFrame(ctrl, fg_color='transparent')
+        btn_frame.pack(fill='x', padx=10, pady=(12, 4))
+        btn_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        ctk.CTkButton(btn_frame, text='⏮', width=40, command=self.prev_track).grid(row=0, column=0, padx=2)
+        self.btn_play = ctk.CTkButton(btn_frame, text='▶', width=40, command=self.play_pause)
         self.btn_play.grid(row=0, column=1, padx=2)
-        ttk.Button(btn_frame, text='Stop', command=self.stop).grid(row=0, column=2, padx=2)
-        ttk.Button(btn_frame, text='Next', command=self.next_track).grid(row=0, column=3, padx=2)
+        ctk.CTkButton(btn_frame, text='⏹', width=40, command=self.stop).grid(row=0, column=2, padx=2)
+        ctk.CTkButton(btn_frame, text='⏭', width=40, command=self.next_track).grid(row=0, column=3, padx=2)
 
-        ttk.Separator(ctrl, orient='horizontal').pack(fill='x', pady=6)
-
-        vol_frame = ttk.Frame(ctrl)
-        vol_frame.pack(fill='x')
-        ttk.Label(vol_frame, text='Volume').pack(side='left')
+        ctk.CTkLabel(ctrl, text='Volume', font=ctk.CTkFont(size=12)).pack(fill='x', padx=10, pady=(12, 2))
         self.vol = tk.DoubleVar(value=0.8)
-        vol = ttk.Scale(vol_frame, from_=0.0, to=1.0, orient='horizontal', variable=self.vol, command=self._on_volume)
-        vol.pack(side='left', fill='x', expand=True, padx=6)
-        # Initial volume set is deferred until VLC player is ready
+        vol = ctk.CTkSlider(ctrl, from_=0.0, to=1.0, variable=self.vol, command=self._on_volume)
+        vol.pack(fill='x', padx=10, pady=2)
         self._on_volume()
 
-        ttk.Separator(ctrl, orient='horizontal').pack(fill='x', pady=6)
-        self.lbl_status = ttk.Label(ctrl, text='Stopped', wraplength=150)
-        self.lbl_status.pack(fill='x', pady=2)
+        self.lbl_status = ctk.CTkLabel(ctrl, text='Stopped', wraplength=170, font=ctk.CTkFont(size=11))
+        self.lbl_status.pack(fill='x', padx=10, pady=(12, 4))
 
         # Progress bar for folder loading (hidden by default)
-        self.load_progress = ttk.Progressbar(ctrl, orient='horizontal', mode='determinate')
-        self.load_progress.pack(fill='x', pady=2)
+        self.load_progress = ctk.CTkProgressBar(ctrl, mode='determinate')
+        self.load_progress.set(0)
+        self.load_progress.pack(fill='x', padx=10, pady=2)
         self.load_progress.pack_forget()   # hide until needed
-        self.lbl_load = ttk.Label(ctrl, text='', wraplength=150)
-        self.lbl_load.pack(fill='x')
+        self.lbl_load = ctk.CTkLabel(ctrl, text='', wraplength=170, font=ctk.CTkFont(size=11))
+        self.lbl_load.pack(fill='x', padx=10)
         self.lbl_load.pack_forget()
 
     def add_files(self):
@@ -454,7 +476,7 @@ class MusicPlayer(tk.Tk):
         exts = ('.mp3', '.wav', '.ogg', '.flac')
 
         # Phase 1: scan for all matching files
-        self.lbl_status.config(text='Scanning folder…')
+        self.lbl_status.configure(text='Scanning folder…')
         self.update_idletasks()
         audio_files = []
         for root, _, files in os.walk(folder):
@@ -465,21 +487,21 @@ class MusicPlayer(tk.Tk):
         total = len(audio_files)
         if total == 0:
             messagebox.showinfo('No files', 'No supported audio files found in folder')
-            self.lbl_status.config(text='Stopped')
+            self.lbl_status.configure(text='Stopped')
             return
 
         # Phase 2: load files with progress bar
-        self.load_progress['maximum'] = total
-        self.load_progress['value'] = 0
-        self.load_progress.pack(fill='x', pady=2)
-        self.lbl_load.pack(fill='x')
+        self._progress_max = total
+        self.load_progress.set(0)
+        self.load_progress.pack(fill='x', padx=10, pady=2)
+        self.lbl_load.pack(fill='x', padx=10)
 
         added = 0
         for i, path in enumerate(audio_files, 1):
             if self._add_path(path):
                 added += 1
-            self.load_progress['value'] = i
-            self.lbl_load.config(text=f'Loading {i}/{total}…')
+            self.load_progress.set(i / total)
+            self.lbl_load.configure(text=f'Loading {i}/{total}…')
             if i % 25 == 0 or i == total:
                 self.update_idletasks()
 
@@ -491,7 +513,7 @@ class MusicPlayer(tk.Tk):
             self.current_index = 0
         self._update_genre_options()
         self._apply_filter()
-        self.lbl_status.config(text=f'Added {added} tracks')
+        self.lbl_status.configure(text=f'Added {added} tracks')
 
     def _add_path(self, path):
         # returns True if added
@@ -525,7 +547,7 @@ class MusicPlayer(tk.Tk):
 
     def _update_genre_options(self):
         vals = ['All'] + sorted(x for x in self.genres if x)
-        self.genre_box['values'] = vals
+        self.genre_box.configure(values=vals)
         if self.genre_var.get() not in vals:
             self.genre_var.set('All')
 
@@ -580,7 +602,7 @@ class MusicPlayer(tk.Tk):
             except ValueError:
                 # not in filtered view
                 pass
-            self.lbl_status.config(text=f'Loaded: {os.path.basename(path)}')
+            self.lbl_status.configure(text=f'Loaded: {os.path.basename(path)}')
             return True
         except Exception as e:
             messagebox.showerror('Error', f'Could not load {path}: {e}')
@@ -593,8 +615,8 @@ class MusicPlayer(tk.Tk):
             self.is_paused = True
             self.is_playing = False
             self._last_action = 'paused'
-            self.btn_play.config(text='Play')
-            self.lbl_status.config(text='Paused')
+            self.btn_play.configure(text='▶')
+            self.lbl_status.configure(text='Paused')
             return
 
         if self.is_paused:
@@ -602,9 +624,9 @@ class MusicPlayer(tk.Tk):
             self.is_paused = False
             self.is_playing = True
             self._last_action = 'playing'
-            self.btn_play.config(text='Pause')
+            self.btn_play.configure(text='⏸')
             if self.current_index is not None:
-                self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
+                self.lbl_status.configure(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
             return
 
         # not playing -> start
@@ -627,8 +649,8 @@ class MusicPlayer(tk.Tk):
             self._last_action = 'playing'
             self._playback_start_time = time.time()
             self._play_recorded = False
-            self.btn_play.config(text='Pause')
-            self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
+            self.btn_play.configure(text='⏸')
+            self.lbl_status.configure(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
         except Exception as e:
             messagebox.showerror('Playback error', str(e))
 
@@ -638,8 +660,8 @@ class MusicPlayer(tk.Tk):
         self.is_paused = False
         self._last_action = 'stopped'
         self._playback_start_time = None
-        self.btn_play.config(text='Play')
-        self.lbl_status.config(text='Stopped')
+        self.btn_play.configure(text='▶')
+        self.lbl_status.configure(text='Stopped')
 
     def next_track(self):
         if not self.playlist:
@@ -661,8 +683,8 @@ class MusicPlayer(tk.Tk):
         self._last_action = 'playing'
         self._playback_start_time = time.time()
         self._play_recorded = False
-        self.btn_play.config(text='Pause')
-        self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
+        self.btn_play.configure(text='⏸')
+        self.lbl_status.configure(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
 
     def prev_track(self):
         if not self.playlist:
@@ -683,8 +705,8 @@ class MusicPlayer(tk.Tk):
         self._last_action = 'playing'
         self._playback_start_time = time.time()
         self._play_recorded = False
-        self.btn_play.config(text='Pause')
-        self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
+        self.btn_play.configure(text='⏸')
+        self.lbl_status.configure(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
 
     def _on_volume(self, _=None):
         v = float(self.vol.get())
@@ -768,7 +790,7 @@ class MusicPlayer(tk.Tk):
             return
         entry = self.playlist[playlist_idx]
         if entry.get('bpm') is not None:
-            self.lbl_status.config(text=f"{entry['title']}  •  {int(entry['bpm'])} BPM")
+            self.lbl_status.configure(text=f"{entry['title']}  •  {int(entry['bpm'])} BPM")
             return
         bpm = self._get_or_analyze_bpm(playlist_idx)
         if bpm is not None:
@@ -776,9 +798,9 @@ class MusicPlayer(tk.Tk):
             current_vals = list(self.tree.item(item, 'values'))
             current_vals[3] = str(int(bpm))
             self.tree.item(item, values=current_vals)
-            self.lbl_status.config(text=f"{entry['title']}  •  {int(bpm)} BPM")
+            self.lbl_status.configure(text=f"{entry['title']}  •  {int(bpm)} BPM")
         else:
-            self.lbl_status.config(text=f"{entry['title']}  •  BPM: N/A")
+            self.lbl_status.configure(text=f"{entry['title']}  •  BPM: N/A")
 
     def _on_double(self, ev):
         sel = self.tree.selection()
@@ -802,8 +824,8 @@ class MusicPlayer(tk.Tk):
             self._last_action = 'playing'
             self._playback_start_time = time.time()
             self._play_recorded = False
-            self.btn_play.config(text='Pause')
-            self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
+            self.btn_play.configure(text='⏸')
+            self.lbl_status.configure(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
 
     def _poll(self):
         # Called periodically to detect end of track and auto-advance
@@ -841,8 +863,8 @@ class MusicPlayer(tk.Tk):
                 self._last_action = 'playing'
                 self._playback_start_time = time.time()
                 self._play_recorded = False
-                self.btn_play.config(text='Pause')
-                self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
+                self.btn_play.configure(text='⏸')
+                self.lbl_status.configure(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
             # Otherwise, auto-advance to next in playlist
             elif self.playlist:
                 # advance respecting filter
@@ -866,8 +888,8 @@ class MusicPlayer(tk.Tk):
                     self._last_action = 'playing'
                     self._playback_start_time = time.time()
                     self._play_recorded = False
-                    self.btn_play.config(text='Pause')
-                    self.lbl_status.config(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
+                    self.btn_play.configure(text='⏸')
+                    self.lbl_status.configure(text=f"Playing: {os.path.basename(self.playlist[self.current_index]['path'])}")
 
         self.after(500, self._poll)
 
