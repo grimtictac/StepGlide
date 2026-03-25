@@ -505,7 +505,7 @@ class MusicPlayer(ctk.CTk):
 
         # ═══ MIDDLE AREA ═══
         middle = ctk.CTkFrame(self, fg_color='transparent')
-        middle.pack(fill='both', expand=True, padx=10, pady=(6, 4))
+        middle.pack(fill='both', expand=True, padx=10, pady=(14, 4))
 
         # Genre sidebar
         genre_panel = ctk.CTkFrame(middle, width=140)
