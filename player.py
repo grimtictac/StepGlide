@@ -943,7 +943,17 @@ class MusicPlayer(ctk.CTk):
     # ── Filter logic ─────────────────────────────────────
 
     def _apply_filter(self):
-        for item in self.tree.get_children():
+        # Remember which playlist indices were selected
+        prev_selected = set()
+        all_items = self.tree.get_children()
+        for item in self.tree.selection():
+            try:
+                pos = list(all_items).index(item)
+                prev_selected.add(self.display_indices[pos])
+            except (ValueError, IndexError):
+                pass
+
+        for item in all_items:
             self.tree.delete(item)
         self.display_indices = []
 
@@ -968,6 +978,17 @@ class MusicPlayer(ctk.CTk):
             file_c = self._format_ts(entry.get('file_created'), relative=False)
             self.tree.insert('', 'end', values=(title, comment, tags_str, bpm_str, plays, first_p, last_p, file_c))
             self.display_indices.append(idx)
+
+        # Restore selection
+        if prev_selected:
+            new_items = self.tree.get_children()
+            to_select = []
+            for pos, pl_idx in enumerate(self.display_indices):
+                if pl_idx in prev_selected and pos < len(new_items):
+                    to_select.append(new_items[pos])
+            if to_select:
+                self.tree.selection_set(*to_select)
+                self.tree.see(to_select[0])
 
     # ── File management ──────────────────────────────────
 
