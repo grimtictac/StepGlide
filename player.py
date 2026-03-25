@@ -1346,6 +1346,10 @@ class MusicPlayer(ctk.CTk):
             self._play_recorded = False
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
+        # Hide Play Now button after clicking it
+        if self._play_now_visible:
+            self.btn_play_now.pack_forget()
+            self._play_now_visible = False
 
     def _on_double(self, ev):
         sel = self.tree.selection()
