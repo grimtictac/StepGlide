@@ -1272,6 +1272,7 @@ class MusicPlayer(ctk.CTk):
             playlist_idx = self.display_indices[idx]
         except Exception:
             return
+        self._last_action = 'switching'
         self.vlc_player.stop()
         self.current_index = playlist_idx
         loaded = self._load(playlist_idx)
