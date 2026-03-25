@@ -505,6 +505,25 @@ class MusicPlayer(ctk.CTk):
         self.lbl_time_total = ctk.CTkLabel(scrub_inner, text='0:00', font=ctk.CTkFont(size=12), width=50)
         self.lbl_time_total.pack(side='left')
 
+        # ═══ PLAY CONTROLS (under scrub bar) ═══
+        controls_frame = ctk.CTkFrame(self, fg_color='#1a1a2e')
+        controls_frame.pack(fill='x')
+
+        btn_row = ctk.CTkFrame(controls_frame, fg_color='transparent')
+        btn_row.pack(fill='x', padx=20, pady=(6, 10))
+        btn_row.columnconfigure(0, weight=2)
+        btn_row.columnconfigure(1, weight=1)
+
+        self.btn_play = ctk.CTkButton(btn_row, text='\u25b6', height=50,
+                                      font=ctk.CTkFont(size=28), command=self.play_pause,
+                                      fg_color='#1f6aa5', hover_color='#1a5a8a')
+        self.btn_play.grid(row=0, column=0, sticky='ew', padx=(0, 3))
+
+        self.btn_stop = ctk.CTkButton(btn_row, text='\u23f9', height=50,
+                                      font=ctk.CTkFont(size=28), command=self.stop,
+                                      fg_color='#c0392b', hover_color='#e74c3c')
+        self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 0))
+
         # ═══ MIDDLE AREA ═══
         middle = ctk.CTkFrame(self, fg_color='transparent')
         middle.pack(fill='both', expand=True, padx=10, pady=(14, 4))
@@ -526,14 +545,9 @@ class MusicPlayer(ctk.CTk):
         self.genre_tree.pack(fill='both', expand=True, padx=4, pady=(0, 6))
         self.genre_tree.bind('<<TreeviewSelect>>', self._on_genre_select)
 
-        # Center: tag bar + track list
+        # Center: track list
         center = ctk.CTkFrame(middle, fg_color='transparent')
         center.pack(side='left', fill='both', expand=True)
-
-        self.tag_bar_frame = ctk.CTkFrame(center, height=36, fg_color='#2b2b2b', corner_radius=6)
-        self.tag_bar_frame.pack(fill='x', pady=(0, 4))
-        self.tag_bar_frame.pack_propagate(False)
-        self._tag_buttons = []
 
         tree_frame = ctk.CTkFrame(center, fg_color='transparent')
         tree_frame.pack(fill='both', expand=True)
@@ -614,24 +628,11 @@ class MusicPlayer(ctk.CTk):
 
         self._on_volume()
 
-        # ═══ BOTTOM PANEL ═══
-        bottom = ctk.CTkFrame(self, fg_color='#1a1a2e')
-        bottom.pack(fill='x')
-
-        btn_row = ctk.CTkFrame(bottom, fg_color='transparent')
-        btn_row.pack(fill='x', padx=20, pady=(10, 12))
-        btn_row.columnconfigure(0, weight=2)
-        btn_row.columnconfigure(1, weight=1)
-
-        self.btn_play = ctk.CTkButton(btn_row, text='\u25b6', height=50,
-                                      font=ctk.CTkFont(size=28), command=self.play_pause,
-                                      fg_color='#1f6aa5', hover_color='#1a5a8a')
-        self.btn_play.grid(row=0, column=0, sticky='ew', padx=(0, 3))
-
-        self.btn_stop = ctk.CTkButton(btn_row, text='\u23f9', height=50,
-                                      font=ctk.CTkFont(size=28), command=self.stop,
-                                      fg_color='#c0392b', hover_color='#e74c3c')
-        self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 0))
+        # ═══ BOTTOM PANEL (tag bar) ═══
+        self.tag_bar_frame = ctk.CTkFrame(self, height=36, fg_color='#2b2b2b', corner_radius=6)
+        self.tag_bar_frame.pack(fill='x', padx=10, pady=(4, 8))
+        self.tag_bar_frame.pack_propagate(False)
+        self._tag_buttons = []
 
     # ── Menu ─────────────────────────────────────────────
 
