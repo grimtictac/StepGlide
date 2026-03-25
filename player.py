@@ -596,11 +596,13 @@ class MusicPlayer(ctk.CTk):
         btn_row.pack(fill='x', padx=20, pady=(10, 4))
 
         self.btn_play = ctk.CTkButton(btn_row, text='\u25b6', height=50,
-                                      font=ctk.CTkFont(size=28), command=self.play_pause)
+                                      font=ctk.CTkFont(size=28), command=self.play_pause,
+                                      fg_color='#1f6aa5', hover_color='#1a5a8a')
         self.btn_play.pack(side='left', fill='x', expand=True, padx=(0, 3))
 
         self.btn_stop = ctk.CTkButton(btn_row, text='\u23f9', height=50,
-                                      font=ctk.CTkFont(size=28), command=self.stop)
+                                      font=ctk.CTkFont(size=28), command=self.stop,
+                                      fg_color='#c0392b', hover_color='#e74c3c')
         self.btn_stop.pack(side='left', fill='x', expand=True, padx=(3, 0))
 
         scrub_frame = ctk.CTkFrame(bottom, fg_color='transparent')
@@ -1121,7 +1123,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = True
             self.is_playing = False
             self._last_action = 'paused'
-            self.btn_play.configure(text='\u25b6')
+            self.btn_play.configure(text='\u25b6', fg_color='#1f6aa5', hover_color='#1a5a8a')
             self._update_now_playing('Paused')
             return
 
@@ -1130,7 +1132,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = False
             self.is_playing = True
             self._last_action = 'playing'
-            self.btn_play.configure(text='\u23f8')
+            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
             return
 
@@ -1152,7 +1154,7 @@ class MusicPlayer(ctk.CTk):
             self._last_action = 'playing'
             self._playback_start_time = time.time()
             self._play_recorded = False
-            self.btn_play.configure(text='\u23f8')
+            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
         except Exception as e:
             messagebox.showerror('Playback error', str(e))
@@ -1163,7 +1165,7 @@ class MusicPlayer(ctk.CTk):
         self.is_paused = False
         self._last_action = 'stopped'
         self._playback_start_time = None
-        self.btn_play.configure(text='\u25b6')
+        self.btn_play.configure(text='\u25b6', fg_color='#1f6aa5', hover_color='#1a5a8a')
         self.scrub_slider.set(0)
         self.lbl_time_cur.configure(text='0:00')
         self.lbl_time_total.configure(text='0:00')
@@ -1188,7 +1190,7 @@ class MusicPlayer(ctk.CTk):
         self._last_action = 'playing'
         self._playback_start_time = time.time()
         self._play_recorded = False
-        self.btn_play.configure(text='\u23f8')
+        self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
         self._update_now_playing()
 
     # ── Scrub / Volume ───────────────────────────────────
@@ -1283,7 +1285,7 @@ class MusicPlayer(ctk.CTk):
             self._last_action = 'playing'
             self._playback_start_time = time.time()
             self._play_recorded = False
-            self.btn_play.configure(text='\u23f8')
+            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
 
     # ── Poll ─────────────────────────────────────────────
