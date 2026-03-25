@@ -582,10 +582,11 @@ class MusicPlayer(ctk.CTk):
                                         orientation='vertical', command=self._on_volume,
                                         height=200)
         self.vol_slider.pack(fill='y', expand=True, padx=10, pady=4)
-        self._on_volume()
 
         self.lbl_vol_pct = ctk.CTkLabel(vol_panel, text='80%', font=ctk.CTkFont(size=10))
         self.lbl_vol_pct.pack(pady=(4, 8))
+
+        self._on_volume()
 
         # ═══ BOTTOM PANEL ═══
         bottom = ctk.CTkFrame(self, fg_color='#1a1a2e')
@@ -819,7 +820,9 @@ class MusicPlayer(ctk.CTk):
         dialog.title('Genre Settings')
         dialog.geometry('500x600')
         dialog.transient(self)
-        dialog.grab_set()
+
+        # Delay grab_set to avoid CTkToplevel rendering blank
+        dialog.after(100, dialog.grab_set)
 
         ctk.CTkLabel(dialog, text='Genre Groups', font=ctk.CTkFont(size=16, weight='bold')).pack(pady=(10, 6))
         ctk.CTkLabel(dialog, text='Create groups and assign genres to them.',
@@ -831,13 +834,14 @@ class MusicPlayer(ctk.CTk):
         content = ctk.CTkScrollableFrame(dialog)
         content.pack(fill='both', expand=True, padx=10, pady=6)
 
+        # Track checkbox variables: cb_vars[group_name][genre] = BooleanVar
+        cb_vars = {}
+
         def rebuild_dialog():
+            """Full rebuild — only called for structural changes (add/delete/rename group)."""
             for w in content.winfo_children():
                 w.destroy()
-
-            assigned = set()
-            for members in working_groups.values():
-                assigned.update(members)
+            cb_vars.clear()
 
             for gname in list(working_groups.keys()):
                 gf = ctk.CTkFrame(content, fg_color='#2b2b2b', corner_radius=8)
@@ -851,17 +855,32 @@ class MusicPlayer(ctk.CTk):
                 ctk.CTkButton(header, text='\u270f', width=30, height=24, fg_color='transparent',
                               command=lambda g=gname: rename_group(g)).pack(side='right')
 
+                cb_vars[gname] = {}
                 for genre in all_genres:
                     is_member = genre in working_groups[gname]
                     var = tk.BooleanVar(value=is_member)
+                    cb_vars[gname][genre] = var
                     cb = ctk.CTkCheckBox(gf, text=genre, variable=var,
                                          font=ctk.CTkFont(size=11),
                                          command=lambda g=gname, gr=genre, v=var: toggle_genre(g, gr, v))
                     cb.pack(anchor='w', padx=16, pady=1)
 
+            _rebuild_ungrouped()
+
+        def _rebuild_ungrouped():
+            """Refresh just the ungrouped section at the bottom."""
+            # Remove existing ungrouped frame if present
+            for w in content.winfo_children():
+                if hasattr(w, '_is_ungrouped'):
+                    w.destroy()
+
+            assigned = set()
+            for members in working_groups.values():
+                assigned.update(members)
             ungrouped = [g for g in all_genres if g not in assigned]
             if ungrouped:
                 uf = ctk.CTkFrame(content, fg_color='#222222', corner_radius=8)
+                uf._is_ungrouped = True
                 uf.pack(fill='x', pady=4)
                 ctk.CTkLabel(uf, text='Ungrouped', font=ctk.CTkFont(size=13, weight='bold'),
                              text_color='#888888').pack(anchor='w', padx=8, pady=(6, 2))
@@ -870,15 +889,19 @@ class MusicPlayer(ctk.CTk):
                                  text_color='#666666').pack(anchor='w', padx=16, pady=1)
 
         def toggle_genre(group, genre, var):
+            """Toggle a genre in/out of a group — update variables only, no rebuild."""
             if var.get():
+                # Remove from other groups (uncheck their vars)
                 for g in working_groups:
                     if genre in working_groups[g]:
                         working_groups[g].remove(genre)
+                        if g in cb_vars and genre in cb_vars[g]:
+                            cb_vars[g][genre].set(False)
                 working_groups[group].append(genre)
             else:
                 if genre in working_groups[group]:
                     working_groups[group].remove(genre)
-            rebuild_dialog()
+            _rebuild_ungrouped()
 
         def delete_group(gname):
             del working_groups[gname]
