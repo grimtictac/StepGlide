@@ -481,6 +481,28 @@ class MusicPlayer(ctk.CTk):
         self.load_progress.set(0)
         self.lbl_load = ctk.CTkLabel(top_bar, text='', font=ctk.CTkFont(size=10))
 
+        # ═══ SCRUB BAR (under Now Playing) ═══
+        scrub_frame = ctk.CTkFrame(self, fg_color='#1a1a2e')
+        scrub_frame.pack(fill='x', padx=0)
+
+        scrub_inner = ctk.CTkFrame(scrub_frame, fg_color='transparent')
+        scrub_inner.pack(fill='x', padx=20, pady=(2, 6))
+
+        self.lbl_time_cur = ctk.CTkLabel(scrub_inner, text='0:00', font=ctk.CTkFont(size=12), width=50)
+        self.lbl_time_cur.pack(side='left')
+
+        self._scrub_var = tk.DoubleVar(value=0)
+        self._user_scrubbing = False
+        self.scrub_slider = ctk.CTkSlider(scrub_inner, from_=0, to=1.0, variable=self._scrub_var,
+                                          command=self._on_scrub, height=20)
+        self.scrub_slider.pack(side='left', fill='x', expand=True, padx=6)
+        self.scrub_slider.set(0)
+        self.scrub_slider.bind('<ButtonPress-1>', lambda e: setattr(self, '_user_scrubbing', True))
+        self.scrub_slider.bind('<ButtonRelease-1>', self._on_scrub_release)
+
+        self.lbl_time_total = ctk.CTkLabel(scrub_inner, text='0:00', font=ctk.CTkFont(size=12), width=50)
+        self.lbl_time_total.pack(side='left')
+
         # ═══ MIDDLE AREA ═══
         middle = ctk.CTkFrame(self, fg_color='transparent')
         middle.pack(fill='both', expand=True, padx=10, pady=(6, 4))
@@ -604,24 +626,6 @@ class MusicPlayer(ctk.CTk):
                                       font=ctk.CTkFont(size=28), command=self.stop,
                                       fg_color='#c0392b', hover_color='#e74c3c')
         self.btn_stop.pack(side='left', fill='x', expand=True, padx=(3, 0))
-
-        scrub_frame = ctk.CTkFrame(bottom, fg_color='transparent')
-        scrub_frame.pack(fill='x', padx=20, pady=(4, 12))
-
-        self.lbl_time_cur = ctk.CTkLabel(scrub_frame, text='0:00', font=ctk.CTkFont(size=12), width=50)
-        self.lbl_time_cur.pack(side='left')
-
-        self._scrub_var = tk.DoubleVar(value=0)
-        self._user_scrubbing = False
-        self.scrub_slider = ctk.CTkSlider(scrub_frame, from_=0, to=1.0, variable=self._scrub_var,
-                                          command=self._on_scrub, height=20)
-        self.scrub_slider.pack(side='left', fill='x', expand=True, padx=6)
-        self.scrub_slider.set(0)
-        self.scrub_slider.bind('<ButtonPress-1>', lambda e: setattr(self, '_user_scrubbing', True))
-        self.scrub_slider.bind('<ButtonRelease-1>', self._on_scrub_release)
-
-        self.lbl_time_total = ctk.CTkLabel(scrub_frame, text='0:00', font=ctk.CTkFont(size=12), width=50)
-        self.lbl_time_total.pack(side='left')
 
     # ── Menu ─────────────────────────────────────────────
 
