@@ -1288,8 +1288,8 @@ class MusicPlayer(ctk.CTk):
         sel = self.tree.selection()
         if not sel:
             if self._play_now_visible:
-                self.btn_play_now.pack_forget()
-                self._play_now_visible = False
+                self.btn_play_now.configure(state='disabled',
+                                            fg_color='#555555', text_color='#888888')
             return
         item = sel[0]
         all_items = self.tree.get_children()
@@ -1298,22 +1298,24 @@ class MusicPlayer(ctk.CTk):
             playlist_idx = self.display_indices[idx]
         except (ValueError, IndexError):
             if self._play_now_visible:
-                self.btn_play_now.pack_forget()
-                self._play_now_visible = False
+                self.btn_play_now.configure(state='disabled',
+                                            fg_color='#555555', text_color='#888888')
             return
 
-        # Show "Play Now" button only if selected track isn't already playing
+        # Show "Play Now" button — disable if selected track is already playing
         entry = self.playlist[playlist_idx]
+        title = entry.get('title', entry['basename'])
         if playlist_idx == self.current_index and self.is_playing and not self.is_paused:
-            if self._play_now_visible:
-                self.btn_play_now.pack_forget()
-                self._play_now_visible = False
+            self.btn_play_now.configure(text=f'\u25b6  Playing \u2014 {title[:40]}',
+                                        state='disabled',
+                                        fg_color='#555555', text_color='#888888')
         else:
-            title = entry.get('title', entry['basename'])
-            self.btn_play_now.configure(text=f'\u25b6  Play Now \u2014 {title[:40]}')
-            if not self._play_now_visible:
-                self.btn_play_now.pack(fill='x', padx=20, pady=(0, 6), after=self._controls_frame)
-                self._play_now_visible = True
+            self.btn_play_now.configure(text=f'\u25b6  Play Now \u2014 {title[:40]}',
+                                        state='normal',
+                                        fg_color='#f1c40f', text_color='#000000')
+        if not self._play_now_visible:
+            self.btn_play_now.pack(fill='x', padx=20, pady=(0, 6), after=self._controls_frame)
+            self._play_now_visible = True
 
         self._update_tag_editor()
 
@@ -1351,10 +1353,11 @@ class MusicPlayer(ctk.CTk):
             self._play_recorded = False
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
-        # Hide Play Now button after clicking it
-        if self._play_now_visible:
-            self.btn_play_now.pack_forget()
-            self._play_now_visible = False
+        # Disable Play Now button after clicking it
+        title = self.playlist[playlist_idx].get('title', self.playlist[playlist_idx]['basename'])
+        self.btn_play_now.configure(text=f'\u25b6  Playing \u2014 {title[:40]}',
+                                    state='disabled',
+                                    fg_color='#555555', text_color='#888888')
 
     def _on_double(self, ev):
         sel = self.tree.selection()
