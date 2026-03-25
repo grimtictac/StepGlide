@@ -602,7 +602,9 @@ class MusicPlayer(ctk.CTk):
         self._pre_mute_vol = 0.8
         self.vol_slider = ctk.CTkSlider(vol_panel, from_=0.0, to=1.0, variable=self.vol,
                                         orientation='vertical', command=self._on_volume,
-                                        height=200)
+                                        height=200,
+                                        button_color='#00bcd4', button_hover_color='#26c6da',
+                                        progress_color='#00bcd4')
         self.vol_slider.pack(fill='y', expand=True, padx=10, pady=4)
 
         self.lbl_vol_pct = ctk.CTkLabel(vol_panel, text='80%', font=ctk.CTkFont(size=10))
