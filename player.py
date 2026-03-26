@@ -58,10 +58,13 @@ class MusicPlayer(ctk.CTk):
         self._active_tags = set()  # empty = All; non-empty = show tracks with ANY selected tag
         self._sort_column = None
         self._sort_reverse = False
+        self._rating_threshold = None  # None = no filter, (op, val) e.g. ('>=', 3)
+        self._liked_by_filter = None  # None = All, else voter name string
 
         # Genre groups: {group_name: [genre1, genre2, ...]}
         self._genre_groups = {}
         self._all_tags = set()
+        self._all_voters = set()  # known voter names
 
         # VLC
         self.vlc_instance = vlc.Instance()
@@ -130,6 +133,16 @@ class MusicPlayer(ctk.CTk):
                 tag      TEXT NOT NULL,
                 FOREIGN KEY(track_id) REFERENCES tracks(id),
                 UNIQUE(track_id, tag)
+            )
+        """)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS track_votes (
+                id        INTEGER PRIMARY KEY,
+                track_id  INTEGER NOT NULL,
+                vote      INTEGER NOT NULL,  -- +1 or -1
+                voter     TEXT DEFAULT '',
+                voted_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(track_id) REFERENCES tracks(id)
             )
         """)
         con.commit()
@@ -209,12 +222,27 @@ class MusicPlayer(ctk.CTk):
 
         cur.execute("SELECT t.file_path, tt.tag FROM track_tags tt JOIN tracks t ON t.id = tt.track_id")
         tag_rows = cur.fetchall()
+
+        # Load votes: per-track vote sums, liked_by, disliked_by
+        cur.execute("SELECT t.file_path, v.vote, v.voter FROM track_votes v JOIN tracks t ON t.id = v.track_id")
+        vote_rows = cur.fetchall()
         con.close()
 
         tags_by_path = {}
         for fpath, tag in tag_rows:
             tags_by_path.setdefault(fpath, []).append(tag)
             self._all_tags.add(tag)
+
+        votes_by_path = {}  # path -> {'rating': int, 'liked_by': set, 'disliked_by': set}
+        for fpath, vote, voter in vote_rows:
+            v = votes_by_path.setdefault(fpath, {'rating': 0, 'liked_by': set(), 'disliked_by': set()})
+            v['rating'] += vote
+            if voter:
+                self._all_voters.add(voter)
+                if vote > 0:
+                    v['liked_by'].add(voter)
+                else:
+                    v['disliked_by'].add(voter)
 
         if not rows:
             return
@@ -225,6 +253,7 @@ class MusicPlayer(ctk.CTk):
             if path in seen:
                 continue
             seen.add(path)
+            vdata = votes_by_path.get(path, {'rating': 0, 'liked_by': set(), 'disliked_by': set()})
             entry = {
                 'path': path,
                 'title': db_title or os.path.basename(path),
@@ -236,11 +265,15 @@ class MusicPlayer(ctk.CTk):
                 'last_played': last_played,
                 'file_created': file_created,
                 'tags': tags_by_path.get(path, []),
+                'rating': vdata['rating'],
+                'liked_by': vdata['liked_by'],
+                'disliked_by': vdata['disliked_by'],
             }
             self.playlist.append(entry)
             self.genres.add(entry['genre'])
 
         self._build_genre_list()
+        self._rebuild_liked_by_dropdown()
         self._apply_filter()
         self._build_tag_bar()
         self.lbl_now_playing.configure(text=f'\u266b  {len(self.playlist)} tracks loaded')
@@ -355,6 +388,95 @@ class MusicPlayer(ctk.CTk):
             con.execute("DELETE FROM track_tags WHERE track_id = ? AND tag = ?", (track_id, tag))
             con.commit()
             con.close()
+
+    # ── Vote / Rating helpers ────────────────────────────
+
+    def _record_vote(self, playlist_idx, vote, voter=''):
+        """Record a +1 or -1 vote for a track, optionally with voter name."""
+        entry = self.playlist[playlist_idx]
+        track_id = self._get_track_id(entry['path'])
+        if not track_id:
+            return
+        now = datetime.now(tz=timezone.utc).isoformat()
+        con = sqlite3.connect(DB_PATH)
+        con.execute("INSERT INTO track_votes (track_id, vote, voter, voted_at) VALUES (?, ?, ?, ?)",
+                    (track_id, vote, voter, now))
+        con.commit()
+        con.close()
+        entry['rating'] = entry.get('rating', 0) + vote
+        if voter:
+            self._all_voters.add(voter)
+            if vote > 0:
+                entry.setdefault('liked_by', set()).add(voter)
+            else:
+                entry.setdefault('disliked_by', set()).add(voter)
+        self._apply_filter()
+        self._build_tag_bar()
+        self._update_rating_display()
+        self._rebuild_liked_by_dropdown()
+
+    def _ask_voter_and_vote(self, vote):
+        """Show voter picker, then record vote. vote is +1 or -1."""
+        if self.current_index is None:
+            messagebox.showinfo('No track', 'No track is currently playing.')
+            return
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Who is voting?')
+        dialog.geometry('300x200')
+        dialog.transient(self)
+        dialog.after(100, dialog.grab_set)
+
+        ctk.CTkLabel(dialog, text='Who is voting? (optional)',
+                     font=ctk.CTkFont(size=13, weight='bold')).pack(pady=(12, 6))
+
+        voter_var = tk.StringVar()
+        known = sorted(self._all_voters)
+        if known:
+            voter_dropdown = ctk.CTkOptionMenu(
+                dialog, variable=voter_var, values=['(anonymous)'] + known,
+                width=220, height=30, font=ctk.CTkFont(size=12),
+                fg_color='#3b3b3b', button_color='#4a4a4a',
+                dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5')
+            voter_dropdown.pack(pady=(0, 4))
+            voter_dropdown.set('(anonymous)')
+
+        ctk.CTkLabel(dialog, text='Or type a new name:',
+                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(4, 2))
+        name_entry = ctk.CTkEntry(dialog, width=220, height=30, font=ctk.CTkFont(size=12),
+                                   placeholder_text='New name\u2026')
+        name_entry.pack(pady=(0, 8))
+
+        def submit():
+            typed = name_entry.get().strip()
+            selected = voter_var.get()
+            voter = typed if typed else ('' if selected in ('', '(anonymous)') else selected)
+            dialog.destroy()
+            self._record_vote(self.current_index, vote, voter)
+
+        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row.pack(fill='x', padx=20, pady=(4, 10))
+        emoji = '\U0001f44d' if vote > 0 else '\U0001f44e'
+        ctk.CTkButton(btn_row, text=f'{emoji}  Vote', command=submit,
+                      fg_color='#27ae60' if vote > 0 else '#c0392b').pack(side='right', padx=4)
+        ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
+                      command=dialog.destroy).pack(side='right', padx=4)
+
+        name_entry.focus_set()
+        name_entry.bind('<Return>', lambda e: submit())
+
+    def _update_rating_display(self):
+        """Update the rating label in the play panel."""
+        if self.current_index is not None:
+            rating = self.playlist[self.current_index].get('rating', 0)
+            if rating > 0:
+                self._lbl_rating.configure(text=f'+{rating}', text_color='#5dff5d')
+            elif rating < 0:
+                self._lbl_rating.configure(text=str(rating), text_color='#ff5d5d')
+            else:
+                self._lbl_rating.configure(text='0', text_color='#888888')
+        else:
+            self._lbl_rating.configure(text='—', text_color='#888888')
 
     # ── Build UI ─────────────────────────────────────────
 
@@ -479,6 +601,35 @@ class MusicPlayer(ctk.CTk):
             dropdown_text_color='#dce4ee')
         self.genre_dropdown.pack(side='right', padx=(8, 4))
 
+        # Rating threshold + liked-by filter row
+        filter_row = ctk.CTkFrame(browse, fg_color='transparent')
+        filter_row.pack(fill='x', padx=8, pady=(0, 4))
+
+        ctk.CTkLabel(filter_row, text='Rating', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        self._rating_filter_var = tk.StringVar(value='All')
+        rating_vals = ['All', '≥ 1', '≥ 2', '≥ 3', '≥ 5', '≥ 10', '≤ -1', '≤ -3', '= 0']
+        self._rating_filter_dropdown = ctk.CTkOptionMenu(
+            filter_row, variable=self._rating_filter_var,
+            values=rating_vals, command=self._on_rating_filter,
+            width=100, height=26, font=ctk.CTkFont(size=11),
+            fg_color='#3b3b3b', button_color='#4a4a4a',
+            button_hover_color='#555555',
+            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
+            dropdown_text_color='#dce4ee')
+        self._rating_filter_dropdown.pack(side='left', padx=(6, 12))
+
+        ctk.CTkLabel(filter_row, text='Liked by', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        self._liked_by_var = tk.StringVar(value='All')
+        self._liked_by_dropdown = ctk.CTkOptionMenu(
+            filter_row, variable=self._liked_by_var,
+            values=['All'], command=self._on_liked_by_filter,
+            width=140, height=26, font=ctk.CTkFont(size=11),
+            fg_color='#3b3b3b', button_color='#4a4a4a',
+            button_hover_color='#555555',
+            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
+            dropdown_text_color='#dce4ee')
+        self._liked_by_dropdown.pack(side='left', padx=(6, 0))
+
         # Track list section
         tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
         tree_frame.pack(fill='both', expand=True, padx=6, pady=(0, 6))
@@ -496,18 +647,22 @@ class MusicPlayer(ctk.CTk):
         self.tag_bar_frame.pack(fill='x', pady=(0, 4))
         self.tag_bar_frame.pack_propagate(False)
 
+        self._all_columns = ('Title', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
+                              'Plays', 'First Played', 'Last Played', 'File Created')
         self.tree = ttk.Treeview(tree_frame,
-                                 columns=('Title', 'Comment', 'Tags', 'Plays',
-                                          'First Played', 'Last Played', 'File Created'),
+                                 columns=self._all_columns,
                                  show='headings', height=18)
-        self.tree.column('Title', width=220, anchor='w')
-        self.tree.column('Comment', width=120, anchor='w')
-        self.tree.column('Tags', width=120, anchor='w')
-        self.tree.column('Plays', width=50, anchor='center')
-        self.tree.column('First Played', width=100, anchor='w')
-        self.tree.column('Last Played', width=100, anchor='w')
-        self.tree.column('File Created', width=100, anchor='w')
-        for col in ('Title', 'Comment', 'Tags', 'Plays', 'First Played', 'Last Played', 'File Created'):
+        self.tree.column('Title', width=200, anchor='w')
+        self.tree.column('Rating', width=55, anchor='center')
+        self.tree.column('Comment', width=100, anchor='w')
+        self.tree.column('Tags', width=100, anchor='w')
+        self.tree.column('Liked By', width=100, anchor='w')
+        self.tree.column('Disliked By', width=100, anchor='w')
+        self.tree.column('Plays', width=45, anchor='center')
+        self.tree.column('First Played', width=90, anchor='w')
+        self.tree.column('Last Played', width=90, anchor='w')
+        self.tree.column('File Created', width=90, anchor='w')
+        for col in self._all_columns:
             self.tree.heading(col, text=col,
                               command=lambda c=col: self._sort_by_column(c))
         self.tree.pack(side='left', fill='both', expand=True)
@@ -525,11 +680,39 @@ class MusicPlayer(ctk.CTk):
         # ── PLAY PANEL (right) ──
         play_panel = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
 
-        # Play panel content: volume
+        # Play panel content: rating + volume
         play_content = ctk.CTkFrame(play_panel, fg_color='transparent')
         play_content.pack(fill='both', expand=True, padx=4, pady=4)
 
-        # Volume (vertical)
+        # ── Rating section (top of play panel) ──
+        rating_section = ctk.CTkFrame(play_content, fg_color='#222233', corner_radius=8)
+        rating_section.pack(fill='x', padx=4, pady=(4, 8))
+
+        ctk.CTkLabel(rating_section, text='Rate this track',
+                     font=ctk.CTkFont(size=11, weight='bold'),
+                     text_color='#aaaaaa').pack(pady=(8, 2))
+
+        self._lbl_rating = ctk.CTkLabel(rating_section, text='\u2014',
+                                         font=ctk.CTkFont(size=28, weight='bold'),
+                                         text_color='#888888')
+        self._lbl_rating.pack(pady=(0, 4))
+
+        vote_row = ctk.CTkFrame(rating_section, fg_color='transparent')
+        vote_row.pack(pady=(0, 10))
+
+        self._btn_thumbs_up = ctk.CTkButton(
+            vote_row, text='\U0001f44d', width=70, height=55,
+            font=ctk.CTkFont(size=32), fg_color='#27ae60', hover_color='#2ecc71',
+            command=lambda: self._ask_voter_and_vote(+1))
+        self._btn_thumbs_up.pack(side='left', padx=6)
+
+        self._btn_thumbs_down = ctk.CTkButton(
+            vote_row, text='\U0001f44e', width=70, height=55,
+            font=ctk.CTkFont(size=32), fg_color='#c0392b', hover_color='#e74c3c',
+            command=lambda: self._ask_voter_and_vote(-1))
+        self._btn_thumbs_down.pack(side='left', padx=6)
+
+        # ── Volume (below rating) ──
         vol_panel = ctk.CTkFrame(play_content, width=60, fg_color='transparent')
         vol_panel.pack(fill='y', expand=True, padx=(4, 4))
         vol_panel.pack_propagate(False)
@@ -657,6 +840,32 @@ class MusicPlayer(ctk.CTk):
         if self._active_genre in self._genre_groups:
             return set(self._genre_groups[self._active_genre])
         return {self._active_genre}
+
+    # ── Rating / Liked-by filter handlers ────────────────
+
+    def _on_rating_filter(self, choice):
+        if choice == 'All':
+            self._rating_threshold = None
+        else:
+            # Parse choices like '≥ 1', '≤ -1', '= 0'
+            parts = choice.split()
+            op_map = {'≥': '>=', '≤': '<=', '=': '='}
+            op = op_map.get(parts[0], '>=')
+            val = int(parts[1])
+            self._rating_threshold = (op, val)
+        self._apply_filter()
+        self._build_tag_bar()
+
+    def _on_liked_by_filter(self, choice):
+        self._liked_by_filter = None if choice == 'All' else choice
+        self._apply_filter()
+        self._build_tag_bar()
+
+    def _rebuild_liked_by_dropdown(self):
+        """Rebuild the liked-by dropdown with current voter names."""
+        if hasattr(self, '_liked_by_dropdown'):
+            values = ['All'] + sorted(self._all_voters)
+            self._liked_by_dropdown.configure(values=values)
 
     # ── Tag filter bar ───────────────────────────────────
 
@@ -983,8 +1192,11 @@ class MusicPlayer(ctk.CTk):
     # Column-to-entry-key mapping for sorting
     _SORT_KEYS = {
         'Title': lambda e: (e.get('title') or e['basename']).lower(),
+        'Rating': lambda e: e.get('rating', 0),
         'Comment': lambda e: (e.get('comment') or '').lower(),
         'Tags': lambda e: ', '.join(sorted(e.get('tags', []))).lower(),
+        'Liked By': lambda e: ', '.join(sorted(e.get('liked_by', set()))).lower(),
+        'Disliked By': lambda e: ', '.join(sorted(e.get('disliked_by', set()))).lower(),
         'Plays': lambda e: e.get('play_count', 0),
         'First Played': lambda e: e.get('first_played') or '',
         'Last Played': lambda e: e.get('last_played') or '',
@@ -998,7 +1210,7 @@ class MusicPlayer(ctk.CTk):
             self._sort_column = col
             self._sort_reverse = False
         # Update heading text to show sort indicator
-        for c in ('Title', 'Comment', 'Tags', 'Plays', 'First Played', 'Last Played', 'File Created'):
+        for c in self._all_columns:
             arrow = ''
             if c == self._sort_column:
                 arrow = ' \u25b2' if not self._sort_reverse else ' \u25bc'
@@ -1033,6 +1245,20 @@ class MusicPlayer(ctk.CTk):
                 track_tags = set(entry.get('tags', []))
                 if not self._active_tags & track_tags:
                     continue
+            # Rating threshold filter
+            if self._rating_threshold is not None:
+                op, val = self._rating_threshold
+                rating = entry.get('rating', 0)
+                if op == '>=' and rating < val:
+                    continue
+                elif op == '<=' and rating > val:
+                    continue
+                elif op == '=' and rating != val:
+                    continue
+            # Liked-by filter
+            if self._liked_by_filter:
+                if self._liked_by_filter not in entry.get('liked_by', set()):
+                    continue
             if search_term:
                 title_lower = entry.get('title', entry['basename']).lower()
                 comment_lower = entry.get('comment', '').lower()
@@ -1049,14 +1275,20 @@ class MusicPlayer(ctk.CTk):
         for idx in matched:
             entry = self.playlist[idx]
             title = entry.get('title', entry['basename'])
+            rating = entry.get('rating', 0)
+            rating_str = f'+{rating}' if rating > 0 else str(rating)
             comment = entry.get('comment', '')
             tags_str = ', '.join(sorted(entry.get('tags', []))) if entry.get('tags') else '\u2014'
+            liked_str = ', '.join(sorted(entry.get('liked_by', set()))) if entry.get('liked_by') else '\u2014'
+            disliked_str = ', '.join(sorted(entry.get('disliked_by', set()))) if entry.get('disliked_by') else '\u2014'
             plays = entry.get('play_count', 0)
             first_p = self._format_ts(entry.get('first_played'), relative=False)
             last_p = self._format_ts(entry.get('last_played'), relative=True)
             file_c = self._format_ts(entry.get('file_created'), relative=False)
             row_tags = (self._now_playing_tag,) if idx == self.current_index and self.is_playing else ()
-            self.tree.insert('', 'end', values=(title, comment, tags_str, plays, first_p, last_p, file_c),
+            self.tree.insert('', 'end',
+                             values=(title, rating_str, comment, tags_str, liked_str, disliked_str,
+                                     plays, first_p, last_p, file_c),
                              tags=row_tags)
             self.display_indices.append(idx)
 
@@ -1144,7 +1376,8 @@ class MusicPlayer(ctk.CTk):
             except Exception:
                 pass
         entry = {'path': path, 'title': title, 'basename': os.path.basename(path),
-                 'genre': genre, 'comment': comment, 'tags': []}
+                 'genre': genre, 'comment': comment, 'tags': [],
+                 'rating': 0, 'liked_by': set(), 'disliked_by': set()}
         self.playlist.append(entry)
         self.genres.add(genre)
         stats = self._ensure_track_in_db(path, title, genre, comment)
@@ -1210,6 +1443,7 @@ class MusicPlayer(ctk.CTk):
         else:
             self.lbl_now_playing.configure(text='\u266b  Not Playing')
         self._update_now_playing_highlight()
+        self._update_rating_display()
 
     def play_pause(self):
         if self.is_playing and not self.is_paused:
