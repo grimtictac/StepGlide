@@ -1,3 +1,6 @@
+<img width="701" height="558" alt="image" src="https://github.com/user-attachments/assets/ce4a501d-99da-45b5-b93e-492b146ffbec" />
+
+
 # Python Music Player
 
 Simple GUI music player built with Tkinter and VLC.
