@@ -514,6 +514,7 @@ class MusicPlayer(ctk.CTk):
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<<TreeviewSelect>>', self._on_select)
         self.tree.bind('<Button-3>', self._on_right_click)
+        self.bind_all('<Button-1>', self._dismiss_context_menu, add='+')
 
         sb = ctk.CTkScrollbar(tree_frame, command=self.tree.yview)
         sb.pack(side='left', fill='y')
@@ -1306,6 +1307,7 @@ class MusicPlayer(ctk.CTk):
 
     def _on_right_click(self, ev):
         """Show context menu on right-click."""
+        self._dismiss_context_menu()
         item = self.tree.identify_row(ev.y)
         if not item:
             return
@@ -1330,10 +1332,17 @@ class MusicPlayer(ctk.CTk):
         menu.add_separator()
         menu.add_command(label='\U0001f5d1  Remove from Library',
                          command=lambda: self._context_remove(playlist_idx))
-        try:
-            menu.tk_popup(ev.x_root, ev.y_root)
-        finally:
-            menu.grab_release()
+        self._active_context_menu = menu
+        menu.tk_popup(ev.x_root, ev.y_root)
+
+    def _dismiss_context_menu(self, ev=None):
+        if hasattr(self, '_active_context_menu') and self._active_context_menu:
+            try:
+                self._active_context_menu.unpost()
+                self._active_context_menu.destroy()
+            except Exception:
+                pass
+            self._active_context_menu = None
 
     def _context_play(self, playlist_idx):
         self._last_action = 'switching'
