@@ -450,10 +450,6 @@ class MusicPlayer(ctk.CTk):
                                           command=self._play_now_click)
         self._play_now_visible = False
 
-        # ═══ BOTTOM PANEL (tag filter bar) — pack before paned so it's always visible ═══
-        self.tag_bar_frame = ctk.CTkFrame(self, height=36, fg_color='#2b2b2b', corner_radius=6)
-        self.tag_bar_frame.pack(side='bottom', fill='x', padx=10, pady=(4, 8))
-        self.tag_bar_frame.pack_propagate(False)
         self._tag_buttons = []
 
         # ═══ MAIN AREA: Two-panel resizable splitter ═══
@@ -494,6 +490,11 @@ class MusicPlayer(ctk.CTk):
                                            placeholder_text='\U0001f50d  Search tracks\u2026',
                                            height=30, font=ctk.CTkFont(size=12))
         self._search_entry.pack(fill='x', pady=(0, 4))
+
+        # Tag filter bar (under search)
+        self.tag_bar_frame = ctk.CTkFrame(tree_frame, height=36, fg_color='#2b2b2b', corner_radius=6)
+        self.tag_bar_frame.pack(fill='x', pady=(0, 4))
+        self.tag_bar_frame.pack_propagate(False)
 
         self.tree = ttk.Treeview(tree_frame,
                                  columns=('Title', 'Comment', 'Tags', 'Plays',
