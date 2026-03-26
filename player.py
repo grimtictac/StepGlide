@@ -481,6 +481,14 @@ class MusicPlayer(ctk.CTk):
         tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
         tree_frame.pack(fill='both', expand=True, padx=6, pady=(0, 6))
 
+        # Search box
+        self._search_var = tk.StringVar()
+        self._search_var.trace_add('write', lambda *_: self._apply_filter())
+        search_entry = ctk.CTkEntry(tree_frame, textvariable=self._search_var,
+                                    placeholder_text='\U0001f50d  Search tracks\u2026',
+                                    height=30, font=ctk.CTkFont(size=12))
+        search_entry.pack(fill='x', pady=(0, 4))
+
         self.tree = ttk.Treeview(tree_frame,
                                  columns=('Title', 'Comment', 'Tags', 'Plays',
                                           'First Played', 'Last Played', 'File Created'),
@@ -915,6 +923,7 @@ class MusicPlayer(ctk.CTk):
         self.display_indices = []
 
         genre_filter = self._get_genres_for_filter()
+        search_term = self._search_var.get().strip().lower() if hasattr(self, '_search_var') else ''
 
         for idx, entry in enumerate(self.playlist):
             if genre_filter is not None:
@@ -922,6 +931,11 @@ class MusicPlayer(ctk.CTk):
                     continue
             if self._active_tag != 'All':
                 if self._active_tag not in entry.get('tags', []):
+                    continue
+            if search_term:
+                title_lower = entry.get('title', entry['basename']).lower()
+                comment_lower = entry.get('comment', '').lower()
+                if search_term not in title_lower and search_term not in comment_lower:
                     continue
 
             title = entry.get('title', entry['basename'])
