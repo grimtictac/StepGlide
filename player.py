@@ -618,14 +618,16 @@ class MusicPlayer(ctk.CTk):
         self.tag_pills_frame = ctk.CTkScrollableFrame(tag_section, height=100, fg_color='transparent')
         self.tag_pills_frame.pack(fill='x', padx=8, pady=2)
 
+        # "+ new tag" button packed before the expanding quick-add frame so it stays visible
+        self.btn_new_tag = ctk.CTkButton(tag_section, text='+ new tag\u2026', height=28,
+                                         font=ctk.CTkFont(size=11), command=self._add_new_tag)
+        self.btn_new_tag.pack(side='bottom', fill='x', padx=8, pady=(4, 8))
+
         ctk.CTkLabel(tag_section, text='Quick add:', font=ctk.CTkFont(size=10),
                      text_color='#888888').pack(padx=8, pady=(8, 2), anchor='w')
 
         self.tag_quick_frame = ctk.CTkScrollableFrame(tag_section, fg_color='transparent')
         self.tag_quick_frame.pack(fill='both', expand=True, padx=8, pady=2)
-
-        ctk.CTkButton(tag_section, text='+ new tag\u2026', height=28,
-                      font=ctk.CTkFont(size=11), command=self._add_new_tag).pack(fill='x', padx=8, pady=(4, 8))
 
         # Volume (vertical, right side of play panel)
         vol_panel = ctk.CTkFrame(play_content, width=60, fg_color='transparent')
