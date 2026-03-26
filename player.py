@@ -513,6 +513,7 @@ class MusicPlayer(ctk.CTk):
         self.tree.tag_configure(self._now_playing_tag, background='#1a3a1a', foreground='#5dff5d')
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<<TreeviewSelect>>', self._on_select)
+        self.tree.bind('<Button-3>', self._on_right_click)
 
         sb = ctk.CTkScrollbar(tree_frame, command=self.tree.yview)
         sb.pack(side='left', fill='y')
@@ -1299,6 +1300,110 @@ class MusicPlayer(ctk.CTk):
             self.btn_mute.configure(text='\U0001f507')
 
     # ── Track selection events ───────────────────────────
+
+    def _on_right_click(self, ev):
+        """Show context menu on right-click."""
+        item = self.tree.identify_row(ev.y)
+        if not item:
+            return
+        self.tree.selection_set(item)
+        all_items = self.tree.get_children()
+        try:
+            idx = list(all_items).index(item)
+            playlist_idx = self.display_indices[idx]
+        except (ValueError, IndexError):
+            return
+
+        entry = self.playlist[playlist_idx]
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='\u25b6  Play', command=lambda: self._context_play(playlist_idx))
+        menu.add_separator()
+        menu.add_command(label='\u270f  Edit Title\u2026',
+                         command=lambda: self._context_edit_title(playlist_idx))
+        menu.add_command(label='\u270f  Edit Genre\u2026',
+                         command=lambda: self._context_edit_genre(playlist_idx))
+        menu.add_command(label='\u270f  Edit Comment\u2026',
+                         command=lambda: self._context_edit_comment(playlist_idx))
+        menu.add_separator()
+        menu.add_command(label='\U0001f5d1  Remove from Library',
+                         command=lambda: self._context_remove(playlist_idx))
+        menu.post(ev.x_root, ev.y_root)
+
+    def _context_play(self, playlist_idx):
+        self._last_action = 'switching'
+        self.vlc_player.stop()
+        self.current_index = playlist_idx
+        loaded = self._load(playlist_idx)
+        if loaded:
+            self.vlc_player.play()
+            self.is_playing = True
+            self.is_paused = False
+            self._last_action = 'playing'
+            self._play_started_at = time.time()
+            self._playback_start_time = time.time()
+            self._play_recorded = False
+            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+            self._update_now_playing()
+
+    def _context_edit_title(self, playlist_idx):
+        entry = self.playlist[playlist_idx]
+        current = entry.get('title', entry['basename'])
+        new_val = simpledialog.askstring('Edit Title', 'Title:', initialvalue=current, parent=self)
+        if new_val is not None and new_val.strip():
+            entry['title'] = new_val.strip()
+            con = sqlite3.connect(DB_PATH)
+            con.execute("UPDATE tracks SET title = ? WHERE file_path = ?", (new_val.strip(), entry['path']))
+            con.commit()
+            con.close()
+            self._apply_filter()
+
+    def _context_edit_genre(self, playlist_idx):
+        entry = self.playlist[playlist_idx]
+        current = entry.get('genre', 'Unknown')
+        new_val = simpledialog.askstring('Edit Genre', 'Genre:', initialvalue=current, parent=self)
+        if new_val is not None and new_val.strip():
+            old_genre = entry.get('genre')
+            entry['genre'] = new_val.strip()
+            self.genres.add(new_val.strip())
+            con = sqlite3.connect(DB_PATH)
+            con.execute("UPDATE tracks SET genre = ? WHERE file_path = ?", (new_val.strip(), entry['path']))
+            con.commit()
+            con.close()
+            self._build_genre_list()
+            self._apply_filter()
+
+    def _context_edit_comment(self, playlist_idx):
+        entry = self.playlist[playlist_idx]
+        current = entry.get('comment', '')
+        new_val = simpledialog.askstring('Edit Comment', 'Comment:', initialvalue=current, parent=self)
+        if new_val is not None:
+            entry['comment'] = new_val.strip()
+            con = sqlite3.connect(DB_PATH)
+            con.execute("UPDATE tracks SET comment = ? WHERE file_path = ?", (new_val.strip(), entry['path']))
+            con.commit()
+            con.close()
+            self._apply_filter()
+
+    def _context_remove(self, playlist_idx):
+        entry = self.playlist[playlist_idx]
+        title = entry.get('title', entry['basename'])
+        if not messagebox.askyesno('Remove Track', f'Remove "{title}" from the library?\n\n(File will not be deleted)'):
+            return
+        path = entry['path']
+        if self.current_index == playlist_idx:
+            self.stop()
+            self.current_index = None
+        elif self.current_index is not None and self.current_index > playlist_idx:
+            self.current_index -= 1
+        self.playlist.pop(playlist_idx)
+        con = sqlite3.connect(DB_PATH)
+        con.execute("DELETE FROM track_tags WHERE track_id = (SELECT id FROM tracks WHERE file_path = ?)", (path,))
+        con.execute("DELETE FROM play_history WHERE track_id = (SELECT id FROM tracks WHERE file_path = ?)", (path,))
+        con.execute("DELETE FROM tracks WHERE file_path = ?", (path,))
+        con.commit()
+        con.close()
+        self._apply_filter()
+        self._build_tag_bar()
 
     def _on_select(self, ev):
         sel = self.tree.selection()
