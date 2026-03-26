@@ -454,16 +454,6 @@ class MusicPlayer(ctk.CTk):
                   foreground=[('selected', '#ffffff')])
         style.map('Treeview.Heading',
                   background=[('active', '#4a4a4a')])
-        style.configure('Genre.Treeview',
-                        background='#2b2b2b',
-                        foreground='#dce4ee',
-                        fieldbackground='#2b2b2b',
-                        borderwidth=0,
-                        rowheight=34,
-                        font=('Segoe UI', 11))
-        style.map('Genre.Treeview',
-                  background=[('selected', '#1f6aa5')],
-                  foreground=[('selected', '#ffffff')])
 
         # ═══ TOP BAR ═══
         top_bar = ctk.CTkFrame(self, height=50, fg_color='#1a1a2e')
@@ -547,22 +537,24 @@ class MusicPlayer(ctk.CTk):
         # ── BROWSE PANEL (left) ──
         browse = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
 
-        # Genre section
+        # Genre section — compact dropdown row
         genre_header = ctk.CTkFrame(browse, fg_color='transparent')
-        genre_header.pack(fill='x', padx=8, pady=(8, 2))
+        genre_header.pack(fill='x', padx=8, pady=(8, 4))
         ctk.CTkLabel(genre_header, text='Genre', font=ctk.CTkFont(size=13, weight='bold')).pack(side='left')
         ctk.CTkButton(genre_header, text='\u2699', width=30, height=26,
                       font=ctk.CTkFont(size=14), command=self._open_genre_settings).pack(side='right')
 
-        genre_frame = ctk.CTkFrame(browse, fg_color='transparent', height=150)
-        genre_frame.pack(fill='x', padx=6, pady=(0, 4))
-        genre_frame.pack_propagate(False)
-
-        self.genre_tree = ttk.Treeview(genre_frame, style='Genre.Treeview',
-                                       columns=('Genre',), show='tree', selectmode='browse')
-        self.genre_tree.column('#0', width=130)
-        self.genre_tree.pack(fill='both', expand=True, padx=2, pady=2)
-        self.genre_tree.bind('<<TreeviewSelect>>', self._on_genre_select)
+        self._genre_var = tk.StringVar(value='All')
+        self.genre_dropdown = ctk.CTkOptionMenu(
+            genre_header, variable=self._genre_var,
+            values=['All'], command=self._on_genre_dropdown,
+            width=220, height=30,
+            font=ctk.CTkFont(size=12),
+            fg_color='#3b3b3b', button_color='#4a4a4a',
+            button_hover_color='#555555',
+            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
+            dropdown_text_color='#dce4ee')
+        self.genre_dropdown.pack(side='right', padx=(8, 4))
 
         # Track list section
         tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
@@ -676,39 +668,40 @@ class MusicPlayer(ctk.CTk):
         y = self.btn_menu.winfo_rooty() + self.btn_menu.winfo_height()
         menu.post(x, y)
 
-    # ── Genre sidebar ────────────────────────────────────
+    # ── Genre dropdown ─────────────────────────────────
 
     def _build_genre_list(self):
-        self.genre_tree.delete(*self.genre_tree.get_children())
-        self.genre_tree.insert('', 'end', iid='__all__', text='All')
+        """Rebuild the genre dropdown values."""
+        values = ['All']
+        # Map display labels → filter keys
+        self._genre_label_map = {'All': ('all', 'All')}
 
         grouped_genres = set()
         for gname, members in self._genre_groups.items():
-            gnode = self.genre_tree.insert('', 'end', iid=f'__grp__{gname}', text=gname)
+            values.append(f'▸ {gname}')
+            self._genre_label_map[f'▸ {gname}'] = ('group', gname)
             for genre in members:
-                self.genre_tree.insert(gnode, 'end', iid=f'__genre__{genre}', text=genre)
+                values.append(f'    {genre}')
+                self._genre_label_map[f'    {genre}'] = ('genre', genre)
                 grouped_genres.add(genre)
-            self.genre_tree.item(gnode, open=True)
 
         ungrouped = sorted(g for g in self.genres if g and g not in grouped_genres)
         for genre in ungrouped:
-            self.genre_tree.insert('', 'end', iid=f'__genre__{genre}', text=genre)
+            values.append(genre)
+            self._genre_label_map[genre] = ('genre', genre)
 
-        self.genre_tree.selection_set('__all__')
+        self.genre_dropdown.configure(values=values)
+        self._genre_var.set('All')
 
-    def _on_genre_select(self, ev):
-        sel = self.genre_tree.selection()
-        if not sel:
-            return
-        item_id = sel[0]
-        if item_id == '__all__':
+    def _on_genre_dropdown(self, choice):
+        """Handle genre dropdown selection."""
+        kind, name = self._genre_label_map.get(choice, ('all', 'All'))
+        if kind == 'all':
             self._active_genre = 'All'
-        elif item_id.startswith('__grp__'):
-            self._active_genre = item_id[len('__grp__'):]
-        elif item_id.startswith('__genre__'):
-            self._active_genre = item_id[len('__genre__'):]
+        elif kind == 'group':
+            self._active_genre = name
         else:
-            self._active_genre = 'All'
+            self._active_genre = name
         self._active_tag = 'All'
         self._apply_filter()
         self._build_tag_bar()
