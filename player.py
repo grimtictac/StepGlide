@@ -525,32 +525,13 @@ class MusicPlayer(ctk.CTk):
         # ── PLAY PANEL (right) ──
         play_panel = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
 
-        # Play panel content: tags on left, volume on right
+        # Play panel content: volume
         play_content = ctk.CTkFrame(play_panel, fg_color='transparent')
         play_content.pack(fill='both', expand=True, padx=4, pady=4)
 
-        # Tag editor
-        tag_section = ctk.CTkFrame(play_content, fg_color='transparent')
-        tag_section.pack(side='left', fill='both', expand=True)
-
-        ctk.CTkLabel(tag_section, text='Tags', font=ctk.CTkFont(size=13, weight='bold')).pack(pady=(6, 2))
-        self.lbl_tag_track = ctk.CTkLabel(tag_section, text='Select a track',
-                                          font=ctk.CTkFont(size=10), wraplength=200,
-                                          text_color='#888888')
-        self.lbl_tag_track.pack(padx=8, pady=(0, 4))
-
-        self.tag_pills_frame = ctk.CTkScrollableFrame(tag_section, height=100, fg_color='transparent')
-        self.tag_pills_frame.pack(fill='x', padx=8, pady=2)
-
-        ctk.CTkLabel(tag_section, text='Quick add:', font=ctk.CTkFont(size=10),
-                     text_color='#888888').pack(padx=8, pady=(8, 2), anchor='w')
-
-        self.tag_quick_frame = ctk.CTkScrollableFrame(tag_section, fg_color='transparent')
-        self.tag_quick_frame.pack(fill='both', expand=True, padx=8, pady=2)
-
-        # Volume (vertical, right side of play panel)
+        # Volume (vertical)
         vol_panel = ctk.CTkFrame(play_content, width=60, fg_color='transparent')
-        vol_panel.pack(side='right', fill='y', padx=(4, 4))
+        vol_panel.pack(fill='y', expand=True, padx=(4, 4))
         vol_panel.pack_propagate(False)
 
         self.btn_mute = ctk.CTkButton(vol_panel, text='\U0001f50a', width=40, height=30,
@@ -726,78 +707,6 @@ class MusicPlayer(ctk.CTk):
         self._apply_filter()
         self._build_tag_bar()
 
-    # ── Tag editor panel ─────────────────────────────────
-
-    def _update_tag_editor(self):
-        for w in self.tag_pills_frame.winfo_children():
-            w.destroy()
-        for w in self.tag_quick_frame.winfo_children():
-            w.destroy()
-
-        sel = self.tree.selection()
-        if not sel:
-            self.lbl_tag_track.configure(text='Select a track')
-            return
-
-        selected_indices = []
-        all_items = self.tree.get_children()
-        for item in sel:
-            try:
-                idx = list(all_items).index(item)
-                selected_indices.append(self.display_indices[idx])
-            except (ValueError, IndexError):
-                pass
-
-        if not selected_indices:
-            self.lbl_tag_track.configure(text='Select a track')
-            return
-
-        if len(selected_indices) == 1:
-            entry = self.playlist[selected_indices[0]]
-            self.lbl_tag_track.configure(text=entry['title'][:30])
-        else:
-            self.lbl_tag_track.configure(text=f'{len(selected_indices)} tracks')
-
-        if len(selected_indices) == 1:
-            current_tags = set(self.playlist[selected_indices[0]].get('tags', []))
-        else:
-            tag_sets = [set(self.playlist[i].get('tags', [])) for i in selected_indices]
-            current_tags = tag_sets[0].intersection(*tag_sets[1:]) if tag_sets else set()
-
-        for tag in sorted(current_tags):
-            pill = ctk.CTkFrame(self.tag_pills_frame, fg_color='#1f6aa5', corner_radius=12)
-            pill.pack(fill='x', pady=1)
-            ctk.CTkLabel(pill, text=tag, font=ctk.CTkFont(size=11)).pack(side='left', padx=(8, 2), pady=2)
-            ctk.CTkButton(pill, text='\u00d7', width=20, height=20, fg_color='transparent',
-                          font=ctk.CTkFont(size=12),
-                          command=lambda t=tag: self._remove_tag_click(selected_indices, t)).pack(side='right', padx=2, pady=2)
-
-        for tag in sorted(self._all_tags):
-            is_applied = tag in current_tags
-            btn = ctk.CTkButton(self.tag_quick_frame, text=tag, height=26,
-                                font=ctk.CTkFont(size=11),
-                                fg_color='#1f6aa5' if is_applied else 'transparent',
-                                border_width=1, border_color='#555555',
-                                command=lambda t=tag, applied=is_applied: self._toggle_tag_click(selected_indices, t, applied))
-            btn.pack(fill='x', pady=1)
-
-    def _toggle_tag_click(self, indices, tag, currently_applied):
-        for idx in indices:
-            if currently_applied:
-                self._remove_tag_from_track(idx, tag)
-            else:
-                self._add_tag_to_track(idx, tag)
-        self._apply_filter()
-        self._build_tag_bar()
-        self._update_tag_editor()
-
-    def _remove_tag_click(self, indices, tag):
-        for idx in indices:
-            self._remove_tag_from_track(idx, tag)
-        self._apply_filter()
-        self._build_tag_bar()
-        self._update_tag_editor()
-
     def _add_new_tag(self, parent_window=None, callback=None):
         """Create a new tag (globally). Optionally apply to selected tracks."""
         tag = simpledialog.askstring('New Tag', 'Enter tag name:',
@@ -816,7 +725,6 @@ class MusicPlayer(ctk.CTk):
                     pass
             self._apply_filter()
             self._build_tag_bar()
-            self._update_tag_editor()
             if callback:
                 callback()
 
@@ -833,7 +741,6 @@ class MusicPlayer(ctk.CTk):
         self._active_tags.discard(tag)
         self._apply_filter()
         self._build_tag_bar()
-        self._update_tag_editor()
 
     def _rename_tag_globally(self, old_tag, new_tag, parent_window=None):
         """Rename a tag across all tracks."""
@@ -860,7 +767,6 @@ class MusicPlayer(ctk.CTk):
             self._active_tags.add(new_tag)
         self._apply_filter()
         self._build_tag_bar()
-        self._update_tag_editor()
 
     # ── Settings dialog (Genres + Tags) ──────────────────
 
@@ -1454,6 +1360,19 @@ class MusicPlayer(ctk.CTk):
                          command=lambda: self._context_edit_genre(playlist_idx))
         menu.add_command(label='\u270f  Edit Comment\u2026',
                          command=lambda: self._context_edit_comment(playlist_idx))
+
+        # Tags submenu
+        if self._all_tags:
+            tags_menu = tk.Menu(menu, tearoff=0)
+            track_tags = set(entry.get('tags', []))
+            for tag in sorted(self._all_tags):
+                has_tag = tag in track_tags
+                label = f'\u2713  {tag}' if has_tag else f'     {tag}'
+                tags_menu.add_command(label=label,
+                                      command=lambda t=tag, applied=has_tag: self._context_toggle_tag(playlist_idx, t, applied))
+            menu.add_separator()
+            menu.add_cascade(label='\U0001f3f7  Tags', menu=tags_menu)
+
         menu.add_separator()
         menu.add_command(label='\U0001f5d1  Remove from Library',
                          command=lambda: self._context_remove(playlist_idx))
@@ -1514,6 +1433,14 @@ class MusicPlayer(ctk.CTk):
             con.close()
             self._apply_filter()
 
+    def _context_toggle_tag(self, playlist_idx, tag, currently_applied):
+        if currently_applied:
+            self._remove_tag_from_track(playlist_idx, tag)
+        else:
+            self._add_tag_to_track(playlist_idx, tag)
+        self._apply_filter()
+        self._build_tag_bar()
+
     def _context_remove(self, playlist_idx):
         entry = self.playlist[playlist_idx]
         title = entry.get('title', entry['basename'])
@@ -1567,8 +1494,6 @@ class MusicPlayer(ctk.CTk):
         if not self._play_now_visible:
             self.btn_play_now.pack(fill='x', padx=20, pady=(0, 6), after=self._controls_frame)
             self._play_now_visible = True
-
-        self._update_tag_editor()
 
     def _play_now_click(self):
         """Play the currently selected track immediately."""
