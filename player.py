@@ -808,7 +808,6 @@ class MusicPlayer(ctk.CTk):
                               command=lambda c=col: self._sort_by_column(c))
         self.tree.pack(side='left', fill='both', expand=True)
         self.tree.tag_configure(self._now_playing_tag, background='#1a3a1a', foreground='#5dff5d')
-        self.tree.tag_configure('search_match', background='#2a2a1a')
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<<TreeviewSelect>>', self._on_select)
         self.tree.bind('<Button-3>', self._on_right_click)
@@ -1632,8 +1631,6 @@ class MusicPlayer(ctk.CTk):
             row_tags = []
             if idx == self.current_index and self.is_playing:
                 row_tags.append(self._now_playing_tag)
-            if search_term:
-                row_tags.append('search_match')
             self.tree.insert('', 'end',
                              values=(title, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
                                      plays, first_p, last_p, file_c),
