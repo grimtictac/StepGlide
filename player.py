@@ -86,6 +86,10 @@ class MusicPlayer(ctk.CTk):
         # Play tracking
         self._playback_start_time = None
         self._play_recorded = False
+
+        # Play queue: list of playlist indices
+        self._play_queue = []
+
         self._init_database()
 
         self._build_ui()
@@ -704,6 +708,40 @@ class MusicPlayer(ctk.CTk):
         self.lbl_vol_pct.pack(pady=(4, 8))
 
         self._on_volume()
+
+        # ── PLAY QUEUE PANEL (between browse and volume strip) ──
+        queue_panel = ctk.CTkFrame(main_area, width=200, fg_color='#2b2b2b', corner_radius=8)
+        queue_panel.pack(side='right', fill='y', padx=(4, 0))
+        queue_panel.pack_propagate(False)
+
+        queue_header = ctk.CTkFrame(queue_panel, fg_color='transparent')
+        queue_header.pack(fill='x', padx=6, pady=(6, 2))
+        self._queue_title_lbl = ctk.CTkLabel(queue_header, text='Queue (0)',
+                     font=ctk.CTkFont(size=12, weight='bold'))
+        self._queue_title_lbl.pack(side='left')
+        ctk.CTkButton(queue_header, text='✕', width=24, height=22,
+                      font=ctk.CTkFont(size=12), fg_color='transparent',
+                      hover_color='#3b3b3b', command=self._clear_queue).pack(side='right')
+
+        self._queue_listbox = tk.Listbox(
+            queue_panel, bg='#2b2b2b', fg='#dce4ee',
+            selectbackground='#1f6aa5', selectforeground='#ffffff',
+            font=('Segoe UI', 10), borderwidth=0, highlightthickness=0,
+            activestyle='none', exportselection=False)
+        self._queue_listbox.pack(fill='both', expand=True, padx=4, pady=(0, 4))
+        self._queue_listbox.bind('<Button-3>', self._on_queue_right_click)
+
+        queue_btn_row = ctk.CTkFrame(queue_panel, fg_color='transparent')
+        queue_btn_row.pack(fill='x', padx=4, pady=(0, 6))
+        ctk.CTkButton(queue_btn_row, text='▲', width=30, height=24,
+                      font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
+                      command=self._queue_move_up).pack(side='left', padx=2)
+        ctk.CTkButton(queue_btn_row, text='▼', width=30, height=24,
+                      font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
+                      command=self._queue_move_down).pack(side='left', padx=2)
+        ctk.CTkButton(queue_btn_row, text='🗑', width=30, height=24,
+                      font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
+                      command=self._queue_remove_selected).pack(side='right', padx=2)
 
         # ── BROWSE PANEL (fills remaining space) ──
         browse = ctk.CTkFrame(main_area, fg_color='#2b2b2b', corner_radius=8)
@@ -1927,7 +1965,11 @@ class MusicPlayer(ctk.CTk):
     def _next_track(self):
         if not self.playlist:
             return
-        if self.display_indices:
+        # Check play queue first
+        queue_next = self._pop_queue()
+        if queue_next is not None:
+            nxt = queue_next
+        elif self.display_indices:
             try:
                 pos = self.display_indices.index(self.current_index)
             except ValueError:
@@ -1992,6 +2034,84 @@ class MusicPlayer(ctk.CTk):
             self._muted = True
             self.btn_mute.configure(text='\U0001f507')
 
+    # ── Play queue management ────────────────────────────
+
+    def _refresh_queue_listbox(self):
+        """Rebuild the queue listbox from self._play_queue."""
+        self._queue_listbox.delete(0, 'end')
+        for pl_idx in self._play_queue:
+            entry = self.playlist[pl_idx]
+            title = entry.get('title', entry['basename'])
+            self._queue_listbox.insert('end', title[:40])
+        self._queue_title_lbl.configure(text=f'Queue ({len(self._play_queue)})')
+
+    def _add_to_queue(self, playlist_idx):
+        """Add a track to the end of the play queue."""
+        self._play_queue.append(playlist_idx)
+        self._refresh_queue_listbox()
+
+    def _insert_in_queue(self, playlist_idx, position=0):
+        """Insert a track at a specific position in the queue."""
+        self._play_queue.insert(position, playlist_idx)
+        self._refresh_queue_listbox()
+
+    def _pop_queue(self):
+        """Pop and return the next track index from the queue, or None."""
+        if self._play_queue:
+            idx = self._play_queue.pop(0)
+            self._refresh_queue_listbox()
+            return idx
+        return None
+
+    def _clear_queue(self):
+        """Clear the entire play queue."""
+        self._play_queue.clear()
+        self._refresh_queue_listbox()
+
+    def _queue_move_up(self):
+        sel = self._queue_listbox.curselection()
+        if not sel or sel[0] == 0:
+            return
+        i = sel[0]
+        self._play_queue[i - 1], self._play_queue[i] = self._play_queue[i], self._play_queue[i - 1]
+        self._refresh_queue_listbox()
+        self._queue_listbox.selection_set(i - 1)
+        self._queue_listbox.see(i - 1)
+
+    def _queue_move_down(self):
+        sel = self._queue_listbox.curselection()
+        if not sel or sel[0] >= len(self._play_queue) - 1:
+            return
+        i = sel[0]
+        self._play_queue[i + 1], self._play_queue[i] = self._play_queue[i], self._play_queue[i + 1]
+        self._refresh_queue_listbox()
+        self._queue_listbox.selection_set(i + 1)
+        self._queue_listbox.see(i + 1)
+
+    def _queue_remove_selected(self):
+        sel = self._queue_listbox.curselection()
+        if not sel:
+            return
+        self._play_queue.pop(sel[0])
+        self._refresh_queue_listbox()
+
+    def _on_queue_right_click(self, ev):
+        """Context menu for queue items."""
+        idx = self._queue_listbox.nearest(ev.y)
+        if idx < 0 or idx >= len(self._play_queue):
+            return
+        self._queue_listbox.selection_clear(0, 'end')
+        self._queue_listbox.selection_set(idx)
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Remove', command=lambda: self._queue_remove_at(idx))
+        menu.add_command(label='Clear Queue', command=self._clear_queue)
+        menu.tk_popup(ev.x_root, ev.y_root)
+
+    def _queue_remove_at(self, idx):
+        if 0 <= idx < len(self._play_queue):
+            self._play_queue.pop(idx)
+            self._refresh_queue_listbox()
+
     # ── Track selection events ───────────────────────────
 
     def _on_right_click(self, ev):
@@ -2010,6 +2130,7 @@ class MusicPlayer(ctk.CTk):
         entry = self.playlist[playlist_idx]
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label='\u25b6  Play', command=lambda: self._context_play(playlist_idx))
+        menu.add_command(label='\U0001f4cb  Add to Queue', command=lambda: self._add_to_queue(playlist_idx))
         menu.add_separator()
         menu.add_command(label='\u270f  Edit Title\u2026',
                          command=lambda: self._context_edit_title(playlist_idx))
