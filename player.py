@@ -917,6 +917,12 @@ class MusicPlayer(ctk.CTk):
                                            height=30, font=ctk.CTkFont(size=12))
         self._search_entry.pack(fill='x', pady=(0, 4))
 
+        # Track count label
+        self._track_count_lbl = ctk.CTkLabel(tree_frame, text='0 tracks',
+                                              font=ctk.CTkFont(size=10),
+                                              text_color='#888888', anchor='w')
+        self._track_count_lbl.pack(fill='x', pady=(0, 2))
+
         self._all_columns = ('Title', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
                               'Plays', 'First Played', 'Last Played', 'File Created')
         self.tree = ttk.Treeview(tree_frame,
@@ -1821,6 +1827,15 @@ class MusicPlayer(ctk.CTk):
             if to_select:
                 self.tree.selection_set(*to_select)
                 self.tree.see(to_select[0])
+
+        # Update track count
+        if hasattr(self, '_track_count_lbl'):
+            total = len(self.playlist)
+            shown = len(self.display_indices)
+            if shown == total:
+                self._track_count_lbl.configure(text=f'{total} tracks')
+            else:
+                self._track_count_lbl.configure(text=f'{shown} of {total} tracks')
 
     # ── File management ──────────────────────────────────
 
