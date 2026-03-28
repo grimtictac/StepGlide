@@ -618,8 +618,43 @@ class MusicPlayer(ctk.CTk):
         # Now-playing row highlight tag
         self._now_playing_tag = 'now_playing'
 
+        # ═══ OUTER LAYOUT: content column + full-height volume strip ═══
+        _outer = ctk.CTkFrame(self, fg_color='transparent')
+        _outer.pack(fill='both', expand=True)
+
+        # ── VOLUME STRIP (full-height right edge) ──
+        vol_strip = ctk.CTkFrame(_outer, width=70, fg_color='#1e1e2e', corner_radius=0)
+        vol_strip.pack(side='right', fill='y')
+        vol_strip.pack_propagate(False)
+
+        self.btn_mute = ctk.CTkButton(vol_strip, text='\U0001f50a', width=56, height=36,
+                                      font=ctk.CTkFont(size=20), fg_color='transparent',
+                                      command=self._toggle_mute)
+        self.btn_mute.pack(pady=(12, 4))
+
+        self.vol = tk.DoubleVar(value=0.8)
+        self._muted = False
+        self._pre_mute_vol = 0.8
+        self.vol_slider = ctk.CTkSlider(vol_strip, from_=0.0, to=1.0, variable=self.vol,
+                                        orientation='vertical', command=self._on_volume,
+                                        height=300, width=26,
+                                        button_length=20,
+                                        button_color='#00bcd4', button_hover_color='#26c6da',
+                                        progress_color='#00bcd4')
+        self.vol_slider.pack(fill='y', expand=True, padx=10, pady=6)
+
+        self.lbl_vol_pct = ctk.CTkLabel(vol_strip, text='80%',
+                                         font=ctk.CTkFont(size=12, weight='bold'))
+        self.lbl_vol_pct.pack(pady=(4, 12))
+
+        self._on_volume()
+
+        # ── CONTENT COLUMN (everything else) ──
+        _content = ctk.CTkFrame(_outer, fg_color='transparent')
+        _content.pack(side='left', fill='both', expand=True)
+
         # ═══ TOP BAR ═══
-        top_bar = ctk.CTkFrame(self, height=50, fg_color='#1a1a2e')
+        top_bar = ctk.CTkFrame(_content, height=50, fg_color='#1a1a2e')
         top_bar.pack(fill='x')
         top_bar.pack_propagate(False)
 
@@ -654,7 +689,7 @@ class MusicPlayer(ctk.CTk):
         self.lbl_load = ctk.CTkLabel(top_bar, text='', font=ctk.CTkFont(size=10))
 
         # ═══ SCRUB BAR (under Now Playing) ═══
-        scrub_frame = ctk.CTkFrame(self, fg_color='#1a1a2e')
+        scrub_frame = ctk.CTkFrame(_content, fg_color='#1a1a2e')
         scrub_frame.pack(fill='x', padx=0)
 
         scrub_inner = ctk.CTkFrame(scrub_frame, fg_color='transparent')
@@ -678,7 +713,7 @@ class MusicPlayer(ctk.CTk):
         self.lbl_time_total.pack(side='left')
 
         # ═══ PLAY CONTROLS (under scrub bar) ═══
-        self._controls_frame = ctk.CTkFrame(self, fg_color='#1a1a2e')
+        self._controls_frame = ctk.CTkFrame(_content, fg_color='#1a1a2e')
         self._controls_frame.pack(fill='x')
 
         btn_row = ctk.CTkFrame(self._controls_frame, fg_color='transparent')
@@ -716,7 +751,7 @@ class MusicPlayer(ctk.CTk):
         speed_up.pack(side='left', padx=(2, 4), pady=(0, 4))
 
         # ═══ PLAY NOW BAR (under play controls, hidden until track selected) ═══
-        self._play_bar = ctk.CTkFrame(self, fg_color='transparent')
+        self._play_bar = ctk.CTkFrame(_content, fg_color='transparent')
         self.btn_play_now = ctk.CTkButton(self._play_bar, text='\u25b6  Play Now', height=44,
                                           font=ctk.CTkFont(size=20, weight='bold'),
                                           fg_color='#f1c40f', hover_color='#f39c12',
@@ -733,36 +768,11 @@ class MusicPlayer(ctk.CTk):
 
         self._tag_buttons = []
 
-        # ═══ MAIN AREA: Browse + Volume strip ═══
-        main_area = ctk.CTkFrame(self, fg_color='transparent')
+        # ═══ MAIN AREA: Browse + Queue ═══
+        main_area = ctk.CTkFrame(_content, fg_color='transparent')
         main_area.pack(fill='both', expand=True, padx=6, pady=(10, 4))
 
-        # ── VOLUME STRIP (right edge, full height) ──
-        vol_strip = ctk.CTkFrame(main_area, width=50, fg_color='#2b2b2b', corner_radius=8)
-        vol_strip.pack(side='right', fill='y', padx=(4, 0))
-        vol_strip.pack_propagate(False)
-
-        self.btn_mute = ctk.CTkButton(vol_strip, text='\U0001f50a', width=40, height=30,
-                                      font=ctk.CTkFont(size=16), fg_color='transparent',
-                                      command=self._toggle_mute)
-        self.btn_mute.pack(pady=(8, 4))
-
-        self.vol = tk.DoubleVar(value=0.8)
-        self._muted = False
-        self._pre_mute_vol = 0.8
-        self.vol_slider = ctk.CTkSlider(vol_strip, from_=0.0, to=1.0, variable=self.vol,
-                                        orientation='vertical', command=self._on_volume,
-                                        height=200,
-                                        button_color='#00bcd4', button_hover_color='#26c6da',
-                                        progress_color='#00bcd4')
-        self.vol_slider.pack(fill='y', expand=True, padx=6, pady=4)
-
-        self.lbl_vol_pct = ctk.CTkLabel(vol_strip, text='80%', font=ctk.CTkFont(size=10))
-        self.lbl_vol_pct.pack(pady=(4, 8))
-
-        self._on_volume()
-
-        # ── PLAY QUEUE PANEL (between browse and volume strip) ──
+        # ── PLAY QUEUE PANEL (right side of browse area) ──
         queue_panel = ctk.CTkFrame(main_area, width=200, fg_color='#2b2b2b', corner_radius=8)
         queue_panel.pack(side='right', fill='y', padx=(4, 0))
         queue_panel.pack_propagate(False)
