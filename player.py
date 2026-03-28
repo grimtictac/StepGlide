@@ -1468,6 +1468,39 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(btn_row, text='\U0001f4be Snapshot Settings', fg_color='#2d6a4f',
                       hover_color='#40916c', command=snapshot_settings).pack(side='left', padx=4)
 
+        def show_all_genres():
+            """Display all genres detected in the library."""
+            genre_dialog = ctk.CTkToplevel(dialog)
+            genre_dialog.title('All Detected Genres')
+            genre_dialog.geometry('350x450')
+            genre_dialog.transient(dialog)
+            genre_dialog.after(100, genre_dialog.grab_set)
+
+            ctk.CTkLabel(genre_dialog, text='All Detected Genres',
+                         font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(12, 2))
+            ctk.CTkLabel(genre_dialog, text=f'{len(self.genres)} genres found in library',
+                         font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 8))
+
+            genre_list = ctk.CTkScrollableFrame(genre_dialog, fg_color='#1a1a2e')
+            genre_list.pack(fill='both', expand=True, padx=16, pady=(0, 8))
+
+            for i, genre in enumerate(sorted(self.genres), 1):
+                # Count tracks with this genre
+                count = sum(1 for e in self.playlist if e.get('genre') == genre)
+                row = ctk.CTkFrame(genre_list, fg_color='#2b2b2b' if i % 2 == 0 else '#252535',
+                                   corner_radius=4)
+                row.pack(fill='x', pady=1)
+                ctk.CTkLabel(row, text=genre, font=ctk.CTkFont(size=11),
+                             text_color='#dce4ee').pack(side='left', padx=8, pady=4)
+                ctk.CTkLabel(row, text=f'{count} tracks', font=ctk.CTkFont(size=11),
+                             text_color='#888888').pack(side='right', padx=8, pady=4)
+
+            ctk.CTkButton(genre_dialog, text='Close', fg_color='#555555', width=100,
+                          command=genre_dialog.destroy).pack(pady=(4, 12))
+
+        ctk.CTkButton(btn_row, text='\U0001f3b5 Show Genres', fg_color='#4a4a4a',
+                      hover_color='#555555', command=show_all_genres).pack(side='left', padx=4)
+
         def save_and_close():
             self._genre_groups = working_groups
             self._save_genre_groups()
