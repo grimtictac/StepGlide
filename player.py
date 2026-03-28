@@ -90,10 +90,15 @@ class MusicPlayer(ctk.CTk):
         # Play queue: list of playlist indices
         self._play_queue = []
 
+        # Saved playlists: {name: [file_path, ...]}
+        self._playlists = {}
+        self._active_playlist = None  # name of currently active playlist filter
+
         self._init_database()
 
         self._build_ui()
         self._load_tracks_from_db()
+        self._refresh_playlist_listbox()
         self._bind_shortcuts()
         self.after(500, self._poll)
 
@@ -238,6 +243,14 @@ class MusicPlayer(ctk.CTk):
                 durations.append((label, lo, hi))
             if durations:
                 self._length_filter_durations = durations
+        # Playlists
+        playlists_el = root.find('playlists')
+        if playlists_el is not None:
+            self._playlists = {}
+            for pl_el in playlists_el.findall('playlist'):
+                name = pl_el.get('name', '')
+                paths = [t.text for t in pl_el.findall('track') if t.text]
+                self._playlists[name] = paths
 
     def _save_config_to_xml(self):
         """Save all settings to the XML config file."""
@@ -258,6 +271,13 @@ class MusicPlayer(ctk.CTk):
             if hi is not None:
                 attrs['hi'] = str(hi)
             ET.SubElement(durations_el, 'duration', **attrs)
+        # Playlists
+        playlists_el = ET.SubElement(root, 'playlists')
+        for name, paths in self._playlists.items():
+            pl_el = ET.SubElement(playlists_el, 'playlist', name=name)
+            for path in paths:
+                t_el = ET.SubElement(pl_el, 'track')
+                t_el.text = path
         # Write with indentation
         ET.indent(root)
         tree = ET.ElementTree(root)
@@ -758,10 +778,14 @@ class MusicPlayer(ctk.CTk):
         browse = ctk.CTkFrame(main_area, fg_color='#2b2b2b', corner_radius=8)
         browse.pack(side='right', fill='both', expand=True)
 
-        # ── GENRE LISTBOX (left sidebar) ──
-        genre_panel = ctk.CTkFrame(main_area, width=170, fg_color='#2b2b2b', corner_radius=8)
-        genre_panel.pack(side='left', fill='y', padx=(0, 4))
-        genre_panel.pack_propagate(False)
+        # ── LEFT SIDEBAR (genre + playlist panels) ──
+        left_sidebar = ctk.CTkFrame(main_area, width=170, fg_color='transparent')
+        left_sidebar.pack(side='left', fill='y', padx=(0, 4))
+        left_sidebar.pack_propagate(False)
+
+        # ── GENRE LISTBOX ──
+        genre_panel = ctk.CTkFrame(left_sidebar, fg_color='#2b2b2b', corner_radius=8)
+        genre_panel.pack(fill='both', expand=True, pady=(0, 4))
 
         genre_header = ctk.CTkFrame(genre_panel, fg_color='transparent')
         genre_header.pack(fill='x', padx=6, pady=(6, 2))
@@ -780,6 +804,27 @@ class MusicPlayer(ctk.CTk):
             activestyle='none', exportselection=False)
         self._genre_listbox.pack(fill='both', expand=True, padx=4, pady=(0, 6))
         self._genre_listbox.bind('<<ListboxSelect>>', self._on_genre_listbox_select)
+
+        # ── PLAYLIST PANEL ──
+        playlist_panel = ctk.CTkFrame(left_sidebar, fg_color='#2b2b2b', corner_radius=8)
+        playlist_panel.pack(fill='both', expand=True)
+
+        playlist_header = ctk.CTkFrame(playlist_panel, fg_color='transparent')
+        playlist_header.pack(fill='x', padx=6, pady=(6, 2))
+        ctk.CTkLabel(playlist_header, text='Playlists',
+                     font=ctk.CTkFont(size=12, weight='bold')).pack(side='left')
+        ctk.CTkButton(playlist_header, text='+', width=24, height=22,
+                      font=ctk.CTkFont(size=14), fg_color='transparent',
+                      hover_color='#3b3b3b', command=self._create_playlist).pack(side='right')
+
+        self._playlist_listbox = tk.Listbox(
+            playlist_panel, bg='#2b2b2b', fg='#dce4ee',
+            selectbackground='#1f6aa5', selectforeground='#ffffff',
+            font=('Segoe UI', 10), borderwidth=0, highlightthickness=0,
+            activestyle='none', exportselection=False)
+        self._playlist_listbox.pack(fill='both', expand=True, padx=4, pady=(0, 6))
+        self._playlist_listbox.bind('<<ListboxSelect>>', self._on_playlist_select)
+        self._playlist_listbox.bind('<Button-3>', self._on_playlist_right_click)
 
         # ── Filter Row 1: Rating + Liked by ──
         filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
@@ -1626,7 +1671,17 @@ class MusicPlayer(ctk.CTk):
         first_played_filter = getattr(self, '_first_played_var', None)
         last_played_filter = getattr(self, '_last_played_var', None)
         file_created_filter = getattr(self, '_file_created_var', None)
+
+        # Build playlist path set if filtering by playlist
+        playlist_paths = None
+        if self._active_playlist and self._active_playlist in self._playlists:
+            playlist_paths = set(self._playlists[self._active_playlist])
+
         for idx, entry in enumerate(self.playlist):
+            # Playlist filter
+            if playlist_paths is not None:
+                if entry['path'] not in playlist_paths:
+                    continue
             if genre_filter is not None:
                 if entry.get('genre') not in genre_filter:
                     continue
@@ -2266,6 +2321,115 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(btn_row, text='Generate Queue', fg_color='#1f6aa5',
                       command=generate).pack(side='right', padx=4)
 
+    # ── Playlist management ────────────────────────────
+
+    def _refresh_playlist_listbox(self):
+        """Rebuild the playlist listbox."""
+        self._playlist_listbox.delete(0, 'end')
+        self._playlist_listbox.insert('end', '♫  All Tracks')
+        for name in sorted(self._playlists.keys()):
+            count = len(self._playlists[name])
+            self._playlist_listbox.insert('end', f'{name}  ({count})')
+        # Highlight active
+        if self._active_playlist is None:
+            self._playlist_listbox.selection_set(0)
+        else:
+            names = sorted(self._playlists.keys())
+            if self._active_playlist in names:
+                self._playlist_listbox.selection_set(names.index(self._active_playlist) + 1)
+
+    def _create_playlist(self):
+        name = simpledialog.askstring('New Playlist', 'Playlist name:', parent=self)
+        if name and name.strip():
+            name = name.strip()
+            if name not in self._playlists:
+                self._playlists[name] = []
+                self._save_config_to_xml()
+                self._refresh_playlist_listbox()
+
+    def _on_playlist_select(self, event=None):
+        sel = self._playlist_listbox.curselection()
+        if not sel:
+            return
+        if sel[0] == 0:
+            self._active_playlist = None
+        else:
+            names = sorted(self._playlists.keys())
+            idx = sel[0] - 1
+            if idx < len(names):
+                self._active_playlist = names[idx]
+            else:
+                self._active_playlist = None
+        self._apply_filter()
+        self._build_tag_bar()
+
+    def _on_playlist_right_click(self, ev):
+        idx = self._playlist_listbox.nearest(ev.y)
+        if idx < 0:
+            return
+        self._playlist_listbox.selection_clear(0, 'end')
+        self._playlist_listbox.selection_set(idx)
+        if idx == 0:
+            return  # "All Tracks" has no context menu
+        names = sorted(self._playlists.keys())
+        pl_idx = idx - 1
+        if pl_idx >= len(names):
+            return
+        pl_name = names[pl_idx]
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label='Rename…', command=lambda: self._rename_playlist(pl_name))
+        menu.add_command(label='Delete', command=lambda: self._delete_playlist(pl_name))
+        menu.add_separator()
+        menu.add_command(label='Load into Queue', command=lambda: self._playlist_to_queue(pl_name))
+        menu.tk_popup(ev.x_root, ev.y_root)
+
+    def _rename_playlist(self, old_name):
+        new_name = simpledialog.askstring('Rename Playlist', 'New name:',
+                                          initialvalue=old_name, parent=self)
+        if new_name and new_name.strip() and new_name.strip() != old_name:
+            self._playlists[new_name.strip()] = self._playlists.pop(old_name)
+            if self._active_playlist == old_name:
+                self._active_playlist = new_name.strip()
+            self._save_config_to_xml()
+            self._refresh_playlist_listbox()
+
+    def _delete_playlist(self, name):
+        if messagebox.askyesno('Delete Playlist', f'Delete playlist "{name}"?'):
+            self._playlists.pop(name, None)
+            if self._active_playlist == name:
+                self._active_playlist = None
+            self._save_config_to_xml()
+            self._refresh_playlist_listbox()
+            self._apply_filter()
+            self._build_tag_bar()
+
+    def _playlist_to_queue(self, name):
+        """Load a playlist's tracks into the play queue."""
+        paths = self._playlists.get(name, [])
+        path_to_idx = {e['path']: i for i, e in enumerate(self.playlist)}
+        for path in paths:
+            idx = path_to_idx.get(path)
+            if idx is not None:
+                self._add_to_queue(idx)
+
+    def _add_selected_to_playlist(self, playlist_name):
+        """Add selected treeview tracks to a named playlist."""
+        sel = self.tree.selection()
+        if not sel:
+            return
+        all_items = self.tree.get_children()
+        for item in sel:
+            try:
+                idx = list(all_items).index(item)
+                playlist_idx = self.display_indices[idx]
+                path = self.playlist[playlist_idx]['path']
+                if path not in self._playlists[playlist_name]:
+                    self._playlists[playlist_name].append(path)
+            except (ValueError, IndexError):
+                pass
+        self._save_config_to_xml()
+        self._refresh_playlist_listbox()
+
     # ── Track selection events ───────────────────────────
 
     def _on_right_click(self, ev):
@@ -2307,6 +2471,15 @@ class MusicPlayer(ctk.CTk):
 
         menu.add_separator()
         menu.add_command(label='Show Play History', command=lambda: self._show_play_history(entry))
+
+        # Playlist submenu
+        if self._playlists:
+            pl_menu = tk.Menu(menu, tearoff=0)
+            for pl_name in sorted(self._playlists.keys()):
+                pl_menu.add_command(label=pl_name,
+                                    command=lambda n=pl_name: self._add_selected_to_playlist(n))
+            menu.add_cascade(label='\U0001f4c1  Add to Playlist', menu=pl_menu)
+
         menu.add_separator()
         menu.add_command(label='\U0001f5d1  Remove from Library',
                          command=lambda: self._context_remove(playlist_idx))
