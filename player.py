@@ -634,18 +634,18 @@ class MusicPlayer(ctk.CTk):
         tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
         tree_frame.pack(fill='both', expand=True, padx=6, pady=(0, 6))
 
-        # Search box
+        # Tag filter bar — multi-row wrapping layout
+        self.tag_bar_frame = ctk.CTkFrame(
+            tree_frame, fg_color='#2b2b2b', corner_radius=6)
+        self.tag_bar_frame.pack(fill='x', pady=(0, 4))
+
+        # Search box (below tags)
         self._search_var = tk.StringVar()
         self._search_var.trace_add('write', lambda *_: self._apply_filter())
         self._search_entry = ctk.CTkEntry(tree_frame, textvariable=self._search_var,
                                            placeholder_text='\U0001f50d  Search tracks\u2026',
                                            height=30, font=ctk.CTkFont(size=12))
         self._search_entry.pack(fill='x', pady=(0, 4))
-
-        # Tag filter bar (under search) — multi-row wrapping layout
-        self.tag_bar_frame = ctk.CTkFrame(
-            tree_frame, fg_color='#2b2b2b', corner_radius=6)
-        self.tag_bar_frame.pack(fill='x', pady=(0, 4))
 
         self._all_columns = ('Title', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
                               'Plays', 'First Played', 'Last Played', 'File Created')
