@@ -94,6 +94,12 @@ class MusicPlayer(ctk.CTk):
         self._playlists = {}
         self._active_playlist = None  # name of currently active playlist filter
 
+        # Debounce timer for search
+        self._search_debounce_id = None
+
+        # Guard to prevent _on_select re-entry during _apply_filter
+        self._applying_filter = False
+
         self._init_database()
 
         self._build_ui()
@@ -930,7 +936,7 @@ class MusicPlayer(ctk.CTk):
 
         # Search box (below tags)
         self._search_var = tk.StringVar()
-        self._search_var.trace_add('write', lambda *_: self._apply_filter())
+        self._search_var.trace_add('write', lambda *_: self._debounced_search())
         self._search_entry = ctk.CTkEntry(tree_frame, textvariable=self._search_var,
                                            placeholder_text='\U0001f50d  Search title, comment, tags, liked by\u2026',
                                            height=30, font=ctk.CTkFont(size=12))
@@ -1640,6 +1646,12 @@ class MusicPlayer(ctk.CTk):
 
     # ── Filter logic ─────────────────────────────────────
 
+    def _debounced_search(self):
+        """Debounce search input — waits 200ms after last keystroke before filtering."""
+        if self._search_debounce_id is not None:
+            self.after_cancel(self._search_debounce_id)
+        self._search_debounce_id = self.after(200, self._apply_filter)
+
     # Column-to-entry-key mapping for sorting
     _SORT_KEYS = {
         'Title': lambda e: (e.get('title') or e['basename']).lower(),
@@ -1670,6 +1682,13 @@ class MusicPlayer(ctk.CTk):
         self._apply_filter()
 
     def _apply_filter(self):
+        self._applying_filter = True
+        try:
+            self._apply_filter_inner()
+        finally:
+            self._applying_filter = False
+
+    def _apply_filter_inner(self):
         # Remember which playlist indices were selected
         prev_selected = set()
         all_items = self.tree.get_children()
@@ -1952,9 +1971,9 @@ class MusicPlayer(ctk.CTk):
 
     def _update_now_playing_highlight(self):
         """Update the now-playing row tag without rebuilding the treeview."""
-        for item in self.tree.get_children():
+        all_items = self.tree.get_children()
+        for pos, item in enumerate(all_items):
             tags = list(self.tree.item(item, 'tags'))
-            pos = list(self.tree.get_children()).index(item)
             pl_idx = self.display_indices[pos] if pos < len(self.display_indices) else None
             is_current = pl_idx == self.current_index and self.is_playing
             if is_current and self._now_playing_tag not in tags:
@@ -2733,6 +2752,8 @@ class MusicPlayer(ctk.CTk):
         self._build_tag_bar()
 
     def _on_select(self, ev):
+        if self._applying_filter:
+            return
         sel = self.tree.selection()
         if not sel:
             if self._play_now_visible:
@@ -2851,6 +2872,13 @@ class MusicPlayer(ctk.CTk):
     # ── Poll ─────────────────────────────────────────────
 
     def _poll(self):
+        try:
+            self._poll_inner()
+        except Exception:
+            pass  # never let poll crash kill the event loop
+        self.after(500, self._poll)
+
+    def _poll_inner(self):
         mp = self.vlc_player.get_media_player()
         is_playing = mp.is_playing()
 
@@ -2889,8 +2917,6 @@ class MusicPlayer(ctk.CTk):
                 self._next_track()
             elif self.playlist:
                 self.stop()
-
-        self.after(500, self._poll)
 
 
 def main():

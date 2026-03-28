@@ -22,4 +22,10 @@
     <duration label="4 – 7 min" lo="240" hi="420" />
     <duration label="&gt; 7 min" lo="420" />
   </length_filter_durations>
+  <playlists>
+    <playlist name="Shaun">
+      <track>/home/shauns/Music/LaptopBakDec25/Dec25Music/Dec22/Genre/Rumba/Dj Maksy &amp; Carlinhos Brown - Ela samba Rb25.mp3</track>
+      <track>/home/shauns/Music/LaptopBakDec25/Dec25Music/Sep2022/Dos Locos [TubeRipper.com].mp3</track>
+    </playlist>
+  </playlists>
 </music_player_config>
