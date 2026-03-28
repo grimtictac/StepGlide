@@ -11,6 +11,7 @@ Layout:
 """
 
 import os
+import shutil
 import sqlite3
 import time
 import xml.etree.ElementTree as ET
@@ -1452,6 +1453,20 @@ class MusicPlayer(ctk.CTk):
         btn_row.pack(fill='x', padx=10, pady=10)
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
                       command=dialog.destroy).pack(side='right', padx=4)
+
+        def snapshot_settings():
+            """Copy current config XML with a datestamp."""
+            if not os.path.exists(CONFIG_PATH):
+                messagebox.showinfo('Snapshot', 'No config file found yet.', parent=dialog)
+                return
+            stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            base, ext = os.path.splitext(CONFIG_PATH)
+            dest = f'{base}_{stamp}{ext}'
+            shutil.copy2(CONFIG_PATH, dest)
+            messagebox.showinfo('Snapshot', f'Settings snapshot saved:\n{os.path.basename(dest)}', parent=dialog)
+
+        ctk.CTkButton(btn_row, text='\U0001f4be Snapshot Settings', fg_color='#2d6a4f',
+                      hover_color='#40916c', command=snapshot_settings).pack(side='left', padx=4)
 
         def save_and_close():
             self._genre_groups = working_groups
