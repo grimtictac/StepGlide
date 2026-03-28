@@ -742,6 +742,9 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(queue_btn_row, text='🗑', width=30, height=24,
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                       command=self._queue_remove_selected).pack(side='right', padx=2)
+        ctk.CTkButton(queue_btn_row, text='🎲', width=30, height=24,
+                      font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
+                      command=self._random_queue_dialog).pack(side='right', padx=2)
 
         # ── BROWSE PANEL (fills remaining space) ──
         browse = ctk.CTkFrame(main_area, fg_color='#2b2b2b', corner_radius=8)
@@ -2111,6 +2114,149 @@ class MusicPlayer(ctk.CTk):
         if 0 <= idx < len(self._play_queue):
             self._play_queue.pop(idx)
             self._refresh_queue_listbox()
+
+    def _random_queue_dialog(self):
+        """Open a dialog to configure and generate a random play queue."""
+        import random as _random
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Random Queue Generator')
+        dialog.geometry('480x550')
+        dialog.transient(self)
+        dialog.after(100, dialog.grab_set)
+
+        ctk.CTkLabel(dialog, text='Random Queue Generator',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(12, 2))
+        ctk.CTkLabel(dialog, text='Configure genre proportions, rating, and recency filters.',
+                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 8))
+
+        # Queue size
+        size_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        size_frame.pack(fill='x', padx=16, pady=(0, 6))
+        ctk.CTkLabel(size_frame, text='Queue size:', font=ctk.CTkFont(size=12)).pack(side='left')
+        queue_size_var = tk.IntVar(value=20)
+        ctk.CTkEntry(size_frame, textvariable=queue_size_var, width=60, height=28,
+                     font=ctk.CTkFont(size=12)).pack(side='left', padx=8)
+
+        # Rating filter
+        rating_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        rating_frame.pack(fill='x', padx=16, pady=(0, 6))
+        ctk.CTkLabel(rating_frame, text='Min rating:', font=ctk.CTkFont(size=12)).pack(side='left')
+        min_rating_var = tk.IntVar(value=0)
+        ctk.CTkEntry(rating_frame, textvariable=min_rating_var, width=60, height=28,
+                     font=ctk.CTkFont(size=12)).pack(side='left', padx=8)
+
+        # Recency filter
+        recency_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        recency_frame.pack(fill='x', padx=16, pady=(0, 8))
+        ctk.CTkLabel(recency_frame, text='Not played in last:', font=ctk.CTkFont(size=12)).pack(side='left')
+        recency_var = tk.StringVar(value='No filter')
+        recency_vals = ['No filter', '1 day', '3 days', '1 week', '2 weeks', '1 month', 'Never played']
+        ctk.CTkOptionMenu(recency_frame, variable=recency_var, values=recency_vals,
+                          width=140, height=28, font=ctk.CTkFont(size=11),
+                          fg_color='#3b3b3b', button_color='#4a4a4a',
+                          dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5').pack(side='left', padx=8)
+
+        # Genre proportions
+        ctk.CTkLabel(dialog, text='Genre Proportions (weights):',
+                     font=ctk.CTkFont(size=12, weight='bold')).pack(anchor='w', padx=16, pady=(4, 2))
+
+        genre_scroll = ctk.CTkScrollableFrame(dialog, fg_color='#1a1a2e')
+        genre_scroll.pack(fill='both', expand=True, padx=16, pady=(0, 8))
+
+        genre_weight_vars = {}
+        for genre in sorted(self.genres):
+            row = ctk.CTkFrame(genre_scroll, fg_color='transparent')
+            row.pack(fill='x', pady=1)
+            ctk.CTkLabel(row, text=genre, font=ctk.CTkFont(size=11),
+                         text_color='#dce4ee', width=180, anchor='w').pack(side='left', padx=(8, 4))
+            wvar = tk.IntVar(value=1)
+            genre_weight_vars[genre] = wvar
+            ctk.CTkEntry(row, textvariable=wvar, width=50, height=24,
+                         font=ctk.CTkFont(size=11)).pack(side='left', padx=4)
+            # Track count
+            count = sum(1 for e in self.playlist if e.get('genre') == genre)
+            ctk.CTkLabel(row, text=f'({count})', font=ctk.CTkFont(size=10),
+                         text_color='#666666').pack(side='left', padx=4)
+
+        # Buttons
+        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row.pack(fill='x', padx=16, pady=(4, 12))
+
+        def generate():
+            size = max(1, queue_size_var.get())
+            min_rat = min_rating_var.get()
+            recency = recency_var.get()
+
+            # Build recency cutoff
+            cutoff = None
+            if recency == 'Never played':
+                cutoff = 'never'
+            elif recency != 'No filter':
+                days_map = {'1 day': 1, '3 days': 3, '1 week': 7, '2 weeks': 14, '1 month': 30}
+                days = days_map.get(recency, 0)
+                if days:
+                    from datetime import timedelta
+                    cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=days)).isoformat()
+
+            # Build genre weights
+            weights = {}
+            for genre, wvar in genre_weight_vars.items():
+                w = max(0, wvar.get())
+                if w > 0:
+                    weights[genre] = w
+
+            # Collect eligible tracks per genre
+            eligible_by_genre = {}
+            for idx, entry in enumerate(self.playlist):
+                g = entry.get('genre', 'Unknown')
+                if g not in weights:
+                    continue
+                if entry.get('rating', 0) < min_rat:
+                    continue
+                if cutoff == 'never':
+                    if entry.get('last_played'):
+                        continue
+                elif cutoff:
+                    lp = entry.get('last_played')
+                    if lp and lp > cutoff:
+                        continue
+                eligible_by_genre.setdefault(g, []).append(idx)
+
+            if not eligible_by_genre:
+                messagebox.showinfo('Random Queue', 'No tracks match the criteria.', parent=dialog)
+                return
+
+            # Build weighted genre distribution
+            genre_list = []
+            weight_list = []
+            for g in eligible_by_genre:
+                genre_list.append(g)
+                weight_list.append(weights.get(g, 1))
+
+            queue = []
+            for _ in range(size):
+                if not genre_list:
+                    break
+                chosen_genre = _random.choices(genre_list, weights=weight_list, k=1)[0]
+                pool = eligible_by_genre.get(chosen_genre, [])
+                available = [t for t in pool if t not in queue]
+                if not available:
+                    # Remove exhausted genre
+                    gi = genre_list.index(chosen_genre)
+                    genre_list.pop(gi)
+                    weight_list.pop(gi)
+                    continue
+                queue.append(_random.choice(available))
+
+            self._play_queue = queue
+            self._refresh_queue_listbox()
+            dialog.destroy()
+
+        ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
+                      command=dialog.destroy).pack(side='right', padx=4)
+        ctk.CTkButton(btn_row, text='Generate Queue', fg_color='#1f6aa5',
+                      command=generate).pack(side='right', padx=4)
 
     # ── Track selection events ───────────────────────────
 
