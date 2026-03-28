@@ -1194,7 +1194,7 @@ class MusicPlayer(ctk.CTk):
             for tag in sorted(self._all_tags):
                 row = ctk.CTkFrame(tags_content, fg_color='#2b2b2b', corner_radius=8)
                 row.pack(fill='x', pady=2)
-                ctk.CTkLabel(row, text=tag, font=ctk.CTkFont(size=12)).pack(side='left', padx=10, pady=6)
+                ctk.CTkLabel(row, text=tag.upper(), font=ctk.CTkFont(size=12)).pack(side='left', padx=10, pady=6)
                 ctk.CTkButton(row, text='\U0001f5d1', width=30, height=24, fg_color='transparent',
                               command=lambda t=tag: on_delete_tag(t)).pack(side='right', padx=4, pady=4)
                 ctk.CTkButton(row, text='\u270f', width=30, height=24, fg_color='transparent',
@@ -1389,7 +1389,7 @@ class MusicPlayer(ctk.CTk):
             rating = entry.get('rating', 0)
             rating_str = f'+{rating}' if rating > 0 else str(rating)
             comment = entry.get('comment', '')
-            tags_str = ', '.join(sorted(entry.get('tags', []))) if entry.get('tags') else '\u2014'
+            tags_str = ', '.join(sorted(t.upper() for t in entry.get('tags', []))) if entry.get('tags') else '\u2014'
             liked_str = ', '.join(sorted(entry.get('liked_by', set()))) if entry.get('liked_by') else '\u2014'
             disliked_str = ', '.join(sorted(entry.get('disliked_by', set()))) if entry.get('disliked_by') else '\u2014'
             plays = entry.get('play_count', 0)
@@ -1712,7 +1712,7 @@ class MusicPlayer(ctk.CTk):
             track_tags = set(entry.get('tags', []))
             for tag in sorted(self._all_tags):
                 has_tag = tag in track_tags
-                label = f'\u2713  {tag}' if has_tag else f'     {tag}'
+                label = f'\u2713  {tag.upper()}' if has_tag else f'     {tag.upper()}'
                 tags_menu.add_command(label=label,
                                       command=lambda t=tag, applied=has_tag: self._context_toggle_tag(playlist_idx, t, applied))
             menu.add_separator()
