@@ -1,5 +1,6 @@
-#!/usr/bin/env python3
-"""A music player using CustomTkinter + VLC
+
+"""
+A music player using CustomTkinter + VLC
 
 Layout:
 - Top bar: hamburger menu + now-playing title (big, bold)
@@ -8,6 +9,7 @@ Layout:
 - Right: tag editor panel + volume slider
 - Bottom: big play/stop buttons + scrub bar
 """
+
 import json
 import os
 import sqlite3
@@ -17,10 +19,6 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 import customtkinter as ctk
-
-# ── Configuration ────────────────────────────────────────
-PLAY_MIN_SECONDS = 5
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player.db')
 
 try:
     import vlc
@@ -32,6 +30,9 @@ try:
     from mutagen import File as MutagenFile
 except Exception:
     MutagenFile = None
+
+PLAY_MIN_SECONDS = 5
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player.db')
 
 
 class MusicPlayer(ctk.CTk):
@@ -87,64 +88,26 @@ class MusicPlayer(ctk.CTk):
         con = sqlite3.connect(DB_PATH)
         con.execute("""
             CREATE TABLE IF NOT EXISTS tracks (
-                id          INTEGER PRIMARY KEY,
-                file_path   TEXT UNIQUE NOT NULL,
-                title       TEXT,
-                play_count  INTEGER DEFAULT 0,
-                first_played TIMESTAMP,
-                last_played  TIMESTAMP,
-                file_created TIMESTAMP,
-                db_created   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                id INTEGER PRIMARY KEY,
+                path TEXT UNIQUE,
+                title TEXT,
+                artist TEXT,
+                album TEXT,
+                genre TEXT,
+                play_count INTEGER DEFAULT 0,
+                first_played TEXT,
+                last_played TEXT,
+                file_created TEXT
             )
         """)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS play_history (
-                id        INTEGER PRIMARY KEY,
-                track_id  INTEGER NOT NULL,
-                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(track_id) REFERENCES tracks(id)
-            )
-        """)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS settings (
-                key   TEXT UNIQUE NOT NULL,
-                value TEXT
-            )
-        """)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS genre_groups (
-                id         INTEGER PRIMARY KEY,
-                group_name TEXT NOT NULL,
-                sort_order INTEGER DEFAULT 0
-            )
-        """)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS genre_group_members (
-                group_id   INTEGER NOT NULL,
-                genre      TEXT NOT NULL,
-                sort_order INTEGER DEFAULT 0,
-                FOREIGN KEY(group_id) REFERENCES genre_groups(id),
-                UNIQUE(group_id, genre)
-            )
-        """)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS track_tags (
-                track_id INTEGER NOT NULL,
-                tag      TEXT NOT NULL,
-                FOREIGN KEY(track_id) REFERENCES tracks(id),
-                UNIQUE(track_id, tag)
-            )
-        """)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS track_votes (
-                id        INTEGER PRIMARY KEY,
-                track_id  INTEGER NOT NULL,
-                vote      INTEGER NOT NULL,  -- +1 or -1
-                voter     TEXT DEFAULT '',
-                voted_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(track_id) REFERENCES tracks(id)
-            )
-        """)
+        # New table for play events
+        con.execute('''CREATE TABLE IF NOT EXISTS track_plays (
+            id INTEGER PRIMARY KEY,
+            track_id INTEGER,
+            played_at TEXT,
+            FOREIGN KEY(track_id) REFERENCES tracks(id)
+        )''')
+        # ...existing code...
         con.commit()
 
         cur = con.execute("PRAGMA table_info(tracks)")
@@ -302,17 +265,23 @@ class MusicPlayer(ctk.CTk):
         now = datetime.now(tz=timezone.utc).isoformat()
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
-        cur.execute("""
-            UPDATE tracks
-               SET play_count  = play_count + 1,
-                   first_played = COALESCE(first_played, ?),
-                   last_played  = ?
-             WHERE file_path = ?
-        """, (now, now, path))
-        cur.execute("SELECT id FROM tracks WHERE file_path = ?", (path,))
+        # Get track_id from path
+        cur.execute('SELECT id FROM tracks WHERE file_path = ?', (path,))
         row = cur.fetchone()
-        if row:
-            cur.execute("INSERT INTO play_history (track_id, played_at) VALUES (?, ?)", (row[0], now))
+        if not row:
+            con.close()
+            return
+        track_id = row[0]
+        cur.execute('INSERT INTO track_plays (track_id, played_at) VALUES (?, ?)', (track_id, now))
+        # Increment play_count
+        cur.execute('UPDATE tracks SET play_count = play_count + 1 WHERE id = ?', (track_id,))
+        # Update first_played and last_played in tracks table
+        cur.execute('SELECT first_played FROM tracks WHERE id = ?', (track_id,))
+        first_played = cur.fetchone()[0]
+        if not first_played:
+            cur.execute('UPDATE tracks SET first_played = ?, last_played = ? WHERE id = ?', (now, now, track_id))
+        else:
+            cur.execute('UPDATE tracks SET last_played = ? WHERE id = ?', (now, track_id))
         con.commit()
         con.close()
 
@@ -601,27 +570,27 @@ class MusicPlayer(ctk.CTk):
             dropdown_text_color='#dce4ee')
         self.genre_dropdown.pack(side='right', padx=(8, 4))
 
-        # Rating threshold + liked-by filter row
-        filter_row = ctk.CTkFrame(browse, fg_color='transparent')
-        filter_row.pack(fill='x', padx=8, pady=(0, 4))
+        # ── Filter Row 1: Rating + Liked by ──
+        filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
+        filter_row1.pack(fill='x', padx=8, pady=(0, 2))
 
-        ctk.CTkLabel(filter_row, text='Rating', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        ctk.CTkLabel(filter_row1, text='Rating', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
         self._rating_filter_var = tk.StringVar(value='All')
         rating_vals = ['All', '≥ 1', '≥ 2', '≥ 3', '≥ 5', '≥ 10', '≤ -1', '≤ -3', '= 0']
         self._rating_filter_dropdown = ctk.CTkOptionMenu(
-            filter_row, variable=self._rating_filter_var,
+            filter_row1, variable=self._rating_filter_var,
             values=rating_vals, command=self._on_rating_filter,
             width=100, height=26, font=ctk.CTkFont(size=11),
             fg_color='#3b3b3b', button_color='#4a4a4a',
             button_hover_color='#555555',
             dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
             dropdown_text_color='#dce4ee')
-        self._rating_filter_dropdown.pack(side='left', padx=(6, 12))
+        self._rating_filter_dropdown.pack(side='left', padx=(6, 16))
 
-        ctk.CTkLabel(filter_row, text='Liked by', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        ctk.CTkLabel(filter_row1, text='Liked by', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
         self._liked_by_var = tk.StringVar(value='All')
         self._liked_by_dropdown = ctk.CTkOptionMenu(
-            filter_row, variable=self._liked_by_var,
+            filter_row1, variable=self._liked_by_var,
             values=['All'], command=self._on_liked_by_filter,
             width=140, height=26, font=ctk.CTkFont(size=11),
             fg_color='#3b3b3b', button_color='#4a4a4a',
@@ -629,6 +598,55 @@ class MusicPlayer(ctk.CTk):
             dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
             dropdown_text_color='#dce4ee')
         self._liked_by_dropdown.pack(side='left', padx=(6, 0))
+
+        # Reset all filters button (right-aligned on row 1)
+        self._btn_reset_filters = ctk.CTkButton(
+            filter_row1, text='✕ Reset', width=70, height=24,
+            font=ctk.CTkFont(size=10), fg_color='transparent',
+            border_width=1, border_color='#555555',
+            hover_color='#3b3b3b', text_color='#999999',
+            command=self._reset_all_filters)
+        self._btn_reset_filters.pack(side='right', padx=(0, 2))
+
+        # ── Filter Row 2: First Played + Last Played + File Created ──
+        filter_row2 = ctk.CTkFrame(browse, fg_color='transparent')
+        filter_row2.pack(fill='x', padx=8, pady=(0, 4))
+
+        ctk.CTkLabel(filter_row2, text='First Played', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        self._first_played_var = tk.StringVar(value='All')
+        self._first_played_dropdown = ctk.CTkOptionMenu(
+            filter_row2, variable=self._first_played_var,
+            values=['All', 'Today', 'This Week', 'This Month'], command=self._on_first_played_filter,
+            width=110, height=26, font=ctk.CTkFont(size=11),
+            fg_color='#3b3b3b', button_color='#4a4a4a',
+            button_hover_color='#555555',
+            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
+            dropdown_text_color='#dce4ee')
+        self._first_played_dropdown.pack(side='left', padx=(6, 16))
+
+        ctk.CTkLabel(filter_row2, text='Last Played', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        self._last_played_var = tk.StringVar(value='All')
+        self._last_played_dropdown = ctk.CTkOptionMenu(
+            filter_row2, variable=self._last_played_var,
+            values=['All', 'Today', 'This Week', 'This Month'], command=self._on_last_played_filter,
+            width=110, height=26, font=ctk.CTkFont(size=11),
+            fg_color='#3b3b3b', button_color='#4a4a4a',
+            button_hover_color='#555555',
+            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
+            dropdown_text_color='#dce4ee')
+        self._last_played_dropdown.pack(side='left', padx=(6, 16))
+
+        ctk.CTkLabel(filter_row2, text='File Created', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
+        self._file_created_var = tk.StringVar(value='All')
+        self._file_created_dropdown = ctk.CTkOptionMenu(
+            filter_row2, variable=self._file_created_var,
+            values=['All', 'Today', 'This Week', 'This Month'], command=self._on_file_created_filter,
+            width=110, height=26, font=ctk.CTkFont(size=11),
+            fg_color='#3b3b3b', button_color='#4a4a4a',
+            button_hover_color='#555555',
+            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
+            dropdown_text_color='#dce4ee')
+        self._file_created_dropdown.pack(side='left', padx=(6, 0))
 
         # Track list section
         tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
@@ -642,10 +660,10 @@ class MusicPlayer(ctk.CTk):
                                            height=30, font=ctk.CTkFont(size=12))
         self._search_entry.pack(fill='x', pady=(0, 4))
 
-        # Tag filter bar (under search)
-        self.tag_bar_frame = ctk.CTkFrame(tree_frame, height=36, fg_color='#2b2b2b', corner_radius=6)
+        # Tag filter bar (under search) — multi-row wrapping layout
+        self.tag_bar_frame = ctk.CTkFrame(
+            tree_frame, fg_color='#2b2b2b', corner_radius=6)
         self.tag_bar_frame.pack(fill='x', pady=(0, 4))
-        self.tag_bar_frame.pack_propagate(False)
 
         self._all_columns = ('Title', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
                               'Plays', 'First Played', 'Last Played', 'File Created')
@@ -861,6 +879,37 @@ class MusicPlayer(ctk.CTk):
         self._apply_filter()
         self._build_tag_bar()
 
+    def _on_first_played_filter(self, choice):
+        self._first_played_var.set(choice)
+        self._apply_filter()
+        self._build_tag_bar()
+
+    def _on_last_played_filter(self, choice):
+        self._last_played_var.set(choice)
+        self._apply_filter()
+        self._build_tag_bar()
+
+    def _on_file_created_filter(self, choice):
+        self._file_created_var.set(choice)
+        self._apply_filter()
+        self._build_tag_bar()
+
+    def _reset_all_filters(self):
+        """Reset all filter dropdowns back to 'All'."""
+        self._rating_filter_var.set('All')
+        self._rating_threshold = None
+        self._liked_by_var.set('All')
+        self._liked_by_filter = None
+        self._first_played_var.set('All')
+        self._last_played_var.set('All')
+        self._file_created_var.set('All')
+        self._genre_var.set('All')
+        self._active_genre = 'All'
+        self._active_tags = set()
+        self._search_var.set('')
+        self._apply_filter()
+        self._build_tag_bar()
+
     def _rebuild_liked_by_dropdown(self):
         """Rebuild the liked-by dropdown with current voter names."""
         if hasattr(self, '_liked_by_dropdown'):
@@ -882,28 +931,35 @@ class MusicPlayer(ctk.CTk):
         if not visible_tags:
             lbl = ctk.CTkLabel(self.tag_bar_frame, text='  No tags in current view',
                                font=ctk.CTkFont(size=10), text_color='#666666')
-            lbl.pack(side='left', padx=6)
+            lbl.grid(row=0, column=0, padx=6, pady=5)
             self._tag_buttons.append(lbl)
             return
 
         all_active = not self._active_tags  # empty set means "All"
-        btn_all = ctk.CTkButton(self.tag_bar_frame, text='All', height=26, width=50,
+        btn_all = ctk.CTkButton(self.tag_bar_frame, text='ALL', height=26, width=50,
                                 font=ctk.CTkFont(size=11),
                                 fg_color='#1f6aa5' if all_active else 'transparent',
                                 border_width=1, border_color='#555555',
                                 command=lambda: self._on_tag_filter('All'))
-        btn_all.pack(side='left', padx=(6, 2), pady=5)
+        btn_all.grid(row=0, column=0, padx=(6, 2), pady=3)
         self._tag_buttons.append(btn_all)
 
+        col = 1
+        row = 0
+        max_cols = 8  # wrap after this many tags per row
         for tag in sorted(visible_tags):
+            if col >= max_cols:
+                col = 0
+                row += 1
             is_active = tag in self._active_tags
-            btn = ctk.CTkButton(self.tag_bar_frame, text=tag, height=26,
+            btn = ctk.CTkButton(self.tag_bar_frame, text=tag.upper(), height=26,
                                 font=ctk.CTkFont(size=11),
                                 fg_color='#1f6aa5' if is_active else 'transparent',
                                 border_width=1, border_color='#555555',
                                 command=lambda t=tag: self._on_tag_filter(t))
-            btn.pack(side='left', padx=2, pady=5)
+            btn.grid(row=row, column=col, padx=2, pady=3)
             self._tag_buttons.append(btn)
+            col += 1
 
     def _on_tag_filter(self, tag):
         if tag == 'All':
@@ -1237,6 +1293,13 @@ class MusicPlayer(ctk.CTk):
 
         # Phase 1: collect matching indices
         matched = []
+        from datetime import datetime, timedelta
+        today = datetime.now().date()
+        week_ago = today - timedelta(days=7)
+        month_ago = today - timedelta(days=30)
+        first_played_filter = getattr(self, '_first_played_var', None)
+        last_played_filter = getattr(self, '_last_played_var', None)
+        file_created_filter = getattr(self, '_file_created_var', None)
         for idx, entry in enumerate(self.playlist):
             if genre_filter is not None:
                 if entry.get('genre') not in genre_filter:
@@ -1258,6 +1321,54 @@ class MusicPlayer(ctk.CTk):
             # Liked-by filter
             if self._liked_by_filter:
                 if self._liked_by_filter not in entry.get('liked_by', set()):
+                    continue
+            # First Played filter
+            if first_played_filter and first_played_filter.get() != 'All':
+                fp = entry.get('first_played')
+                if fp:
+                    try:
+                        fp_date = datetime.fromisoformat(fp).date()
+                    except Exception:
+                        fp_date = None
+                else:
+                    fp_date = None
+                if first_played_filter.get() == 'Today' and (not fp_date or fp_date != today):
+                    continue
+                if first_played_filter.get() == 'This Week' and (not fp_date or fp_date < week_ago):
+                    continue
+                if first_played_filter.get() == 'This Month' and (not fp_date or fp_date < month_ago):
+                    continue
+            # Last Played filter
+            if last_played_filter and last_played_filter.get() != 'All':
+                lp = entry.get('last_played')
+                if lp:
+                    try:
+                        lp_date = datetime.fromisoformat(lp).date()
+                    except Exception:
+                        lp_date = None
+                else:
+                    lp_date = None
+                if last_played_filter.get() == 'Today' and (not lp_date or lp_date != today):
+                    continue
+                if last_played_filter.get() == 'This Week' and (not lp_date or lp_date < week_ago):
+                    continue
+                if last_played_filter.get() == 'This Month' and (not lp_date or lp_date < month_ago):
+                    continue
+            # File Created filter
+            if file_created_filter and file_created_filter.get() != 'All':
+                fc = entry.get('file_created')
+                if fc:
+                    try:
+                        fc_date = datetime.fromisoformat(fc).date()
+                    except Exception:
+                        fc_date = None
+                else:
+                    fc_date = None
+                if file_created_filter.get() == 'Today' and (not fc_date or fc_date != today):
+                    continue
+                if file_created_filter.get() == 'This Week' and (not fc_date or fc_date < week_ago):
+                    continue
+                if file_created_filter.get() == 'This Month' and (not fc_date or fc_date < month_ago):
                     continue
             if search_term:
                 title_lower = entry.get('title', entry['basename']).lower()
@@ -1608,6 +1719,8 @@ class MusicPlayer(ctk.CTk):
             menu.add_cascade(label='\U0001f3f7  Tags', menu=tags_menu)
 
         menu.add_separator()
+        menu.add_command(label='Show Play History', command=lambda: self._show_play_history(entry))
+        menu.add_separator()
         menu.add_command(label='\U0001f5d1  Remove from Library',
                          command=lambda: self._context_remove(playlist_idx))
         menu.tk_popup(ev.x_root, ev.y_root)
@@ -1627,6 +1740,65 @@ class MusicPlayer(ctk.CTk):
             self._play_recorded = False
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
+
+    def _show_play_history(self, entry):
+        """Show a dialog listing all play events for a track."""
+        track_id = self._get_track_id(entry['path'])
+        if not track_id:
+            messagebox.showinfo('Play History', 'No play history available.')
+            return
+
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        cur.execute('SELECT played_at FROM track_plays WHERE track_id = ? ORDER BY played_at DESC', (track_id,))
+        rows = cur.fetchall()
+        con.close()
+
+        dialog = ctk.CTkToplevel(self)
+        title = entry.get('title', entry['basename'])
+        dialog.title(f'Play History — {title}')
+        dialog.geometry('400x450')
+        dialog.transient(self)
+        dialog.after(100, dialog.grab_set)
+
+        ctk.CTkLabel(dialog, text=f'Play History',
+                     font=ctk.CTkFont(size=15, weight='bold')).pack(pady=(12, 2))
+        ctk.CTkLabel(dialog, text=title,
+                     font=ctk.CTkFont(size=12), text_color='#aaaaaa',
+                     wraplength=360).pack(pady=(0, 8))
+
+        stats_frame = ctk.CTkFrame(dialog, fg_color='#2b2b2b', corner_radius=8)
+        stats_frame.pack(fill='x', padx=16, pady=(0, 8))
+
+        play_count = entry.get('play_count', 0)
+        first_p = self._format_ts(entry.get('first_played'), relative=False)
+        last_p = self._format_ts(entry.get('last_played'), relative=True)
+
+        ctk.CTkLabel(stats_frame, text=f'Total plays: {play_count}    |    First: {first_p}    |    Last: {last_p}',
+                     font=ctk.CTkFont(size=11), text_color='#cccccc').pack(padx=10, pady=8)
+
+        if not rows:
+            ctk.CTkLabel(dialog, text='No play events recorded yet.',
+                         font=ctk.CTkFont(size=12), text_color='#666666').pack(pady=30)
+        else:
+            list_frame = ctk.CTkScrollableFrame(dialog, fg_color='#1a1a2e')
+            list_frame.pack(fill='both', expand=True, padx=16, pady=(0, 8))
+
+            for i, (played_at,) in enumerate(rows, 1):
+                ts_abs = self._format_ts(played_at, relative=False)
+                ts_rel = self._format_ts(played_at, relative=True)
+                row = ctk.CTkFrame(list_frame, fg_color='#2b2b2b' if i % 2 == 0 else '#252535',
+                                   corner_radius=4)
+                row.pack(fill='x', pady=1)
+                ctk.CTkLabel(row, text=f'#{i}', font=ctk.CTkFont(size=11, weight='bold'),
+                             text_color='#888888', width=40).pack(side='left', padx=(8, 4), pady=4)
+                ctk.CTkLabel(row, text=ts_abs, font=ctk.CTkFont(size=11),
+                             text_color='#dce4ee').pack(side='left', padx=4, pady=4)
+                ctk.CTkLabel(row, text=ts_rel, font=ctk.CTkFont(size=11),
+                             text_color='#888888').pack(side='right', padx=8, pady=4)
+
+        ctk.CTkButton(dialog, text='Close', fg_color='#555555', width=100,
+                      command=dialog.destroy).pack(pady=(4, 12))
 
     def _context_edit_title(self, playlist_idx):
         entry = self.playlist[playlist_idx]
