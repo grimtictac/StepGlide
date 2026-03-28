@@ -911,19 +911,6 @@ class MusicPlayer(ctk.CTk):
         self._apply_filter()
         self._build_tag_bar()
 
-    def _on_genre_dropdown(self, choice):
-        """Handle genre dropdown selection (legacy, kept for compatibility)."""
-        kind, name = self._genre_label_map.get(choice, ('all', 'All'))
-        if kind == 'all':
-            self._active_genre = 'All'
-        elif kind == 'group':
-            self._active_genre = name
-        else:
-            self._active_genre = name
-        self._active_tags = set()  # reset tag filter on genre change
-        self._apply_filter()
-        self._build_tag_bar()
-
     def _get_genres_for_filter(self):
         if self._active_genre == 'All':
             return None
@@ -2103,7 +2090,7 @@ class MusicPlayer(ctk.CTk):
         self.playlist.pop(playlist_idx)
         con = sqlite3.connect(DB_PATH)
         con.execute("DELETE FROM track_tags WHERE track_id = (SELECT id FROM tracks WHERE file_path = ?)", (path,))
-        con.execute("DELETE FROM play_history WHERE track_id = (SELECT id FROM tracks WHERE file_path = ?)", (path,))
+        con.execute("DELETE FROM track_plays WHERE track_id = (SELECT id FROM tracks WHERE file_path = ?)", (path,))
         con.execute("DELETE FROM tracks WHERE file_path = ?", (path,))
         con.commit()
         con.close()
