@@ -551,28 +551,22 @@ class MusicPlayer(ctk.CTk):
         # ── BROWSE PANEL (left) ──
         browse = ctk.CTkFrame(paned, fg_color='#2b2b2b', corner_radius=8)
 
-        # Genre section — compact dropdown row
-        genre_header = ctk.CTkFrame(browse, fg_color='transparent')
-        genre_header.pack(fill='x', padx=8, pady=(8, 4))
-        ctk.CTkLabel(genre_header, text='Genre', font=ctk.CTkFont(size=13, weight='bold')).pack(side='left')
-        ctk.CTkButton(genre_header, text='\u2699', width=30, height=26,
-                      font=ctk.CTkFont(size=14), command=self._open_settings).pack(side='right')
+        # ── Filter Row 1: Genre + Rating + Liked by ──
+        filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
+        filter_row1.pack(fill='x', padx=8, pady=(8, 2))
 
+        ctk.CTkLabel(filter_row1, text='Genre', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
         self._genre_var = tk.StringVar(value='All')
         self.genre_dropdown = ctk.CTkOptionMenu(
-            genre_header, variable=self._genre_var,
+            filter_row1, variable=self._genre_var,
             values=['All'], command=self._on_genre_dropdown,
-            width=220, height=30,
-            font=ctk.CTkFont(size=12),
+            width=160, height=26,
+            font=ctk.CTkFont(size=11),
             fg_color='#3b3b3b', button_color='#4a4a4a',
             button_hover_color='#555555',
             dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
             dropdown_text_color='#dce4ee')
-        self.genre_dropdown.pack(side='right', padx=(8, 4))
-
-        # ── Filter Row 1: Rating + Liked by ──
-        filter_row1 = ctk.CTkFrame(browse, fg_color='transparent')
-        filter_row1.pack(fill='x', padx=8, pady=(0, 2))
+        self.genre_dropdown.pack(side='left', padx=(6, 16))
 
         ctk.CTkLabel(filter_row1, text='Rating', font=ctk.CTkFont(size=11, weight='bold')).pack(side='left')
         self._rating_filter_var = tk.StringVar(value='All')
@@ -599,7 +593,12 @@ class MusicPlayer(ctk.CTk):
             dropdown_text_color='#dce4ee')
         self._liked_by_dropdown.pack(side='left', padx=(6, 0))
 
-        # Reset all filters button (right-aligned on row 1)
+        # Reset all filters button + settings gear (right-aligned on row 1)
+        ctk.CTkButton(
+            filter_row1, text='\u2699', width=28, height=24,
+            font=ctk.CTkFont(size=14), fg_color='transparent',
+            hover_color='#3b3b3b', command=self._open_settings
+        ).pack(side='right', padx=(0, 2))
         self._btn_reset_filters = ctk.CTkButton(
             filter_row1, text='✕ Reset', width=70, height=24,
             font=ctk.CTkFont(size=10), fg_color='transparent',
