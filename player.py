@@ -584,6 +584,15 @@ class MusicPlayer(ctk.CTk):
         self._update_rating_display()
         self._rebuild_liked_by_dropdown()
 
+    def _quick_vote(self, vote):
+        """Single-click vote using the voter dropdown value."""
+        if self.current_index is None:
+            messagebox.showinfo('No track', 'No track is currently playing.')
+            return
+        selected = self._voter_var.get()
+        voter = '' if selected in ('', '(anonymous)') else selected
+        self._record_vote(self.current_index, vote, voter)
+
     def _ask_voter_and_vote(self, vote):
         """Show voter picker, then record vote. vote is +1 or -1."""
         if self.current_index is None:
@@ -739,14 +748,29 @@ class MusicPlayer(ctk.CTk):
         self._btn_thumbs_down = ctk.CTkButton(
             top_bar, text='\U0001f44e', width=50, height=36,
             font=ctk.CTkFont(size=22), fg_color='#c0392b', hover_color='#e74c3c',
-            command=lambda: self._ask_voter_and_vote(-1))
+            command=lambda: self._quick_vote(-1))
         self._btn_thumbs_down.pack(side='right', padx=(4, 10), pady=7)
+        self._btn_thumbs_down.bind('<Double-1>',
+            lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(-1)), 'break'))
 
         self._btn_thumbs_up = ctk.CTkButton(
             top_bar, text='\U0001f44d', width=50, height=36,
             font=ctk.CTkFont(size=22), fg_color='#27ae60', hover_color='#2ecc71',
-            command=lambda: self._ask_voter_and_vote(+1))
+            command=lambda: self._quick_vote(+1))
         self._btn_thumbs_up.pack(side='right', padx=0, pady=7)
+        self._btn_thumbs_up.bind('<Double-1>',
+            lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(+1)), 'break'))
+
+        # Voter dropdown
+        self._voter_var = tk.StringVar(value='')
+        self._voter_dropdown = ctk.CTkOptionMenu(
+            top_bar, variable=self._voter_var,
+            values=['(anonymous)'], width=110, height=30,
+            font=ctk.CTkFont(size=11),
+            fg_color='#3b3b3b', button_color='#4a4a4a',
+            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5')
+        self._voter_dropdown.pack(side='right', padx=(4, 4), pady=7)
+        self._voter_dropdown.set('(anonymous)')
 
         self._lbl_rating = ctk.CTkLabel(top_bar, text='\u2014',
                                          font=ctk.CTkFont(size=20, weight='bold'),
@@ -1089,8 +1113,9 @@ class MusicPlayer(ctk.CTk):
         # ── Tooltips for all buttons ──
         _add_tooltip(self.btn_mute, 'Mute / Unmute')
         _add_tooltip(self.btn_menu, 'Menu — Add Files / Folders')
-        _add_tooltip(self._btn_thumbs_up, 'Like this track')
-        _add_tooltip(self._btn_thumbs_down, 'Dislike this track')
+        _add_tooltip(self._btn_thumbs_up, 'Like (double-click for voter picker)')
+        _add_tooltip(self._btn_thumbs_down, 'Dislike (double-click for voter picker)')
+        _add_tooltip(self._voter_dropdown, 'Select who is voting')
         _add_tooltip(self.btn_play, 'Play / Pause')
         _add_tooltip(self.btn_stop, 'Stop')
         _add_tooltip(self.btn_play_now, 'Play selected track now')
@@ -1287,6 +1312,9 @@ class MusicPlayer(ctk.CTk):
         if hasattr(self, '_liked_by_dropdown'):
             values = ['All'] + sorted(self._all_voters)
             self._liked_by_dropdown.configure(values=values)
+        # Also update the voter dropdown in the top bar
+        if hasattr(self, '_voter_dropdown'):
+            self._voter_dropdown.configure(values=['(anonymous)'] + sorted(self._all_voters))
 
     # ── Tag filter bar ───────────────────────────────────
 
