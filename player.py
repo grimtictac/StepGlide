@@ -3730,6 +3730,13 @@ class MusicPlayer(ctk.CTk):
         dialog.transient(self)
         dialog.after(100, dialog.grab_set)
 
+        def _close_dialog():
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+            dialog.destroy()
+
         # Header
         if track_id and self.current_index is not None:
             title = self.playlist[self.current_index].get('title', '(unknown)')
@@ -3793,18 +3800,6 @@ class MusicPlayer(ctk.CTk):
             ctk.CTkLabel(col_frame, text=freq, font=ctk.CTkFont(size=8),
                          text_color='#888888').pack(pady=(0, 2))
 
-        # Load existing EQ if any
-        eq_data = self._load_track_eq(track_id) if track_id else None
-        if eq_data:
-            preamp_var.set(eq_data[0])
-            for i, val in enumerate(eq_data[1]):
-                if i < len(band_vars):
-                    band_vars[i].set(val)
-            # Find matching preset
-            _detect_preset()
-        else:
-            preset_var.set('Flat')
-
         def _on_slider_change():
             preamp_lbl.configure(text=f'{preamp_var.get():.0f} dB')
             for i, v in enumerate(band_vars):
@@ -3836,6 +3831,18 @@ class MusicPlayer(ctk.CTk):
             _on_slider_change()
             preset_var.set(name)
 
+        # Load existing EQ if any
+        eq_data = self._load_track_eq(track_id) if track_id else None
+        if eq_data:
+            preamp_var.set(eq_data[0])
+            for i, val in enumerate(eq_data[1]):
+                if i < len(band_vars):
+                    band_vars[i].set(val)
+            # Find matching preset
+            _detect_preset()
+        else:
+            preset_var.set('Flat')
+
         # Update labels on initial load
         preamp_lbl.configure(text=f'{preamp_var.get():.0f} dB')
         for i, v in enumerate(band_vars):
@@ -3860,7 +3867,7 @@ class MusicPlayer(ctk.CTk):
                 self._apply_eq_to_player(pa, bands)
                 self._start_eq_throb()
             self._log_action('eq_save', f'track_id={track_id}')
-            dialog.destroy()
+            _close_dialog()
 
         def _reset():
             preamp_var.set(0)
@@ -3876,7 +3883,7 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(btn_row, text='Reset', fg_color='#8b0000', hover_color='#a52a2a',
                       width=80, command=_reset).pack(side='left', padx=4)
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
-                      width=80, command=dialog.destroy).pack(side='right', padx=4)
+                      width=80, command=_close_dialog).pack(side='right', padx=4)
         ctk.CTkButton(btn_row, text='Save', fg_color='#1f6aa5',
                       width=80, command=_save).pack(side='right', padx=4)
 
@@ -4854,6 +4861,13 @@ class MusicPlayer(ctk.CTk):
         dialog.geometry(f'{dlg_w}x{dlg_h}+{x}+{y}')
         dialog.after(100, dialog.grab_set)
 
+        def _close_dialog():
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+            dialog.destroy()
+
         # Title
         ctk.CTkLabel(dialog, text=title[:70],
                      font=ctk.CTkFont(size=14, weight='bold'),
@@ -4875,7 +4889,7 @@ class MusicPlayer(ctk.CTk):
         btn_row.pack(fill='x', padx=24, pady=(0, 18))
 
         def play_now():
-            dialog.destroy()
+            _close_dialog()
             self._last_action = 'switching'
             self.vlc_player.stop()
             self.current_index = playlist_idx
@@ -4891,7 +4905,7 @@ class MusicPlayer(ctk.CTk):
                 self._update_now_playing()
 
         def play_next():
-            dialog.destroy()
+            _close_dialog()
             self._insert_in_queue(playlist_idx, 0)
 
         ctk.CTkButton(btn_row, text='\u25b6  Play Now', fg_color='#1f6aa5',
@@ -4905,12 +4919,12 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
                       hover_color='#666666', height=34,
                       font=ctk.CTkFont(size=13),
-                      command=dialog.destroy).pack(side='left', padx=4, expand=True, fill='x')
+                      command=_close_dialog).pack(side='left', padx=4, expand=True, fill='x')
 
         # Keyboard shortcuts
         dialog.bind('<Return>', lambda e: play_now() if not (e.state & 0x1) else play_next())
         dialog.bind('<Shift-Return>', lambda e: play_next())
-        dialog.bind('<Escape>', lambda e: dialog.destroy())
+        dialog.bind('<Escape>', lambda e: _close_dialog())
         dialog.focus_force()
 
     # ── Poll ─────────────────────────────────────────────
