@@ -305,6 +305,13 @@ class MusicPlayer(ctk.CTk):
                 durations.append((label, lo, hi))
             if durations:
                 self._length_filter_durations = durations
+        # Tags (static definitions)
+        tags_el = root.find('tags')
+        if tags_el is not None:
+            for tag_el in tags_el.findall('tag'):
+                name = tag_el.get('name', '').strip().lower()
+                if name:
+                    self._all_tags.add(name)
         # Playlists
         playlists_el = root.find('playlists')
         if playlists_el is not None:
@@ -333,6 +340,10 @@ class MusicPlayer(ctk.CTk):
             if hi is not None:
                 attrs['hi'] = str(hi)
             ET.SubElement(durations_el, 'duration', **attrs)
+        # Tags (static definitions)
+        tags_el = ET.SubElement(root, 'tags')
+        for tag in sorted(self._all_tags):
+            ET.SubElement(tags_el, 'tag', name=tag)
         # Playlists
         playlists_el = ET.SubElement(root, 'playlists')
         for name, paths in self._playlists.items():
@@ -369,6 +380,7 @@ class MusicPlayer(ctk.CTk):
         con.close()
 
         tags_by_path = {}
+        tags_before = set(self._all_tags)
         for fpath, tag in tag_rows:
             tags_by_path.setdefault(fpath, []).append(tag)
             self._all_tags.add(tag)
@@ -417,6 +429,9 @@ class MusicPlayer(ctk.CTk):
         self._rebuild_liked_by_dropdown()
         self._apply_filter()
         self._build_tag_bar()
+        # Persist any DB-discovered tags that weren't in the XML config
+        if self._all_tags != tags_before:
+            self._save_config_to_xml()
         self.lbl_now_playing.configure(text=f'\u266b  {len(self.playlist)} tracks loaded')
 
     def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None):
@@ -1243,7 +1258,7 @@ class MusicPlayer(ctk.CTk):
             self._active_genre = name
         self._active_tags = set()  # reset tag filter on genre change
         self._apply_filter()
-        self._build_tag_bar()
+        self._update_tag_highlights()
 
     def _get_genres_for_filter(self):
         if self._active_genre == 'All':
@@ -1265,32 +1280,26 @@ class MusicPlayer(ctk.CTk):
             val = int(parts[1])
             self._rating_threshold = (op, val)
         self._apply_filter()
-        self._build_tag_bar()
 
     def _on_liked_by_filter(self, choice):
         self._liked_by_filter = None if choice == 'All' else choice
         self._apply_filter()
-        self._build_tag_bar()
 
     def _on_first_played_filter(self, choice):
         self._first_played_var.set(choice)
         self._apply_filter()
-        self._build_tag_bar()
 
     def _on_last_played_filter(self, choice):
         self._last_played_var.set(choice)
         self._apply_filter()
-        self._build_tag_bar()
 
     def _on_file_created_filter(self, choice):
         self._file_created_var.set(choice)
         self._apply_filter()
-        self._build_tag_bar()
 
     def _on_length_filter(self, choice):
         self._length_filter_var.set(choice)
         self._apply_filter()
-        self._build_tag_bar()
 
     def _get_length_filter_values(self):
         """Return dropdown values list from the configurable length filter durations."""
@@ -1320,7 +1329,7 @@ class MusicPlayer(ctk.CTk):
         self._active_tags = set()
         self._search_var.set('')
         self._apply_filter()
-        self._build_tag_bar()
+        self._update_tag_highlights()
 
     def _rebuild_liked_by_dropdown(self):
         """Rebuild the liked-by dropdown with current voter names."""
@@ -1334,14 +1343,13 @@ class MusicPlayer(ctk.CTk):
     # ── Tag filter bar ───────────────────────────────────
 
     def _build_tag_bar(self):
-        visible_tags = set()
-        for idx in self.display_indices:
-            for tag in self.playlist[idx].get('tags', []):
-                visible_tags.add(tag)
+        """Build tag buttons from the static _all_tags set. All defined tags
+        are always shown regardless of which tracks are currently displayed."""
+        all_tags = self._all_tags
 
-        # If the visible tag set hasn't changed, just update highlights
+        # If the tag set hasn't changed, just update highlights
         prev_tags = set(k for k in self._tag_btn_map if k != '__ALL__')
-        if visible_tags == prev_tags and self._tag_buttons:
+        if all_tags == prev_tags and self._tag_buttons:
             self._update_tag_highlights()
             return
 
@@ -1350,14 +1358,13 @@ class MusicPlayer(ctk.CTk):
         self._tag_buttons = []
         self._tag_btn_map = {}
 
-        if not visible_tags:
-            # Collapse tag bar when there are no tags
+        # Size the tag bar — always visible when tags are defined
+        if not all_tags:
             self._tag_bar_wrapper.configure(height=0)
             self._tag_bar_visible = False
             return
 
-        # Show tag bar — size depends on number of rows needed
-        n_tags = len(visible_tags) + 1  # +1 for ALL button
+        n_tags = len(all_tags) + 1  # +1 for ALL button
         max_cols = 8
         n_rows = (n_tags + max_cols - 1) // max_cols
         bar_h = min(n_rows * 32 + 8, 70)  # 32px per row, capped at 70
@@ -1376,7 +1383,7 @@ class MusicPlayer(ctk.CTk):
 
         col = 1
         row = 0
-        for tag in sorted(visible_tags):
+        for tag in sorted(all_tags):
             if col >= max_cols:
                 col = 0
                 row += 1
@@ -1422,6 +1429,7 @@ class MusicPlayer(ctk.CTk):
         if tag and tag.strip():
             tag = tag.strip().lower()
             self._all_tags.add(tag)
+            self._save_config_to_xml()  # persist new tag to XML
             # Apply to selected tracks if any
             sel = self.tree.selection()
             all_items = self.tree.get_children()
@@ -1444,6 +1452,7 @@ class MusicPlayer(ctk.CTk):
     def _delete_tag_globally(self, tag):
         """Remove a tag from all tracks and from _all_tags."""
         self._all_tags.discard(tag)
+        self._save_config_to_xml()  # persist tag removal to XML
         con = sqlite3.connect(DB_PATH)
         con.execute("DELETE FROM track_tags WHERE tag = ?", (tag,))
         con.commit()
@@ -1475,6 +1484,7 @@ class MusicPlayer(ctk.CTk):
                     tags.append(new_tag)
         self._all_tags.discard(old_tag)
         self._all_tags.add(new_tag)
+        self._save_config_to_xml()  # persist tag rename to XML
         if old_tag in self._active_tags:
             self._active_tags.discard(old_tag)
             self._active_tags.add(new_tag)
@@ -1846,7 +1856,7 @@ class MusicPlayer(ctk.CTk):
             self._rebuild_length_filter_dropdown()
             self._active_genre = 'All'
             self._apply_filter()
-            self._build_tag_bar()
+            self._build_tag_bar()  # tags may have been created/deleted in settings
             dialog.destroy()
 
         ctk.CTkButton(btn_row, text='Save', command=save_and_close).pack(side='right', padx=4)
@@ -2103,7 +2113,6 @@ class MusicPlayer(ctk.CTk):
             self.current_index = 0
         self._build_genre_list()
         self._apply_filter()
-        self._build_tag_bar()
 
     def add_folder(self):
         folder = filedialog.askdirectory(title='Select folder')
@@ -2145,7 +2154,6 @@ class MusicPlayer(ctk.CTk):
             self.current_index = 0
         self._build_genre_list()
         self._apply_filter()
-        self._build_tag_bar()
         self.lbl_now_playing.configure(text=f'\u266b  Added {added} tracks')
 
     def _add_path(self, path):
@@ -2765,7 +2773,6 @@ class MusicPlayer(ctk.CTk):
             else:
                 self._active_playlist = None
         self._apply_filter()
-        self._build_tag_bar()
 
     def _on_playlist_right_click(self, ev):
         idx = self._playlist_listbox.nearest(ev.y)
@@ -2805,7 +2812,6 @@ class MusicPlayer(ctk.CTk):
             self._save_config_to_xml()
             self._refresh_playlist_listbox()
             self._apply_filter()
-            self._build_tag_bar()
 
     def _playlist_to_queue(self, name):
         """Load a playlist's tracks into the play queue."""
@@ -3106,19 +3112,6 @@ class MusicPlayer(ctk.CTk):
         # If tag filter is active, the track list may need to change
         if self._active_tags:
             self._apply_filter()
-            self._build_tag_bar()
-        else:
-            # Just check if the tag set changed and update tag bar accordingly
-            if not currently_applied:
-                # Added a tag — if it's new to the view, rebuild; otherwise skip
-                if tag not in self._tag_btn_map:
-                    self._build_tag_bar()
-            else:
-                # Removed a tag — check if any other track still has it
-                still_present = any(tag in self.playlist[i].get('tags', [])
-                                    for i in self.display_indices)
-                if not still_present:
-                    self._build_tag_bar()
 
     def _context_remove(self, playlist_idx):
         entry = self.playlist[playlist_idx]
@@ -3139,7 +3132,6 @@ class MusicPlayer(ctk.CTk):
         con.commit()
         con.close()
         self._apply_filter()
-        self._build_tag_bar()
 
     def _on_select(self, ev):
         if self._applying_filter:
