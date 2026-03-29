@@ -686,25 +686,18 @@ class MusicPlayer(ctk.CTk):
     @perf.track
     def _record_play(self, path):
         now = datetime.now(tz=timezone.utc).isoformat()
+        track_id = self._get_track_id(path)
+        if not track_id:
+            return
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
-        # Get track_id from path
-        cur.execute('SELECT id FROM tracks WHERE file_path = ?', (path,))
-        row = cur.fetchone()
-        if not row:
-            con.close()
-            return
-        track_id = row[0]
         cur.execute('INSERT INTO track_plays (track_id, played_at) VALUES (?, ?)', (track_id, now))
-        # Increment play_count
-        cur.execute('UPDATE tracks SET play_count = play_count + 1 WHERE id = ?', (track_id,))
-        # Update first_played and last_played in tracks table
-        cur.execute('SELECT first_played FROM tracks WHERE id = ?', (track_id,))
-        first_played = cur.fetchone()[0]
-        if not first_played:
-            cur.execute('UPDATE tracks SET first_played = ?, last_played = ? WHERE id = ?', (now, now, track_id))
-        else:
-            cur.execute('UPDATE tracks SET last_played = ? WHERE id = ?', (now, track_id))
+        # Increment play_count, set first_played if null, always update last_played
+        cur.execute(
+            'UPDATE tracks SET play_count = play_count + 1,'
+            ' first_played = COALESCE(first_played, ?),'
+            ' last_played = ? WHERE id = ?',
+            (now, now, track_id))
         con.commit()
         con.close()
 
