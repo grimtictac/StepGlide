@@ -1150,33 +1150,31 @@ class MusicPlayer(ctk.CTk):
         self.lbl_time_total = ctk.CTkLabel(ctrl_inner, text='0:00', font=ctk.CTkFont(size=11), width=44)
         self.lbl_time_total.pack(side='left')
 
-        # Speed control
+        # Speed control (single row: − 1× + label Auto)
         self._speed_frame = ctk.CTkFrame(ctrl_inner, fg_color='#2b2b2b', corner_radius=8)
         self._speed_frame.pack(side='left', padx=(6, 0))
 
-        ctk.CTkLabel(self._speed_frame, text='Speed', font=ctk.CTkFont(size=8),
-                     text_color='#888888').pack(pady=(2, 0))
         self._speed_var = tk.DoubleVar(value=1.0)
-        self._speed_label = ctk.CTkLabel(self._speed_frame, text='1.0×', font=ctk.CTkFont(size=10, weight='bold'))
-        self._speed_label.pack(pady=(0, 1))
-        speed_down = ctk.CTkButton(self._speed_frame, text='\u2212', width=26, height=18,
+        speed_down = ctk.CTkButton(self._speed_frame, text='\u2212', width=26, height=22,
                                     font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                                     command=self._speed_down)
-        speed_down.pack(side='left', padx=(3, 1), pady=(0, 2))
-        speed_reset = ctk.CTkButton(self._speed_frame, text='1\u00d7', width=26, height=18,
+        speed_down.pack(side='left', padx=(3, 1), pady=3)
+        speed_reset = ctk.CTkButton(self._speed_frame, text='1\u00d7', width=26, height=22,
                                      font=ctk.CTkFont(size=9), fg_color='#3b3b3b',
                                      command=self._speed_reset)
-        speed_reset.pack(side='left', padx=1, pady=(0, 2))
-        speed_up = ctk.CTkButton(self._speed_frame, text='+', width=26, height=18,
+        speed_reset.pack(side='left', padx=1, pady=3)
+        speed_up = ctk.CTkButton(self._speed_frame, text='+', width=26, height=22,
                                   font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                                   command=self._speed_up)
-        speed_up.pack(side='left', padx=(1, 3), pady=(0, 2))
-
+        speed_up.pack(side='left', padx=(1, 2), pady=3)
+        self._speed_label = ctk.CTkLabel(self._speed_frame, text='1.0×',
+                                          font=ctk.CTkFont(size=10, weight='bold'), width=36)
+        self._speed_label.pack(side='left', padx=(2, 2), pady=3)
         self._auto_reset_speed = tk.BooleanVar(value=True)
         _cb_auto_reset = ctk.CTkCheckBox(self._speed_frame, text='Auto', variable=self._auto_reset_speed,
                                           font=ctk.CTkFont(size=8), width=18, height=14,
                                           checkbox_width=14, checkbox_height=14)
-        _cb_auto_reset.pack(pady=(0, 2))
+        _cb_auto_reset.pack(side='left', padx=(0, 3), pady=3)
 
         # Equalizer button (below speed widget)
         self._btn_eq = ctk.CTkButton(ctrl_inner, text='🎛', width=36, height=34,
