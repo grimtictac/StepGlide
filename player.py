@@ -176,6 +176,7 @@ class MusicPlayer(ctk.CTk):
         self._di_reverse = {}  # playlist_idx → display position (O(1) reverse lookup)
         self.genres = set()
         self._path_set = set()  # O(1) duplicate path lookup
+        self._track_id_cache = {}  # file_path → track_id (avoids repeated DB lookups)
 
         self.current_index = None
         self.is_playing = False
@@ -567,7 +568,7 @@ class MusicPlayer(ctk.CTk):
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute(
-            "SELECT file_path, title, play_count, first_played, last_played, "
+            "SELECT id, file_path, title, play_count, first_played, last_played, "
             "file_created, genre, comment, length, artist, album FROM tracks ORDER BY title"
         )
         rows = cur.fetchall()
@@ -599,11 +600,12 @@ class MusicPlayer(ctk.CTk):
             return
 
         seen = set()
-        for (path, db_title, play_count, first_played, last_played,
+        for (track_id, path, db_title, play_count, first_played, last_played,
              file_created, genre, comment, length, artist, album) in rows:
             if path in seen:
                 continue
             seen.add(path)
+            self._track_id_cache[path] = track_id
             vdata = votes_by_path.get(path, {'rating': 0, 'liked_by': set(), 'disliked_by': set()})
             entry = {
                 'path': path,
@@ -741,12 +743,18 @@ class MusicPlayer(ctk.CTk):
     # ── Tag helpers ──────────────────────────────────────
 
     def _get_track_id(self, path):
+        tid = self._track_id_cache.get(path)
+        if tid is not None:
+            return tid
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute("SELECT id FROM tracks WHERE file_path = ?", (path,))
         row = cur.fetchone()
         con.close()
-        return row[0] if row else None
+        if row:
+            self._track_id_cache[path] = row[0]
+            return row[0]
+        return None
 
     def _add_tag_to_track(self, playlist_idx, tag):
         entry = self.playlist[playlist_idx]
