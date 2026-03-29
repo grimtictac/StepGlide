@@ -802,29 +802,29 @@ class MusicPlayer(ctk.CTk):
         self.btn_stop.grid(row=0, column=1, sticky='ew', padx=(3, 3))
 
         # Speed control
-        speed_frame = ctk.CTkFrame(btn_row, fg_color='#2b2b2b', corner_radius=8)
-        speed_frame.grid(row=0, column=2, sticky='ns', padx=(3, 0))
+        self._speed_frame = ctk.CTkFrame(btn_row, fg_color='#2b2b2b', corner_radius=8)
+        self._speed_frame.grid(row=0, column=2, sticky='ns', padx=(3, 0))
 
-        ctk.CTkLabel(speed_frame, text='Speed', font=ctk.CTkFont(size=9),
+        ctk.CTkLabel(self._speed_frame, text='Speed', font=ctk.CTkFont(size=9),
                      text_color='#888888').pack(pady=(4, 0))
         self._speed_var = tk.DoubleVar(value=1.0)
-        self._speed_label = ctk.CTkLabel(speed_frame, text='1.0×', font=ctk.CTkFont(size=11, weight='bold'))
+        self._speed_label = ctk.CTkLabel(self._speed_frame, text='1.0×', font=ctk.CTkFont(size=11, weight='bold'))
         self._speed_label.pack(pady=(0, 2))
-        speed_down = ctk.CTkButton(speed_frame, text='−', width=28, height=20,
+        speed_down = ctk.CTkButton(self._speed_frame, text='−', width=28, height=20,
                                     font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
                                     command=self._speed_down)
         speed_down.pack(side='left', padx=(4, 1), pady=(0, 4))
-        speed_reset = ctk.CTkButton(speed_frame, text='1×', width=28, height=20,
+        speed_reset = ctk.CTkButton(self._speed_frame, text='1×', width=28, height=20,
                                      font=ctk.CTkFont(size=10), fg_color='#3b3b3b',
                                      command=self._speed_reset)
         speed_reset.pack(side='left', padx=1, pady=(0, 4))
-        speed_up = ctk.CTkButton(speed_frame, text='+', width=28, height=20,
+        speed_up = ctk.CTkButton(self._speed_frame, text='+', width=28, height=20,
                                   font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
                                   command=self._speed_up)
         speed_up.pack(side='left', padx=(1, 4), pady=(0, 4))
 
         self._auto_reset_speed = tk.BooleanVar(value=True)
-        _cb_auto_reset = ctk.CTkCheckBox(speed_frame, text='Auto', variable=self._auto_reset_speed,
+        _cb_auto_reset = ctk.CTkCheckBox(self._speed_frame, text='Auto', variable=self._auto_reset_speed,
                                           font=ctk.CTkFont(size=9), width=20, height=16,
                                           checkbox_width=16, checkbox_height=16)
         _cb_auto_reset.pack(pady=(0, 4))
@@ -2292,11 +2292,18 @@ class MusicPlayer(ctk.CTk):
     # ── Playback speed ───────────────────────────────────
 
     def _apply_speed(self):
-        """Apply the current speed to VLC."""
+        """Apply the current speed to VLC and highlight if not 1×."""
         speed = self._speed_var.get()
         mp = self.vlc_player.get_media_player()
         mp.set_rate(speed)
         self._speed_label.configure(text=f'{speed:.1f}×')
+        # Highlight speed box when speed is not 1.0
+        if abs(speed - 1.0) > 0.05:
+            self._speed_frame.configure(fg_color='#5c2d00', border_width=2, border_color='#ff9800')
+            self._speed_label.configure(text_color='#ff9800')
+        else:
+            self._speed_frame.configure(fg_color='#2b2b2b', border_width=0, border_color='#2b2b2b')
+            self._speed_label.configure(text_color='#dce4ee')
 
     def _speed_up(self):
         cur = self._speed_var.get()
