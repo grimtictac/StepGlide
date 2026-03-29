@@ -132,13 +132,56 @@ class PerfTracker:
 
 perf = PerfTracker()
 
+# ── Default tooltip texts (keyed by logical name) ────
+_DEFAULT_TOOLTIPS = {
+    'mute': 'Mute / Unmute',
+    'menu': 'Menu — Add Files / Folders',
+    'thumbs_up': 'Like (double-click for voter picker)',
+    'thumbs_down': 'Dislike (double-click for voter picker)',
+    'voter': 'Select who is voting',
+    'play': 'Play / Pause',
+    'stop': 'Stop',
+    'play_now': 'Play selected track now',
+    'play_next': 'Add selected track to front of queue',
+    'speed_down': 'Decrease speed',
+    'speed_reset': 'Reset speed to 1×',
+    'speed_up': 'Increase speed',
+    'auto_reset_speed': 'Auto-reset speed to 1× when song changes',
+    'equalizer': 'Equalizer',
+    'clear_queue': 'Clear queue',
+    'queue_up': 'Move up in queue',
+    'queue_down': 'Move down in queue',
+    'queue_top': 'Jump to top of queue',
+    'queue_remove': 'Remove from queue',
+    'queue_random': 'Random queue generator',
+    'send_to_queue': 'Add selected tracks to queue',
+    'settings': 'Settings',
+    'new_playlist': 'New playlist',
+    'reset_filters': 'Reset all filters',
+}
 
-def _add_tooltip(widget, text):
-    """Attach a simple hover tooltip to a widget."""
+# Active tooltip texts — start as defaults, overwritten by XML load
+_tooltip_texts = dict(_DEFAULT_TOOLTIPS)
+
+# Registry: key → list of (widget, tip_window_ref) so we can re-bind after edits
+_tooltip_registry = {}  # key → [(widget, tip_window_list), ...]
+
+
+def _add_tooltip(widget, key):
+    """Attach a simple hover tooltip to a widget, keyed by logical name.
+    The displayed text is looked up from _tooltip_texts at show time."""
     tip_window = [None]
+
+    # Register for live updates
+    if key not in _tooltip_registry:
+        _tooltip_registry[key] = []
+    _tooltip_registry[key].append((widget, tip_window))
 
     def show(event):
         if tip_window[0]:
+            return
+        text = _tooltip_texts.get(key, key)
+        if not text:
             return
         x = widget.winfo_rootx() + 20
         y = widget.winfo_rooty() + widget.winfo_height() + 4
@@ -489,6 +532,14 @@ class MusicPlayer(ctk.CTk):
                 name = pl_el.get('name', '')
                 paths = [t.text for t in pl_el.findall('track') if t.text]
                 self._playlists[name] = paths
+        # Tooltips (overrides for default tooltip texts)
+        tooltips_el = root.find('tooltips')
+        if tooltips_el is not None:
+            for tip_el in tooltips_el.findall('tip'):
+                key = tip_el.get('key', '')
+                text = tip_el.get('text', '')
+                if key and text:
+                    _tooltip_texts[key] = text
 
     def _save_config_to_xml(self):
         """Save all settings to the XML config file."""
@@ -526,6 +577,13 @@ class MusicPlayer(ctk.CTk):
             for path in paths:
                 t_el = ET.SubElement(pl_el, 'track')
                 t_el.text = path
+        # Tooltips (only save overrides that differ from defaults)
+        tooltips_el = ET.SubElement(root, 'tooltips')
+        for key in sorted(_tooltip_texts):
+            text = _tooltip_texts[key]
+            default = _DEFAULT_TOOLTIPS.get(key, '')
+            if text != default:
+                ET.SubElement(tooltips_el, 'tip', key=key, text=text)
         # Write with indentation
         ET.indent(root)
         tree = ET.ElementTree(root)
@@ -1548,30 +1606,30 @@ class MusicPlayer(ctk.CTk):
         self._perf_status_lbl.pack(side='right')
 
         # ── Tooltips for all buttons ──
-        _add_tooltip(self.btn_mute, 'Mute / Unmute')
-        _add_tooltip(self.btn_menu, 'Menu — Add Files / Folders')
-        _add_tooltip(self._btn_thumbs_up, 'Like (double-click for voter picker)')
-        _add_tooltip(self._btn_thumbs_down, 'Dislike (double-click for voter picker)')
-        _add_tooltip(self._voter_dropdown, 'Select who is voting')
-        _add_tooltip(self.btn_play, 'Play / Pause')
-        _add_tooltip(self.btn_stop, 'Stop')
-        _add_tooltip(self.btn_play_now, 'Play selected track now')
-        _add_tooltip(self.btn_play_next, 'Add selected track to front of queue')
-        _add_tooltip(speed_down, 'Decrease speed')
-        _add_tooltip(speed_reset, 'Reset speed to 1×')
-        _add_tooltip(speed_up, 'Increase speed')
-        _add_tooltip(_cb_auto_reset, 'Auto-reset speed to 1× when song changes')
-        _add_tooltip(self._btn_eq, 'Equalizer')
-        _add_tooltip(_btn_clear_queue, 'Clear queue')
-        _add_tooltip(_btn_q_up, 'Move up in queue')
-        _add_tooltip(_btn_q_down, 'Move down in queue')
-        _add_tooltip(_btn_q_top, 'Jump to top of queue')
-        _add_tooltip(_btn_q_remove, 'Remove from queue')
-        _add_tooltip(_btn_q_random, 'Random queue generator')
-        _add_tooltip(self._btn_send_to_queue, 'Add selected tracks to queue')
-        _add_tooltip(_btn_settings, 'Settings')
-        _add_tooltip(_btn_new_playlist, 'New playlist')
-        _add_tooltip(self._btn_reset_filters, 'Reset all filters')
+        _add_tooltip(self.btn_mute, 'mute')
+        _add_tooltip(self.btn_menu, 'menu')
+        _add_tooltip(self._btn_thumbs_up, 'thumbs_up')
+        _add_tooltip(self._btn_thumbs_down, 'thumbs_down')
+        _add_tooltip(self._voter_dropdown, 'voter')
+        _add_tooltip(self.btn_play, 'play')
+        _add_tooltip(self.btn_stop, 'stop')
+        _add_tooltip(self.btn_play_now, 'play_now')
+        _add_tooltip(self.btn_play_next, 'play_next')
+        _add_tooltip(speed_down, 'speed_down')
+        _add_tooltip(speed_reset, 'speed_reset')
+        _add_tooltip(speed_up, 'speed_up')
+        _add_tooltip(_cb_auto_reset, 'auto_reset_speed')
+        _add_tooltip(self._btn_eq, 'equalizer')
+        _add_tooltip(_btn_clear_queue, 'clear_queue')
+        _add_tooltip(_btn_q_up, 'queue_up')
+        _add_tooltip(_btn_q_down, 'queue_down')
+        _add_tooltip(_btn_q_top, 'queue_top')
+        _add_tooltip(_btn_q_remove, 'queue_remove')
+        _add_tooltip(_btn_q_random, 'queue_random')
+        _add_tooltip(self._btn_send_to_queue, 'send_to_queue')
+        _add_tooltip(_btn_settings, 'settings')
+        _add_tooltip(_btn_new_playlist, 'new_playlist')
+        _add_tooltip(self._btn_reset_filters, 'reset_filters')
 
     # ── Keyboard shortcuts ───────────────────────────────
 
@@ -2352,6 +2410,7 @@ class MusicPlayer(ctk.CTk):
         genre_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
         tags_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
         length_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
+        tooltips_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
 
         active_tab = [None]
         tab_buttons = {}
@@ -2363,6 +2422,7 @@ class MusicPlayer(ctk.CTk):
             genre_frame.pack_forget()
             tags_frame.pack_forget()
             length_frame.pack_forget()
+            tooltips_frame.pack_forget()
             for btn in tab_buttons.values():
                 btn.configure(fg_color='transparent')
             if name == 'genres':
@@ -2371,6 +2431,8 @@ class MusicPlayer(ctk.CTk):
                 tags_frame.pack(fill='both', expand=True)
             elif name == 'length':
                 length_frame.pack(fill='both', expand=True)
+            elif name == 'tooltips':
+                tooltips_frame.pack(fill='both', expand=True)
             tab_buttons[name].configure(fg_color='#1f6aa5')
 
         btn_tab_genres = ctk.CTkButton(tab_bar, text='Genres', height=30,
@@ -2389,8 +2451,14 @@ class MusicPlayer(ctk.CTk):
                                         font=ctk.CTkFont(size=12, weight='bold'),
                                         fg_color='transparent', border_width=1, border_color='#555555',
                                         command=lambda: show_tab('length'))
-        btn_tab_length.pack(side='left')
+        btn_tab_length.pack(side='left', padx=(0, 4))
         tab_buttons['length'] = btn_tab_length
+        btn_tab_tooltips = ctk.CTkButton(tab_bar, text='Tooltips', height=30,
+                                          font=ctk.CTkFont(size=12, weight='bold'),
+                                          fg_color='transparent', border_width=1, border_color='#555555',
+                                          command=lambda: show_tab('tooltips'))
+        btn_tab_tooltips.pack(side='left')
+        tab_buttons['tooltips'] = btn_tab_tooltips
 
         # ═══════════════ GENRES TAB ═══════════════
         ctk.CTkLabel(genre_frame, text='Genre Groups',
@@ -2634,6 +2702,59 @@ class MusicPlayer(ctk.CTk):
                      'Leave From or To empty for open-ended ranges.',
                      font=ctk.CTkFont(size=10), text_color='#666666').pack(pady=(4, 0))
 
+        # ═══════════════ TOOLTIPS TAB ═══════════════
+        ctk.CTkLabel(tooltips_frame, text='Customize Tooltips',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(6, 2))
+        ctk.CTkLabel(tooltips_frame, text='Edit the hover text for each button. Leave blank to hide.',
+                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 6))
+
+        tooltips_content = ctk.CTkScrollableFrame(tooltips_frame)
+        tooltips_content.pack(fill='both', expand=True)
+
+        # Working copy of tooltip texts
+        working_tooltips = dict(_tooltip_texts)
+        tooltip_entry_vars = {}
+
+        def rebuild_tooltips_tab():
+            for w in tooltips_content.winfo_children():
+                w.destroy()
+            tooltip_entry_vars.clear()
+            for key in sorted(_DEFAULT_TOOLTIPS.keys()):
+                row = ctk.CTkFrame(tooltips_content, fg_color='#2b2b2b', corner_radius=6)
+                row.pack(fill='x', pady=2)
+                row.columnconfigure(1, weight=1)
+
+                label_text = key.replace('_', ' ').title()
+                ctk.CTkLabel(row, text=label_text, font=ctk.CTkFont(size=11),
+                             width=130, anchor='w').grid(row=0, column=0, padx=(8, 4), pady=5, sticky='w')
+
+                var = tk.StringVar(value=working_tooltips.get(key, _DEFAULT_TOOLTIPS.get(key, '')))
+                tooltip_entry_vars[key] = var
+                entry = ctk.CTkEntry(row, textvariable=var, height=26,
+                                      font=ctk.CTkFont(size=11))
+                entry.grid(row=0, column=1, sticky='ew', padx=(0, 4), pady=5)
+
+                default_text = _DEFAULT_TOOLTIPS.get(key, '')
+                ctk.CTkButton(row, text='↺', width=26, height=24, fg_color='transparent',
+                              hover_color='#3b3b3b', font=ctk.CTkFont(size=12),
+                              command=lambda k=key, v=var, dt=default_text: v.set(dt)
+                              ).grid(row=0, column=2, padx=(0, 4), pady=5)
+
+                # Track changes
+                var.trace_add('write', lambda *_, k=key, v=var: working_tooltips.update({k: v.get()}))
+
+        rebuild_tooltips_tab()
+
+        tooltips_btn_row = ctk.CTkFrame(tooltips_frame, fg_color='transparent')
+        tooltips_btn_row.pack(fill='x', pady=(6, 0))
+
+        def reset_all_tooltips():
+            working_tooltips.update(_DEFAULT_TOOLTIPS)
+            rebuild_tooltips_tab()
+
+        ctk.CTkButton(tooltips_btn_row, text='Reset All to Defaults', fg_color='#8b0000',
+                      hover_color='#a52a2a', command=reset_all_tooltips).pack(side='left', padx=4)
+
         # ═══════════════ BOTTOM BUTTONS ═══════════════
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
         btn_row.pack(fill='x', padx=10, pady=10)
@@ -2702,6 +2823,9 @@ class MusicPlayer(ctk.CTk):
             self._length_filter_durations = [tuple(d) for d in valid_durations]
             self._save_length_filter_durations()
             self._rebuild_length_filter_dropdown()
+            # Save tooltip overrides
+            _tooltip_texts.update(working_tooltips)
+            self._save_config_to_xml()
             self._active_genre = 'All'
             self._apply_filter()
             self._build_tag_bar()  # tags may have been created/deleted in settings
