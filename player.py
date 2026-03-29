@@ -813,11 +813,15 @@ class MusicPlayer(ctk.CTk):
         speed_down = ctk.CTkButton(speed_frame, text='−', width=28, height=20,
                                     font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
                                     command=self._speed_down)
-        speed_down.pack(side='left', padx=(4, 2), pady=(0, 4))
+        speed_down.pack(side='left', padx=(4, 1), pady=(0, 4))
+        speed_reset = ctk.CTkButton(speed_frame, text='1×', width=28, height=20,
+                                     font=ctk.CTkFont(size=10), fg_color='#3b3b3b',
+                                     command=self._speed_reset)
+        speed_reset.pack(side='left', padx=1, pady=(0, 4))
         speed_up = ctk.CTkButton(speed_frame, text='+', width=28, height=20,
                                   font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
                                   command=self._speed_up)
-        speed_up.pack(side='left', padx=(2, 4), pady=(0, 4))
+        speed_up.pack(side='left', padx=(1, 4), pady=(0, 4))
 
         # ═══ PLAY NOW BAR (under play controls, hidden until track selected) ═══
         self._play_bar = ctk.CTkFrame(_content, fg_color='transparent')
@@ -1086,6 +1090,7 @@ class MusicPlayer(ctk.CTk):
         _add_tooltip(self.btn_play_now, 'Play selected track now')
         _add_tooltip(self.btn_play_next, 'Add selected track to front of queue')
         _add_tooltip(speed_down, 'Decrease speed')
+        _add_tooltip(speed_reset, 'Reset speed to 1×')
         _add_tooltip(speed_up, 'Increase speed')
         _add_tooltip(_btn_clear_queue, 'Clear queue')
         _add_tooltip(_btn_q_up, 'Move up in queue')
@@ -2293,6 +2298,11 @@ class MusicPlayer(ctk.CTk):
         cur = self._speed_var.get()
         new = max(cur - 0.1, 0.3)
         self._speed_var.set(round(new, 1))
+        self._apply_speed()
+
+    def _speed_reset(self):
+        """Reset playback speed to 1.0×."""
+        self._speed_var.set(1.0)
         self._apply_speed()
 
     # ── Play queue management ────────────────────────────
