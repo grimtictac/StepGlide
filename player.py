@@ -1315,11 +1315,13 @@ class MusicPlayer(ctk.CTk):
                       hover_color='#3b3b3b', command=self._clear_queue)
         _btn_clear_queue.pack(side='right')
 
-        self._queue_listbox = tk.Listbox(
-            queue_panel, bg='#2b2b2b', fg='#dce4ee',
-            selectbackground='#1f6aa5', selectforeground='#ffffff',
-            font=('Segoe UI', 10), borderwidth=0, highlightthickness=0,
-            activestyle='none', exportselection=False)
+        self._queue_listbox = ttk.Treeview(
+            queue_panel, columns=('Title', 'Genre'), show='headings', height=6,
+            selectmode='browse')
+        self._queue_listbox.column('Title', width=140, anchor='w')
+        self._queue_listbox.column('Genre', width=70, anchor='w')
+        self._queue_listbox.heading('Title', text='Title')
+        self._queue_listbox.heading('Genre', text='Genre')
         self._queue_listbox.pack(fill='both', expand=True, padx=4, pady=(0, 4))
         self._queue_listbox.bind('<Button-3>', self._on_queue_right_click)
         self._queue_listbox.bind('<Double-1>', self._on_queue_double_click)
@@ -1562,7 +1564,7 @@ class MusicPlayer(ctk.CTk):
                 self._perf_status_lbl.configure(text=self._perf_text)
         perf._ui_callback = _perf_ui_update
 
-        self._all_columns = ('Title', 'Artist', 'Album', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
+        self._all_columns = ('Title', 'Artist', 'Album', 'Genre', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
                               'Plays', 'First Played', 'Last Played', 'File Created')
 
         # Grid-based sub-frame for treeview + scrollbars (avoids pack side conflicts)
@@ -1577,6 +1579,7 @@ class MusicPlayer(ctk.CTk):
         self.tree.column('Title', width=180, anchor='w')
         self.tree.column('Artist', width=120, anchor='w')
         self.tree.column('Album', width=120, anchor='w')
+        self.tree.column('Genre', width=100, anchor='w')
         self.tree.column('Length', width=55, anchor='center')
         self.tree.column('Rating', width=55, anchor='center')
         self.tree.column('Comment', width=100, anchor='w')
@@ -2895,6 +2898,7 @@ class MusicPlayer(ctk.CTk):
         'Title': lambda e: (e.get('title') or e['basename']).lower(),
         'Artist': lambda e: (e.get('artist') or '').lower(),
         'Album': lambda e: (e.get('album') or '').lower(),
+        'Genre': lambda e: (e.get('genre') or '').lower(),
         'Length': lambda e: e.get('length') or 0,
         'Rating': lambda e: e.get('rating', 0),
         'Comment': lambda e: (e.get('comment') or '').lower(),
@@ -3083,6 +3087,7 @@ class MusicPlayer(ctk.CTk):
             title = entry.get('title', entry['basename'])
             artist = entry.get('artist', '')
             album = entry.get('album', '')
+            genre = entry.get('genre', '')
             length_str = _fmt_dur(entry.get('length'))
             rating = entry.get('rating', 0)
             rating_str = f'+{rating}' if rating > 0 else str(rating)
@@ -3095,7 +3100,7 @@ class MusicPlayer(ctk.CTk):
             last_p = _fmt_ts(entry.get('last_played'), relative=True)
             file_c = _fmt_ts(entry.get('file_created'), relative=False)
             row_tags = (np_tag,) if (idx == cur_idx and is_playing) else ()
-            row_data.append((idx, (title, artist, album, length_str, rating_str, comment, tags_str,
+            row_data.append((idx, (title, artist, album, genre, length_str, rating_str, comment, tags_str,
                                     liked_str, disliked_str, plays, first_p, last_p, file_c),
                              row_tags))
 
@@ -3940,12 +3945,13 @@ class MusicPlayer(ctk.CTk):
     # ── Play queue management ────────────────────────────
 
     def _refresh_queue_listbox(self):
-        """Rebuild the queue listbox from self._play_queue."""
-        self._queue_listbox.delete(0, 'end')
+        """Rebuild the queue treeview from self._play_queue."""
+        self._queue_listbox.delete(*self._queue_listbox.get_children())
         for pl_idx in self._play_queue:
             entry = self.playlist[pl_idx]
             title = entry.get('title', entry['basename'])
-            self._queue_listbox.insert('end', title[:40])
+            genre = entry.get('genre', '')
+            self._queue_listbox.insert('', 'end', values=(title[:40], genre))
         self._queue_title_lbl.configure(text=f'Queue ({len(self._play_queue)})')
 
     def _add_to_queue(self, playlist_idx):
@@ -3990,52 +3996,70 @@ class MusicPlayer(ctk.CTk):
         self._play_queue.clear()
         self._refresh_queue_listbox()
 
+    def _queue_selected_index(self):
+        """Return the integer index of the selected queue item, or None."""
+        sel = self._queue_listbox.selection()
+        if not sel:
+            return None
+        items = self._queue_listbox.get_children()
+        try:
+            return list(items).index(sel[0])
+        except ValueError:
+            return None
+
+    def _queue_select_index(self, idx):
+        """Select and scroll to a queue item by integer index."""
+        items = self._queue_listbox.get_children()
+        if 0 <= idx < len(items):
+            self._queue_listbox.selection_set(items[idx])
+            self._queue_listbox.see(items[idx])
+
     def _queue_move_up(self):
-        sel = self._queue_listbox.curselection()
-        if not sel or sel[0] == 0:
+        i = self._queue_selected_index()
+        if i is None or i == 0:
             return
-        i = sel[0]
         self._play_queue[i - 1], self._play_queue[i] = self._play_queue[i], self._play_queue[i - 1]
         self._refresh_queue_listbox()
-        self._queue_listbox.selection_set(i - 1)
-        self._queue_listbox.see(i - 1)
+        self._queue_select_index(i - 1)
 
     def _queue_move_down(self):
-        sel = self._queue_listbox.curselection()
-        if not sel or sel[0] >= len(self._play_queue) - 1:
+        i = self._queue_selected_index()
+        if i is None or i >= len(self._play_queue) - 1:
             return
-        i = sel[0]
         self._play_queue[i + 1], self._play_queue[i] = self._play_queue[i], self._play_queue[i + 1]
         self._refresh_queue_listbox()
-        self._queue_listbox.selection_set(i + 1)
-        self._queue_listbox.see(i + 1)
+        self._queue_select_index(i + 1)
 
     def _queue_jump_to_top(self):
         """Move the selected queue item to the top of the queue."""
-        sel = self._queue_listbox.curselection()
-        if not sel or sel[0] == 0:
+        i = self._queue_selected_index()
+        if i is None or i == 0:
             return
-        i = sel[0]
         item = self._play_queue.pop(i)
         self._play_queue.insert(0, item)
         self._refresh_queue_listbox()
-        self._queue_listbox.selection_set(0)
-        self._queue_listbox.see(0)
+        self._queue_select_index(0)
 
     def _queue_remove_selected(self):
-        sel = self._queue_listbox.curselection()
-        if not sel:
+        i = self._queue_selected_index()
+        if i is None:
             return
-        self._play_queue.pop(sel[0])
+        self._play_queue.pop(i)
         self._refresh_queue_listbox()
 
     def _on_queue_right_click(self, ev):
         """Context menu for queue items."""
-        idx = self._queue_listbox.nearest(ev.y)
-        if idx < 0 or idx >= len(self._play_queue):
+        item = self._queue_listbox.identify_row(ev.y)
+        if not item:
             return
-        self._queue_listbox.selection_clear(0, 'end')
-        self._queue_listbox.selection_set(idx)
+        items = list(self._queue_listbox.get_children())
+        try:
+            idx = items.index(item)
+        except ValueError:
+            return
+        if idx >= len(self._play_queue):
+            return
+        self._queue_listbox.selection_set(item)
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label='Remove', command=lambda: self._queue_remove_at(idx))
         menu.add_command(label='Clear Queue', command=self._clear_queue)
@@ -4043,8 +4067,15 @@ class MusicPlayer(ctk.CTk):
 
     def _on_queue_double_click(self, ev):
         """Double-click a queue item to play it immediately."""
-        idx = self._queue_listbox.nearest(ev.y)
-        if idx < 0 or idx >= len(self._play_queue):
+        item = self._queue_listbox.identify_row(ev.y)
+        if not item:
+            return
+        items = list(self._queue_listbox.get_children())
+        try:
+            idx = items.index(item)
+        except ValueError:
+            return
+        if idx >= len(self._play_queue):
             return
         playlist_idx = self._play_queue.pop(idx)
         self._refresh_queue_listbox()
