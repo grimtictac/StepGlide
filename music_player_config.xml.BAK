@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='utf-8'?>
+<music_player_config>
+  <library_root>/home/shauns/Music/LaptopBakDec25/Dec25Music</library_root>
+  <genre_groups>
+    <group name="Ballroom">
+      <member>Foxtrot, Rhythm</member>
+      <member>Foxtrot, Slow</member>
+      <member>Quickstep</member>
+      <member>Waltz</member>
+      <member>tango</member>
+      <member>Tango, International</member>
+    </group>
+    <group name="Latin">
+      <member>Cha Cha</member>
+      <member>Cha Cha </member>
+      <member>Cha-Cha</member>
+      <member>Jive</member>
+    </group>
+  </genre_groups>
+  <length_filter_durations>
+    <duration label="&lt; 2 min" lo="0" hi="120" />
+    <duration label="2 – 4 min" lo="120" hi="240" />
+    <duration label="4 – 7 min" lo="240" hi="420" />
+    <duration label="&gt; 7 min" lo="420" />
+  </length_filter_durations>
+  <tags>
+    <tag name="advanced" row="0" />
+    <tag name="beginner" row="0" />
+    <tag name="boop" row="0" />
+    <tag name="class" row="0" />
+    <tag name="classic" row="0" />
+    <tag name="drill" row="0" />
+    <tag name="fast" row="0" />
+    <tag name="instrumental" row="1" />
+    <tag name="nice" row="1" />
+    <tag name="playable" row="1" />
+    <tag name="social" row="1" />
+  </tags>
+  <playlists>
+    <playlist name="Shaun">
+      <track>/home/shauns/Music/LaptopBakDec25/Dec25Music/Dec22/Genre/Rumba/Dj Maksy &amp; Carlinhos Brown - Ela samba Rb25.mp3</track>
+      <track>/home/shauns/Music/LaptopBakDec25/Dec25Music/Sep2022/Dos Locos [TubeRipper.com].mp3</track>
+      <track>/home/shauns/Music/LaptopBakDec25/Dec25Music/Dec22/Genre/Sokkie/Snotkop - Oppas [LoudTronix.me].mp3</track>
+      <track>/home/shauns/Music/LaptopBakDec25/Dec25Music/Dec22/Genre/Quickstep/20-[QS-51]-Autostop-Orchestre Musica Poesia-Ballroom Classics 4.mp3</track>
+      <track>/home/shauns/Music/LaptopBakDec25/Dec25Music/Dec22/Genre/Quickstep/08-[TG-32]-Cancion Triste-Musica Poesia-Ballroom Classics 4.mp3</track>
+    </playlist>
+  </playlists>
+</music_player_config>

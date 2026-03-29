@@ -1207,14 +1207,6 @@ class MusicPlayer(ctk.CTk):
         # ── RIGHT CONTAINER: queue button + queue/log panels ──
         right_wrapper = ctk.CTkFrame(self._main_paned, fg_color='transparent')
 
-        # ── ADD-TO-QUEUE BUTTON (thin vertical strip on left of right wrapper) ──
-        self._btn_send_to_queue = ctk.CTkButton(
-            right_wrapper, text='›', width=22, height=80,
-            font=ctk.CTkFont(size=20, weight='bold'),
-            fg_color='#3b3b3b', hover_color='#1f6aa5',
-            corner_radius=4, command=self._send_selected_to_queue)
-        self._btn_send_to_queue.pack(side='left', fill='y', padx=(0, 2))
-
         right_container = ctk.CTkFrame(right_wrapper, fg_color='transparent')
         right_container.pack(side='left', fill='both', expand=True)
 
@@ -1249,6 +1241,10 @@ class MusicPlayer(ctk.CTk):
 
         queue_btn_row = ctk.CTkFrame(queue_panel, fg_color='transparent')
         queue_btn_row.pack(fill='x', padx=4, pady=(0, 6))
+        self._btn_send_to_queue = ctk.CTkButton(queue_btn_row, text='✚', width=34, height=28,
+                      font=ctk.CTkFont(size=16, weight='bold'), fg_color='#1f6aa5',
+                      hover_color='#1a5a8a', command=self._send_selected_to_queue)
+        self._btn_send_to_queue.pack(side='left', padx=(2, 10))
         _btn_q_up = ctk.CTkButton(queue_btn_row, text='▲', width=30, height=24,
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                       command=self._queue_move_up)
@@ -1380,8 +1376,8 @@ class MusicPlayer(ctk.CTk):
                          dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
                          dropdown_text_color='#dce4ee')
 
-        self._lbl_rating = ctk.CTkLabel(self._filter_row1, text='Rating', font=ctk.CTkFont(size=10, weight='bold'))
-        self._lbl_rating.grid(row=0, column=0, sticky='w', padx=(0, 4))
+        self._lbl_rating_filter = ctk.CTkLabel(self._filter_row1, text='Rating', font=ctk.CTkFont(size=10, weight='bold'))
+        self._lbl_rating_filter.grid(row=0, column=0, sticky='w', padx=(0, 4))
         self._rating_filter_var = tk.StringVar(value='All')
         rating_vals = ['All', '≥ 1', '≥ 2', '≥ 3', '≥ 5', '≥ 10', '≤ -1', '≤ -3', '= 0']
         self._rating_filter_dropdown = ctk.CTkOptionMenu(
