@@ -2245,6 +2245,12 @@ class MusicPlayer(ctk.CTk):
         self._play_queue.append(playlist_idx)
         self._refresh_queue_listbox()
 
+    def _add_multiple_to_queue(self, playlist_indices):
+        """Add multiple tracks to the end of the play queue."""
+        for idx in playlist_indices:
+            self._play_queue.append(idx)
+        self._refresh_queue_listbox()
+
     def _insert_in_queue(self, playlist_idx, position=0):
         """Insert a track at a specific position in the queue."""
         self._play_queue.insert(position, playlist_idx)
@@ -2600,40 +2606,54 @@ class MusicPlayer(ctk.CTk):
         item = self.tree.identify_row(ev.y)
         if not item:
             return
-        self.tree.selection_set(item)
+        # Preserve multi-selection: only reset if right-clicked item isn't already selected
+        if item not in self.tree.selection():
+            self.tree.selection_set(item)
         all_items = self.tree.get_children()
-        try:
-            idx = list(all_items).index(item)
-            playlist_idx = self.display_indices[idx]
-        except (ValueError, IndexError):
+
+        # Gather all selected playlist indices
+        selected_indices = []
+        for sel_item in self.tree.selection():
+            try:
+                idx = list(all_items).index(sel_item)
+                selected_indices.append(self.display_indices[idx])
+            except (ValueError, IndexError):
+                pass
+        if not selected_indices:
             return
 
+        playlist_idx = selected_indices[0]
         entry = self.playlist[playlist_idx]
+        multi = len(selected_indices) > 1
         menu = tk.Menu(self, tearoff=0)
-        menu.add_command(label='\u25b6  Play', command=lambda: self._context_play(playlist_idx))
-        menu.add_command(label='\U0001f4cb  Add to Queue', command=lambda: self._add_to_queue(playlist_idx))
+        if not multi:
+            menu.add_command(label='\u25b6  Play', command=lambda: self._context_play(playlist_idx))
+        menu.add_command(
+            label=f'\U0001f4cb  Add {len(selected_indices)} to Queue' if multi else '\U0001f4cb  Add to Queue',
+            command=lambda idxs=selected_indices: self._add_multiple_to_queue(idxs))
         menu.add_separator()
-        menu.add_command(label='\u270f  Edit Title\u2026',
-                         command=lambda: self._context_edit_title(playlist_idx))
-        menu.add_command(label='\U0001f3b5  Change Genre\u2026',
-                         command=lambda: self._context_edit_genre(playlist_idx))
-        menu.add_command(label='\u270f  Edit Comment\u2026',
-                         command=lambda: self._context_edit_comment(playlist_idx))
+        if not multi:
+            menu.add_command(label='\u270f  Edit Title\u2026',
+                             command=lambda: self._context_edit_title(playlist_idx))
+            menu.add_command(label='\U0001f3b5  Change Genre\u2026',
+                             command=lambda: self._context_edit_genre(playlist_idx))
+            menu.add_command(label='\u270f  Edit Comment\u2026',
+                             command=lambda: self._context_edit_comment(playlist_idx))
 
-        # Tags submenu
-        if self._all_tags:
-            tags_menu = tk.Menu(menu, tearoff=0)
-            track_tags = set(entry.get('tags', []))
-            for tag in sorted(self._all_tags):
-                has_tag = tag in track_tags
-                label = f'\u2713  {tag.upper()}' if has_tag else f'     {tag.upper()}'
-                tags_menu.add_command(label=label,
-                                      command=lambda t=tag, applied=has_tag: self._context_toggle_tag(playlist_idx, t, applied))
+            # Tags submenu
+            if self._all_tags:
+                tags_menu = tk.Menu(menu, tearoff=0)
+                track_tags = set(entry.get('tags', []))
+                for tag in sorted(self._all_tags):
+                    has_tag = tag in track_tags
+                    label = f'\u2713  {tag.upper()}' if has_tag else f'     {tag.upper()}'
+                    tags_menu.add_command(label=label,
+                                          command=lambda t=tag, applied=has_tag: self._context_toggle_tag(playlist_idx, t, applied))
+                menu.add_separator()
+                menu.add_cascade(label='\U0001f3f7  Tags', menu=tags_menu)
+
             menu.add_separator()
-            menu.add_cascade(label='\U0001f3f7  Tags', menu=tags_menu)
-
-        menu.add_separator()
-        menu.add_command(label='Show Play History', command=lambda: self._show_play_history(entry))
+            menu.add_command(label='Show Play History', command=lambda: self._show_play_history(entry))
 
         # Playlist submenu
         if self._playlists:
