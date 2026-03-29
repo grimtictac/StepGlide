@@ -508,20 +508,39 @@ class MusicPlayer(ctk.CTk):
     # ── Audit trail ──────────────────────────────────────
 
     def _log_action(self, action, detail=''):
-        """Record a user action in the audit_log table and set perf context."""
+        """Queue an audit log entry and set perf context. Flushed periodically."""
         perf.last_action = action
         now = datetime.now(tz=timezone.utc).isoformat()
+        if not hasattr(self, '_audit_queue'):
+            self._audit_queue = []
+        self._audit_queue.append((now, action, detail))
+        # Flush if the batch is large enough
+        if len(self._audit_queue) >= 10:
+            self._flush_audit_log()
+
+    def _flush_audit_log(self):
+        """Write queued audit entries to DB in one transaction."""
+        if not hasattr(self, '_audit_queue') or not self._audit_queue:
+            return
+        batch = self._audit_queue
+        self._audit_queue = []
         try:
             con = sqlite3.connect(DB_PATH)
-            con.execute("INSERT INTO audit_log (timestamp, action, detail) VALUES (?, ?, ?)",
-                        (now, action, detail))
+            con.executemany("INSERT INTO audit_log (timestamp, action, detail) VALUES (?, ?, ?)",
+                            batch)
             con.commit()
             con.close()
         except Exception:
             pass  # never let audit logging break the app
 
+    def destroy(self):
+        """Flush pending audit entries before tearing down."""
+        self._flush_audit_log()
+        super().destroy()
+
     def _show_audit_log(self):
         """Show the audit log in a dialog."""
+        self._flush_audit_log()
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute("SELECT timestamp, action, detail FROM audit_log ORDER BY id DESC LIMIT 500")
