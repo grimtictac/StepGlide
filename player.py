@@ -2504,7 +2504,7 @@ class MusicPlayer(ctk.CTk):
                 di_reverse[idx] = pos_counter
                 pos_counter += 1
             if start + CHUNK < len(row_data):
-                self.update()
+                self.update_idletasks()
         self.tree.configure(selectmode='extended')
         self._invalidate_item_cache()  # treeview contents changed
 
