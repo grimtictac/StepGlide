@@ -834,6 +834,7 @@ class MusicPlayer(ctk.CTk):
             activestyle='none', exportselection=False)
         self._queue_listbox.pack(fill='both', expand=True, padx=4, pady=(0, 4))
         self._queue_listbox.bind('<Button-3>', self._on_queue_right_click)
+        self._queue_listbox.bind('<Double-1>', self._on_queue_double_click)
 
         queue_btn_row = ctk.CTkFrame(queue_panel, fg_color='transparent')
         queue_btn_row.pack(fill='x', padx=4, pady=(0, 6))
@@ -2312,6 +2313,28 @@ class MusicPlayer(ctk.CTk):
         menu.add_command(label='Remove', command=lambda: self._queue_remove_at(idx))
         menu.add_command(label='Clear Queue', command=self._clear_queue)
         menu.tk_popup(ev.x_root, ev.y_root)
+
+    def _on_queue_double_click(self, ev):
+        """Double-click a queue item to play it immediately."""
+        idx = self._queue_listbox.nearest(ev.y)
+        if idx < 0 or idx >= len(self._play_queue):
+            return
+        playlist_idx = self._play_queue.pop(idx)
+        self._refresh_queue_listbox()
+        self._last_action = 'switching'
+        self.vlc_player.stop()
+        self.current_index = playlist_idx
+        loaded = self._load(playlist_idx)
+        if loaded:
+            self.vlc_player.play()
+            self.is_playing = True
+            self.is_paused = False
+            self._last_action = 'playing'
+            self._play_started_at = time.time()
+            self._playback_start_time = time.time()
+            self._play_recorded = False
+            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+            self._update_now_playing()
 
     def _queue_remove_at(self, idx):
         if 0 <= idx < len(self._play_queue):
