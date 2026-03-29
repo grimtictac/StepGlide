@@ -843,6 +843,9 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(queue_btn_row, text='▼', width=30, height=24,
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                       command=self._queue_move_down).pack(side='left', padx=2)
+        ctk.CTkButton(queue_btn_row, text='⤒', width=30, height=24,
+                      font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
+                      command=self._queue_jump_to_top).pack(side='left', padx=2)
         ctk.CTkButton(queue_btn_row, text='🗑', width=30, height=24,
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
                       command=self._queue_remove_selected).pack(side='right', padx=2)
@@ -2278,6 +2281,18 @@ class MusicPlayer(ctk.CTk):
         self._refresh_queue_listbox()
         self._queue_listbox.selection_set(i + 1)
         self._queue_listbox.see(i + 1)
+
+    def _queue_jump_to_top(self):
+        """Move the selected queue item to the top of the queue."""
+        sel = self._queue_listbox.curselection()
+        if not sel or sel[0] == 0:
+            return
+        i = sel[0]
+        item = self._play_queue.pop(i)
+        self._play_queue.insert(0, item)
+        self._refresh_queue_listbox()
+        self._queue_listbox.selection_set(0)
+        self._queue_listbox.see(0)
 
     def _queue_remove_selected(self):
         sel = self._queue_listbox.curselection()
