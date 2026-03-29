@@ -176,6 +176,7 @@ class MusicPlayer(ctk.CTk):
         self._di_reverse = {}  # playlist_idx → display position (O(1) reverse lookup)
         self.genres = set()
         self._path_set = set()  # O(1) duplicate path lookup
+        self._path_to_idx = {}  # file_path → playlist index (O(1) reverse lookup)
         self._track_id_cache = {}  # file_path → track_id (avoids repeated DB lookups)
 
         self.current_index = None
@@ -627,6 +628,7 @@ class MusicPlayer(ctk.CTk):
             }
             self.playlist.append(entry)
             self._path_set.add(path)
+            self._path_to_idx[path] = len(self.playlist) - 1
             self.genres.add(entry['genre'])
 
         self._build_genre_list()
@@ -2598,6 +2600,7 @@ class MusicPlayer(ctk.CTk):
                  'rating': 0, 'liked_by': set(), 'disliked_by': set()}
         self.playlist.append(entry)
         self._path_set.add(path)
+        self._path_to_idx[path] = len(self.playlist) - 1
         self.genres.add(genre)
         stats = self._ensure_track_in_db(path, title, genre, comment, length, artist, album)
         entry['play_count'] = stats[0]
@@ -3250,12 +3253,8 @@ class MusicPlayer(ctk.CTk):
         self._play_log_tree.selection_set(item)
         track_id, file_path, title = self._play_log_track_map[item]
 
-        # Find the playlist index for this track
-        playlist_idx = None
-        for i, entry in enumerate(self.playlist):
-            if entry.get('path') == file_path:
-                playlist_idx = i
-                break
+        # Find the playlist index for this track (O(1) lookup)
+        playlist_idx = self._path_to_idx.get(file_path)
 
         if playlist_idx is None:
             return
@@ -3286,12 +3285,8 @@ class MusicPlayer(ctk.CTk):
             return
         track_id, file_path, title = self._play_log_track_map[item]
 
-        # Find the playlist index for this track
-        playlist_idx = None
-        for i, entry in enumerate(self.playlist):
-            if entry.get('path') == file_path:
-                playlist_idx = i
-                break
+        # Find the playlist index for this track (O(1) lookup)
+        playlist_idx = self._path_to_idx.get(file_path)
         if playlist_idx is None:
             return
 
@@ -3413,9 +3408,8 @@ class MusicPlayer(ctk.CTk):
     def _playlist_to_queue(self, name):
         """Load a playlist's tracks into the play queue."""
         paths = self._playlists.get(name, [])
-        path_to_idx = {e['path']: i for i, e in enumerate(self.playlist)}
         for path in paths:
-            idx = path_to_idx.get(path)
+            idx = self._path_to_idx.get(path)
             if idx is not None:
                 self._add_to_queue(idx)
 
@@ -3726,6 +3720,10 @@ class MusicPlayer(ctk.CTk):
             self.current_index -= 1
         self.playlist.pop(playlist_idx)
         self._path_set.discard(path)
+        self._path_to_idx.pop(path, None)
+        # Rebuild path→idx for shifted entries
+        for i in range(playlist_idx, len(self.playlist)):
+            self._path_to_idx[self.playlist[i]['path']] = i
         con = sqlite3.connect(DB_PATH)
         con.execute("DELETE FROM track_tags WHERE track_id = (SELECT id FROM tracks WHERE file_path = ?)", (path,))
         con.execute("DELETE FROM track_plays WHERE track_id = (SELECT id FROM tracks WHERE file_path = ?)", (path,))
