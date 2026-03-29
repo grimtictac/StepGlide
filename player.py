@@ -3971,13 +3971,12 @@ class MusicPlayer(ctk.CTk):
 
         # Show "Play Now" button — disable if selected track is already playing
         entry = self.playlist[playlist_idx]
-        title = entry.get('title', entry['basename'])
         if playlist_idx == self.current_index and self.is_playing and not self.is_paused:
-            self.btn_play_now.configure(text=f'\u25b6  Playing \u2014 {title[:40]}',
+            self.btn_play_now.configure(text='\u25b6  Playing',
                                         state='disabled',
                                         fg_color='#555555', text_color='#888888')
         else:
-            self.btn_play_now.configure(text=f'\u25b6  Play Now \u2014 {title[:40]}',
+            self.btn_play_now.configure(text='\u25b6  Play Now',
                                         state='normal',
                                         fg_color='#f1c40f', text_color='#000000')
         self.btn_play_next.configure(state='normal',
