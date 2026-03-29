@@ -37,6 +37,34 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'music_player_config.xml')
 
 
+def _add_tooltip(widget, text):
+    """Attach a simple hover tooltip to a widget."""
+    tip_window = [None]
+
+    def show(event):
+        if tip_window[0]:
+            return
+        x = widget.winfo_rootx() + 20
+        y = widget.winfo_rooty() + widget.winfo_height() + 4
+        tw = tk.Toplevel(widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f'+{x}+{y}')
+        lbl = tk.Label(tw, text=text, background='#333333', foreground='#eeeeee',
+                       relief='solid', borderwidth=1, font=('Segoe UI', 9),
+                       padx=6, pady=3)
+        lbl.pack()
+        tip_window[0] = tw
+
+    def hide(event):
+        tw = tip_window[0]
+        if tw:
+            tw.destroy()
+            tip_window[0] = None
+
+    widget.bind('<Enter>', show, add='+')
+    widget.bind('<Leave>', hide, add='+')
+
+
 class MusicPlayer(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -823,9 +851,10 @@ class MusicPlayer(ctk.CTk):
         self._queue_title_lbl = ctk.CTkLabel(queue_header, text='Queue (0)',
                      font=ctk.CTkFont(size=12, weight='bold'))
         self._queue_title_lbl.pack(side='left')
-        ctk.CTkButton(queue_header, text='✕', width=24, height=22,
+        _btn_clear_queue = ctk.CTkButton(queue_header, text='✕', width=24, height=22,
                       font=ctk.CTkFont(size=12), fg_color='transparent',
-                      hover_color='#3b3b3b', command=self._clear_queue).pack(side='right')
+                      hover_color='#3b3b3b', command=self._clear_queue)
+        _btn_clear_queue.pack(side='right')
 
         self._queue_listbox = tk.Listbox(
             queue_panel, bg='#2b2b2b', fg='#dce4ee',
@@ -838,21 +867,26 @@ class MusicPlayer(ctk.CTk):
 
         queue_btn_row = ctk.CTkFrame(queue_panel, fg_color='transparent')
         queue_btn_row.pack(fill='x', padx=4, pady=(0, 6))
-        ctk.CTkButton(queue_btn_row, text='▲', width=30, height=24,
+        _btn_q_up = ctk.CTkButton(queue_btn_row, text='▲', width=30, height=24,
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
-                      command=self._queue_move_up).pack(side='left', padx=2)
-        ctk.CTkButton(queue_btn_row, text='▼', width=30, height=24,
+                      command=self._queue_move_up)
+        _btn_q_up.pack(side='left', padx=2)
+        _btn_q_down = ctk.CTkButton(queue_btn_row, text='▼', width=30, height=24,
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
-                      command=self._queue_move_down).pack(side='left', padx=2)
-        ctk.CTkButton(queue_btn_row, text='⤒', width=30, height=24,
+                      command=self._queue_move_down)
+        _btn_q_down.pack(side='left', padx=2)
+        _btn_q_top = ctk.CTkButton(queue_btn_row, text='⤒', width=30, height=24,
                       font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
-                      command=self._queue_jump_to_top).pack(side='left', padx=2)
-        ctk.CTkButton(queue_btn_row, text='🗑', width=30, height=24,
+                      command=self._queue_jump_to_top)
+        _btn_q_top.pack(side='left', padx=2)
+        _btn_q_remove = ctk.CTkButton(queue_btn_row, text='🗑', width=30, height=24,
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
-                      command=self._queue_remove_selected).pack(side='right', padx=2)
-        ctk.CTkButton(queue_btn_row, text='🎲', width=30, height=24,
+                      command=self._queue_remove_selected)
+        _btn_q_remove.pack(side='right', padx=2)
+        _btn_q_random = ctk.CTkButton(queue_btn_row, text='🎲', width=30, height=24,
                       font=ctk.CTkFont(size=12), fg_color='#3b3b3b',
-                      command=self._random_queue_dialog).pack(side='right', padx=2)
+                      command=self._random_queue_dialog)
+        _btn_q_random.pack(side='right', padx=2)
 
         # ── ADD-TO-QUEUE BUTTON (thin vertical strip between browse and queue) ──
         self._btn_send_to_queue = ctk.CTkButton(
@@ -879,11 +913,12 @@ class MusicPlayer(ctk.CTk):
         genre_header.pack(fill='x', padx=6, pady=(6, 2))
         ctk.CTkLabel(genre_header, text='Genre',
                      font=ctk.CTkFont(size=12, weight='bold')).pack(side='left')
-        ctk.CTkButton(
+        _btn_settings = ctk.CTkButton(
             genre_header, text='\u2699', width=24, height=22,
             font=ctk.CTkFont(size=12), fg_color='transparent',
             hover_color='#3b3b3b', command=self._open_settings
-        ).pack(side='right')
+        )
+        _btn_settings.pack(side='right')
 
         self._genre_listbox = tk.Listbox(
             genre_panel, bg='#2b2b2b', fg='#dce4ee',
@@ -901,9 +936,10 @@ class MusicPlayer(ctk.CTk):
         playlist_header.pack(fill='x', padx=6, pady=(6, 2))
         ctk.CTkLabel(playlist_header, text='Playlists',
                      font=ctk.CTkFont(size=12, weight='bold')).pack(side='left')
-        ctk.CTkButton(playlist_header, text='+', width=24, height=22,
+        _btn_new_playlist = ctk.CTkButton(playlist_header, text='+', width=24, height=22,
                       font=ctk.CTkFont(size=14), fg_color='transparent',
-                      hover_color='#3b3b3b', command=self._create_playlist).pack(side='right')
+                      hover_color='#3b3b3b', command=self._create_playlist)
+        _btn_new_playlist.pack(side='right')
 
         self._playlist_listbox = tk.Listbox(
             playlist_panel, bg='#2b2b2b', fg='#dce4ee',
@@ -1039,6 +1075,28 @@ class MusicPlayer(ctk.CTk):
         sb = ctk.CTkScrollbar(tree_frame, command=self.tree.yview)
         sb.pack(side='left', fill='y')
         self.tree.config(yscrollcommand=sb.set)
+
+        # ── Tooltips for all buttons ──
+        _add_tooltip(self.btn_mute, 'Mute / Unmute')
+        _add_tooltip(self.btn_menu, 'Menu — Add Files / Folders')
+        _add_tooltip(self._btn_thumbs_up, 'Like this track')
+        _add_tooltip(self._btn_thumbs_down, 'Dislike this track')
+        _add_tooltip(self.btn_play, 'Play / Pause')
+        _add_tooltip(self.btn_stop, 'Stop')
+        _add_tooltip(self.btn_play_now, 'Play selected track now')
+        _add_tooltip(self.btn_play_next, 'Add selected track to front of queue')
+        _add_tooltip(speed_down, 'Decrease speed')
+        _add_tooltip(speed_up, 'Increase speed')
+        _add_tooltip(_btn_clear_queue, 'Clear queue')
+        _add_tooltip(_btn_q_up, 'Move up in queue')
+        _add_tooltip(_btn_q_down, 'Move down in queue')
+        _add_tooltip(_btn_q_top, 'Jump to top of queue')
+        _add_tooltip(_btn_q_remove, 'Remove from queue')
+        _add_tooltip(_btn_q_random, 'Random queue generator')
+        _add_tooltip(self._btn_send_to_queue, 'Add selected tracks to queue')
+        _add_tooltip(_btn_settings, 'Settings')
+        _add_tooltip(_btn_new_playlist, 'New playlist')
+        _add_tooltip(self._btn_reset_filters, 'Reset all filters')
 
     # ── Keyboard shortcuts ───────────────────────────────
 
