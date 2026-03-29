@@ -177,6 +177,7 @@ class MusicPlayer(ctk.CTk):
         self._path_set = set()  # O(1) duplicate path lookup
         self._path_to_idx = {}  # file_path → playlist index (O(1) reverse lookup)
         self._track_id_cache = {}  # file_path → track_id (avoids repeated DB lookups)
+        self._library_root = ''  # absolute path to library root; paths stored relative to this
 
         self.current_index = None
         self.is_playing = False
@@ -339,8 +340,9 @@ class MusicPlayer(ctk.CTk):
                 genre = 'Unknown'
                 comment = ''
                 title = db_title
+                abs_fp = self._abs_path(fpath)
                 try:
-                    tags = MutagenFile(fpath, easy=True)
+                    tags = MutagenFile(abs_fp, easy=True)
                     if tags is not None:
                         title = tags.get('title', [db_title or os.path.basename(fpath)])[0]
                         genre = tags.get('genre', ['Unknown'])[0]
@@ -362,7 +364,7 @@ class MusicPlayer(ctk.CTk):
                 for track_id, fpath in rows_to_fill:
                     length = None
                     try:
-                        audio = MutagenFile(fpath)
+                        audio = MutagenFile(self._abs_path(fpath))
                         if audio is not None and audio.info is not None:
                             length = audio.info.length
                     except Exception:
@@ -380,7 +382,7 @@ class MusicPlayer(ctk.CTk):
                     artist = ''
                     album = ''
                     try:
-                        tags = MutagenFile(fpath, easy=True)
+                        tags = MutagenFile(self._abs_path(fpath), easy=True)
                         if tags is not None:
                             artist = tags.get('artist', [''])[0] or ''
                             album = tags.get('album', [''])[0] or ''
@@ -393,6 +395,22 @@ class MusicPlayer(ctk.CTk):
 
         con.close()
         self._load_genre_groups()
+
+    # ── Path helpers (relative ↔ absolute) ───────────────
+
+    def _rel_path(self, abs_path):
+        """Convert an absolute file path to a path relative to _library_root."""
+        if not self._library_root:
+            return abs_path
+        return os.path.relpath(abs_path, self._library_root)
+
+    def _abs_path(self, rel_path):
+        """Convert a relative path back to absolute using _library_root."""
+        if not self._library_root:
+            return rel_path
+        if os.path.isabs(rel_path):
+            return rel_path
+        return os.path.join(self._library_root, rel_path)
 
     def _load_genre_groups(self):
         """Load genre groups from XML config file (falling back to DB for migration)."""
@@ -416,6 +434,10 @@ class MusicPlayer(ctk.CTk):
         """Load all settings from the XML config file."""
         tree = ET.parse(CONFIG_PATH)
         root = tree.getroot()
+        # Library root
+        lib_el = root.find('library_root')
+        if lib_el is not None and lib_el.text:
+            self._library_root = lib_el.text
         # Genre groups
         self._genre_groups = {}
         groups_el = root.find('genre_groups')
@@ -459,6 +481,9 @@ class MusicPlayer(ctk.CTk):
     def _save_config_to_xml(self):
         """Save all settings to the XML config file."""
         root = ET.Element('music_player_config')
+        # Library root
+        lib_el = ET.SubElement(root, 'library_root')
+        lib_el.text = self._library_root or ''
         # Genre groups
         groups_el = ET.SubElement(root, 'genre_groups')
         for gname, members in self._genre_groups.items():
@@ -653,6 +678,7 @@ class MusicPlayer(ctk.CTk):
         self.lbl_now_playing.configure(text=f'\u266b  {len(self.playlist)} tracks loaded')
 
     def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None, artist='', album=''):
+        """Ensure a track exists in the DB. path is the relative (stored) path."""
         shared = getattr(self, '_shared_db', None)
         con = shared or sqlite3.connect(DB_PATH)
         cur = con.cursor()
@@ -660,7 +686,7 @@ class MusicPlayer(ctk.CTk):
         row = cur.fetchone()
         if row is None:
             try:
-                file_created = datetime.fromtimestamp(os.path.getctime(path), tz=timezone.utc).isoformat()
+                file_created = datetime.fromtimestamp(os.path.getctime(self._abs_path(path)), tz=timezone.utc).isoformat()
             except OSError:
                 file_created = None
             cur.execute(
@@ -1569,9 +1595,124 @@ class MusicPlayer(ctk.CTk):
         menu.add_command(label=fs_label, command=self._toggle_fullscreen)
         menu.add_separator()
         menu.add_command(label='\U0001f4cb  View Audit Log', command=self._show_audit_log)
+        menu.add_separator()
+        root_label = f'\U0001f4c1  Library Root: {self._library_root}' if self._library_root else '\U0001f4c1  Set Library Root\u2026'
+        menu.add_command(label=root_label, command=self._show_library_root_dialog)
         x = self.btn_menu.winfo_rootx()
         y = self.btn_menu.winfo_rooty() + self.btn_menu.winfo_height()
         menu.tk_popup(x, y, 0)
+
+    # ── Library root ─────────────────────────────────────
+
+    def _show_library_root_dialog(self):
+        """Show a dialog to set the library root folder and scan it."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Library Root')
+        dialog.geometry('550x220')
+        dialog.transient(self)
+        dialog.after(100, dialog.grab_set)
+
+        ctk.CTkLabel(dialog, text='Library Root Folder',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(16, 4))
+        ctk.CTkLabel(dialog, text='All tracks are stored relative to this folder.',
+                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 10))
+
+        path_var = tk.StringVar(value=self._library_root or '')
+        path_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        path_frame.pack(fill='x', padx=20)
+        path_entry = ctk.CTkEntry(path_frame, textvariable=path_var, height=32,
+                                  font=ctk.CTkFont(size=12))
+        path_entry.pack(side='left', fill='x', expand=True, padx=(0, 8))
+
+        def browse():
+            folder = filedialog.askdirectory(title='Select library root folder',
+                                             initialdir=path_var.get() or None)
+            if folder:
+                path_var.set(folder)
+
+        ctk.CTkButton(path_frame, text='Browse\u2026', width=80, fg_color='#4a4a4a',
+                      hover_color='#555555', command=browse).pack(side='right')
+
+        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row.pack(fill='x', padx=20, pady=(18, 12))
+
+        def save():
+            new_root = path_var.get().strip()
+            if new_root and not os.path.isdir(new_root):
+                messagebox.showerror('Invalid folder', f'"{new_root}" is not a valid directory.',
+                                     parent=dialog)
+                return
+            self._library_root = new_root
+            self._save_config_to_xml()
+            self._log_action('set_library_root', new_root)
+            dialog.destroy()
+
+        def save_and_scan():
+            new_root = path_var.get().strip()
+            if not new_root or not os.path.isdir(new_root):
+                messagebox.showerror('Invalid folder', f'"{new_root}" is not a valid directory.',
+                                     parent=dialog)
+                return
+            self._library_root = new_root
+            self._save_config_to_xml()
+            self._log_action('set_library_root', new_root)
+            dialog.destroy()
+            self._scan_library()
+
+        ctk.CTkButton(btn_row, text='Save', fg_color='#555555', width=100,
+                      command=save).pack(side='left', padx=(0, 8))
+        ctk.CTkButton(btn_row, text='Save & Scan', width=120,
+                      command=save_and_scan).pack(side='left', padx=(0, 8))
+        ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555', width=80,
+                      command=dialog.destroy).pack(side='right')
+
+    @perf.track
+    def _scan_library(self):
+        """Scan the library root folder recursively and add all audio files."""
+        if not self._library_root or not os.path.isdir(self._library_root):
+            messagebox.showerror('No library root', 'Set a library root folder first.')
+            return
+        self._log_action('scan_library', self._library_root)
+        exts = ('.mp3', '.wav', '.ogg', '.flac')
+
+        self.lbl_now_playing.configure(text='\u266b  Scanning library\u2026')
+        self.update_idletasks()
+        audio_files = []
+        for root, _, files in os.walk(self._library_root):
+            for name in files:
+                if name.lower().endswith(exts):
+                    audio_files.append(os.path.join(root, name))
+
+        total = len(audio_files)
+        if total == 0:
+            messagebox.showinfo('No files', 'No supported audio files found in library root.')
+            self.lbl_now_playing.configure(text='\u266b  Not Playing')
+            return
+
+        self.load_progress.set(0)
+        self.load_progress.pack(side='right', padx=(0, 10), pady=12)
+        self.lbl_load.pack(side='right', padx=4, pady=12)
+
+        added = 0
+        self._shared_db = sqlite3.connect(DB_PATH)
+        for i, abs_path in enumerate(audio_files, 1):
+            if self._add_path(abs_path):
+                added += 1
+            self.load_progress.set(i / total)
+            self.lbl_load.configure(text=f'{i}/{total}')
+            if i % 25 == 0 or i == total:
+                self.update_idletasks()
+        self._shared_db.close()
+        self._shared_db = None
+
+        self.load_progress.pack_forget()
+        self.lbl_load.pack_forget()
+
+        if self.current_index is None and self.playlist:
+            self.current_index = 0
+        self._build_genre_list()
+        self._apply_filter()
+        self.lbl_now_playing.configure(text=f'\u266b  Added {added} tracks ({total} scanned)')
 
     # ── Genre dropdown ─────────────────────────────────
 
@@ -2605,10 +2746,12 @@ class MusicPlayer(ctk.CTk):
         self._apply_filter()
         self.lbl_now_playing.configure(text=f'\u266b  Added {added} tracks')
 
-    def _add_path(self, path):
-        if path in self._path_set:
+    def _add_path(self, abs_path):
+        """Add a track by its absolute path. Stores a relative path internally."""
+        rel = self._rel_path(abs_path)
+        if rel in self._path_set:
             return False
-        title = os.path.basename(path)
+        title = os.path.basename(abs_path)
         genre = 'Unknown'
         comment = ''
         artist = ''
@@ -2616,7 +2759,7 @@ class MusicPlayer(ctk.CTk):
         length = None
         if MutagenFile is not None:
             try:
-                tags = MutagenFile(path, easy=True)
+                tags = MutagenFile(abs_path, easy=True)
                 if tags is not None:
                     title = tags.get('title', [title])[0]
                     genre = tags.get('genre', [genre])[0]
@@ -2627,20 +2770,20 @@ class MusicPlayer(ctk.CTk):
             except Exception:
                 pass
             try:
-                audio = MutagenFile(path)
+                audio = MutagenFile(abs_path)
                 if audio is not None and audio.info is not None:
                     length = audio.info.length
             except Exception:
                 pass
-        entry = {'path': path, 'title': title, 'basename': os.path.basename(path),
+        entry = {'path': rel, 'title': title, 'basename': os.path.basename(abs_path),
                  'artist': artist, 'album': album,
                  'genre': genre, 'comment': comment, 'length': length, 'tags': [],
                  'rating': 0, 'liked_by': set(), 'disliked_by': set()}
         self.playlist.append(entry)
-        self._path_set.add(path)
-        self._path_to_idx[path] = len(self.playlist) - 1
+        self._path_set.add(rel)
+        self._path_to_idx[rel] = len(self.playlist) - 1
         self.genres.add(genre)
-        stats = self._ensure_track_in_db(path, title, genre, comment, length, artist, album)
+        stats = self._ensure_track_in_db(rel, title, genre, comment, length, artist, album)
         entry['play_count'] = stats[0]
         entry['first_played'] = stats[1]
         entry['last_played'] = stats[2]
@@ -2722,7 +2865,7 @@ class MusicPlayer(ctk.CTk):
     def _load(self, index):
         if index is None or index < 0 or index >= len(self.playlist):
             return False
-        path = self.playlist[index]['path']
+        path = self._abs_path(self.playlist[index]['path'])
         try:
             media = self.vlc_instance.media_new(path)
             self.vlc_media_list = self.vlc_instance.media_list_new()
