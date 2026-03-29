@@ -276,6 +276,9 @@ class MusicPlayer(ctk.CTk):
         # Play log track map: tree item iid → (track_id, file_path, title)
         self._play_log_track_map = {}
 
+        # Interface settings (toggleable behaviours)
+        self._queue_btn_throb_enabled = True  # glow/throb ✚ when track selected
+
         self._init_database()
 
         self._build_ui()
@@ -540,6 +543,11 @@ class MusicPlayer(ctk.CTk):
                 text = tip_el.get('text', '')
                 if key and text:
                     _tooltip_texts[key] = text
+        # Interface settings
+        iface_el = root.find('interface')
+        if iface_el is not None:
+            val = iface_el.get('queue_btn_throb', 'true')
+            self._queue_btn_throb_enabled = val.lower() != 'false'
 
     def _save_config_to_xml(self):
         """Save all settings to the XML config file."""
@@ -584,6 +592,9 @@ class MusicPlayer(ctk.CTk):
             default = _DEFAULT_TOOLTIPS.get(key, '')
             if text != default:
                 ET.SubElement(tooltips_el, 'tip', key=key, text=text)
+        # Interface settings
+        iface_el = ET.SubElement(root, 'interface',
+                                  queue_btn_throb=str(self._queue_btn_throb_enabled).lower())
         # Write with indentation
         ET.indent(root)
         tree = ET.ElementTree(root)
@@ -2411,6 +2422,7 @@ class MusicPlayer(ctk.CTk):
         tags_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
         length_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
         tooltips_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
+        interface_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
 
         active_tab = [None]
         tab_buttons = {}
@@ -2423,6 +2435,7 @@ class MusicPlayer(ctk.CTk):
             tags_frame.pack_forget()
             length_frame.pack_forget()
             tooltips_frame.pack_forget()
+            interface_frame.pack_forget()
             for btn in tab_buttons.values():
                 btn.configure(fg_color='transparent')
             if name == 'genres':
@@ -2433,6 +2446,8 @@ class MusicPlayer(ctk.CTk):
                 length_frame.pack(fill='both', expand=True)
             elif name == 'tooltips':
                 tooltips_frame.pack(fill='both', expand=True)
+            elif name == 'interface':
+                interface_frame.pack(fill='both', expand=True)
             tab_buttons[name].configure(fg_color='#1f6aa5')
 
         btn_tab_genres = ctk.CTkButton(tab_bar, text='Genres', height=30,
@@ -2457,8 +2472,14 @@ class MusicPlayer(ctk.CTk):
                                           font=ctk.CTkFont(size=12, weight='bold'),
                                           fg_color='transparent', border_width=1, border_color='#555555',
                                           command=lambda: show_tab('tooltips'))
-        btn_tab_tooltips.pack(side='left')
+        btn_tab_tooltips.pack(side='left', padx=(0, 4))
         tab_buttons['tooltips'] = btn_tab_tooltips
+        btn_tab_interface = ctk.CTkButton(tab_bar, text='Interface', height=30,
+                                           font=ctk.CTkFont(size=12, weight='bold'),
+                                           fg_color='transparent', border_width=1, border_color='#555555',
+                                           command=lambda: show_tab('interface'))
+        btn_tab_interface.pack(side='left')
+        tab_buttons['interface'] = btn_tab_interface
 
         # ═══════════════ GENRES TAB ═══════════════
         ctk.CTkLabel(genre_frame, text='Genre Groups',
@@ -2755,6 +2776,24 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(tooltips_btn_row, text='Reset All to Defaults', fg_color='#8b0000',
                       hover_color='#a52a2a', command=reset_all_tooltips).pack(side='left', padx=4)
 
+        # ═══════════════ INTERFACE TAB ═══════════════
+        ctk.CTkLabel(interface_frame, text='Interface Behaviour',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(6, 2))
+        ctk.CTkLabel(interface_frame, text='Toggle visual cues and animation effects.',
+                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 10))
+
+        iface_content = ctk.CTkFrame(interface_frame, fg_color='transparent')
+        iface_content.pack(fill='both', expand=True, padx=4)
+
+        # Queue button throb toggle
+        working_queue_throb = tk.BooleanVar(value=self._queue_btn_throb_enabled)
+        qbt_row = ctk.CTkFrame(iface_content, fg_color='#2b2b2b', corner_radius=8)
+        qbt_row.pack(fill='x', pady=4)
+        ctk.CTkLabel(qbt_row, text='✚ Queue button glow/throb on track selection',
+                     font=ctk.CTkFont(size=12)).pack(side='left', padx=10, pady=10)
+        ctk.CTkSwitch(qbt_row, text='', variable=working_queue_throb,
+                       width=44, height=22).pack(side='right', padx=10, pady=10)
+
         # ═══════════════ BOTTOM BUTTONS ═══════════════
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
         btn_row.pack(fill='x', padx=10, pady=10)
@@ -2825,6 +2864,10 @@ class MusicPlayer(ctk.CTk):
             self._rebuild_length_filter_dropdown()
             # Save tooltip overrides
             _tooltip_texts.update(working_tooltips)
+            # Save interface settings
+            self._queue_btn_throb_enabled = working_queue_throb.get()
+            if not self._queue_btn_throb_enabled:
+                self._stop_queue_btn_throb()
             self._save_config_to_xml()
             self._active_genre = 'All'
             self._apply_filter()
@@ -3837,6 +3880,52 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(btn_row, text='Save', fg_color='#1f6aa5',
                       width=80, command=_save).pack(side='right', padx=4)
 
+    # ── Queue button throb ─────────────────────────────
+
+    def _start_queue_btn_throb(self):
+        """Start a pulsating throb on the ✚ queue button."""
+        if not self._queue_btn_throb_enabled:
+            return
+        if getattr(self, '_queue_btn_throb_id', None) is not None:
+            return  # already throbbing
+        self._queue_btn_throb_step = 0
+        self._queue_btn_throb_tick()
+
+    def _stop_queue_btn_throb(self):
+        """Stop the queue button throb and reset style."""
+        tid = getattr(self, '_queue_btn_throb_id', None)
+        if tid is not None:
+            self.after_cancel(tid)
+            self._queue_btn_throb_id = None
+        if hasattr(self, '_btn_send_to_queue'):
+            self._btn_send_to_queue.configure(fg_color='#1f6aa5', text_color='#ffffff')
+
+    def _queue_btn_throb_tick(self):
+        """One tick of the queue button throb — oscillates blue tones."""
+        if not self._queue_btn_throb_enabled:
+            self._queue_btn_throb_id = None
+            self._btn_send_to_queue.configure(fg_color='#1f6aa5', text_color='#ffffff')
+            return
+        step = getattr(self, '_queue_btn_throb_step', 0)
+        cycle = [
+            ('#1f6aa5', '#ffffff'),   # normal blue
+            ('#2878b5', '#ffffff'),
+            ('#3388cc', '#ffffff'),
+            ('#4499dd', '#e0f0ff'),   # bright
+            ('#3388cc', '#ffffff'),
+            ('#2878b5', '#ffffff'),
+            ('#1f6aa5', '#ffffff'),   # normal blue
+            ('#174e7a', '#cce0f0'),   # dim
+        ]
+        bg, fg = cycle[step % len(cycle)]
+        try:
+            self._btn_send_to_queue.configure(fg_color=bg, text_color=fg)
+        except Exception:
+            self._queue_btn_throb_id = None
+            return
+        self._queue_btn_throb_step = step + 1
+        self._queue_btn_throb_id = self.after(200, self._queue_btn_throb_tick)
+
     # ── Play queue management ────────────────────────────
 
     def _refresh_queue_listbox(self):
@@ -3869,6 +3958,7 @@ class MusicPlayer(ctk.CTk):
             if pos is not None and pos < len(self.display_indices):
                 self._play_queue.append(self.display_indices[pos])
         self._refresh_queue_listbox()
+        self._stop_queue_btn_throb()
 
     def _insert_in_queue(self, playlist_idx, position=0):
         """Insert a track at a specific position in the queue."""
@@ -4652,6 +4742,7 @@ class MusicPlayer(ctk.CTk):
                                         fg_color='#555555', text_color='#888888')
             self.btn_play_next.configure(state='disabled',
                                          fg_color='#555555', text_color='#888888')
+            self._stop_queue_btn_throb()
             return
         item = sel[0]
         pos = self._item_to_pos(item)
@@ -4660,6 +4751,7 @@ class MusicPlayer(ctk.CTk):
                                         fg_color='#555555', text_color='#888888')
             self.btn_play_next.configure(state='disabled',
                                          fg_color='#555555', text_color='#888888')
+            self._stop_queue_btn_throb()
             return
         playlist_idx = self.display_indices[pos]
 
@@ -4675,6 +4767,8 @@ class MusicPlayer(ctk.CTk):
                                         fg_color='#f1c40f', text_color='#000000')
         self.btn_play_next.configure(state='normal',
                                      fg_color='#e67e22', text_color='#000000')
+        # Throb the ✚ queue button to draw attention
+        self._start_queue_btn_throb()
 
     @perf.track
     def _play_now_click(self):
