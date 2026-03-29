@@ -2231,9 +2231,15 @@ class MusicPlayer(ctk.CTk):
             genre_list = ctk.CTkScrollableFrame(genre_dialog, fg_color='#1a1a2e')
             genre_list.pack(fill='both', expand=True, padx=16, pady=(0, 8))
 
+            # Pre-compute genre counts in a single pass over the playlist
+            genre_counts = {}
+            for e in self.playlist:
+                g = e.get('genre')
+                if g:
+                    genre_counts[g] = genre_counts.get(g, 0) + 1
+
             for i, genre in enumerate(sorted(self.genres), 1):
-                # Count tracks with this genre
-                count = sum(1 for e in self.playlist if e.get('genre') == genre)
+                count = genre_counts.get(genre, 0)
                 row = ctk.CTkFrame(genre_list, fg_color='#2b2b2b' if i % 2 == 0 else '#252535',
                                    corner_radius=4)
                 row.pack(fill='x', pady=1)
@@ -3125,6 +3131,13 @@ class MusicPlayer(ctk.CTk):
         genre_scroll = ctk.CTkScrollableFrame(dialog, fg_color='#1a1a2e')
         genre_scroll.pack(fill='both', expand=True, padx=16, pady=(0, 8))
 
+        # Pre-compute genre counts in a single pass
+        genre_counts = {}
+        for e in self.playlist:
+            g = e.get('genre')
+            if g:
+                genre_counts[g] = genre_counts.get(g, 0) + 1
+
         genre_weight_vars = {}
         for genre in sorted(self.genres):
             row = ctk.CTkFrame(genre_scroll, fg_color='transparent')
@@ -3135,8 +3148,7 @@ class MusicPlayer(ctk.CTk):
             genre_weight_vars[genre] = wvar
             ctk.CTkEntry(row, textvariable=wvar, width=50, height=24,
                          font=ctk.CTkFont(size=11)).pack(side='left', padx=4)
-            # Track count
-            count = sum(1 for e in self.playlist if e.get('genre') == genre)
+            count = genre_counts.get(genre, 0)
             ctk.CTkLabel(row, text=f'({count})', font=ctk.CTkFont(size=10),
                          text_color='#666666').pack(side='left', padx=4)
 
