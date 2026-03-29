@@ -64,8 +64,12 @@ class PerfTracker:
         self._logger.addHandler(ch)
         self._logger.info(f'Performance log started → {self._log_path}')
 
-    def track(self, method):
-        """Decorator: wraps a method to record its execution time."""
+    def track(self, method=None, *, quiet=False):
+        """Decorator: wraps a method to record its execution time.
+        Use @perf.track(quiet=True) to suppress per-call logging."""
+        if method is None:
+            # Called with arguments: @perf.track(quiet=True)
+            return lambda m: self.track(m, quiet=quiet)
         name = method.__qualname__
 
         @functools.wraps(method)
@@ -87,7 +91,7 @@ class PerfTracker:
                 if elapsed > s['max']:
                     s['max'] = elapsed
                 # Only log noteworthy calls (> 1ms) to reduce noise
-                if elapsed > 1.0:
+                if not quiet and elapsed > 1.0:
                     self._logger.info(f'{name}: {elapsed:.1f}ms')
                 if self._ui_callback:
                     try:
@@ -1184,21 +1188,20 @@ class MusicPlayer(ctk.CTk):
                                            height=26, font=ctk.CTkFont(size=11))
         self._search_entry.pack(fill='x', pady=(0, 2))
 
-        # Track count label + perf info
-        status_row = ctk.CTkFrame(tree_frame, fg_color='transparent')
-        status_row.pack(fill='x', pady=(0, 2))
-        self._track_count_lbl = ctk.CTkLabel(status_row, text='0 tracks',
+        # Track count label
+        self._track_count_lbl = ctk.CTkLabel(tree_frame, text='0 tracks',
                                               font=ctk.CTkFont(size=10),
                                               text_color='#888888', anchor='w')
-        self._track_count_lbl.pack(side='left')
-        self._perf_lbl = ctk.CTkLabel(status_row, text='',
-                                       font=ctk.CTkFont(size=9),
-                                       text_color='#666666', anchor='e')
-        self._perf_lbl.pack(side='right', padx=(8, 0))
-        # Wire up the perf tracker UI callback
+        self._track_count_lbl.pack(fill='x', pady=(0, 2))
+        # Perf info — stored for UI callback, will be shown via track count label
+        self._perf_text = ''
         def _perf_ui_update(method_name, ms):
             short = method_name.split('.')[-1] if '.' in method_name else method_name
-            self._perf_lbl.configure(text=f'{short}: {ms:.0f}ms')
+            self._perf_text = f'  ⏱ {short}: {ms:.0f}ms'
+            # Append perf info to the existing track count text
+            cur = self._track_count_lbl.cget('text')
+            base = cur.split('  ⏱')[0]  # strip old perf suffix
+            self._track_count_lbl.configure(text=base + self._perf_text)
         perf._ui_callback = _perf_ui_update
 
         self._all_columns = ('Title', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
@@ -2203,10 +2206,11 @@ class MusicPlayer(ctk.CTk):
         if hasattr(self, '_track_count_lbl'):
             total = len(playlist)
             shown = len(self.display_indices)
+            perf_sfx = getattr(self, '_perf_text', '')
             if shown == total:
-                self._track_count_lbl.configure(text=f'{total} tracks')
+                self._track_count_lbl.configure(text=f'{total} tracks{perf_sfx}')
             else:
-                self._track_count_lbl.configure(text=f'{shown} of {total} tracks')
+                self._track_count_lbl.configure(text=f'{shown} of {total} tracks{perf_sfx}')
 
     # ── File management ──────────────────────────────────
 
@@ -3390,7 +3394,7 @@ class MusicPlayer(ctk.CTk):
             pass  # never let poll crash kill the event loop
         self.after(500, self._poll)
 
-    @perf.track
+    @perf.track(quiet=True)
     def _poll_inner(self):
         mp = self.vlc_player.get_media_player()
         is_playing = mp.is_playing()

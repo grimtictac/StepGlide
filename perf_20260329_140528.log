@@ -1,0 +1,88 @@
+14:05:28  Performance log started → /home/shauns/Desktop/MusicPlayer/perf_20260329_140528.log
+14:05:31  MusicPlayer._apply_filter_inner: 226.1ms
+14:05:31  MusicPlayer._apply_filter: 226.4ms
+14:05:31  MusicPlayer._build_tag_bar: 128.8ms
+14:05:31  MusicPlayer._poll_inner: 1.5ms
+14:05:32  MusicPlayer._poll_inner: 1.1ms
+14:05:33  MusicPlayer._poll_inner: 1.2ms
+14:05:34  MusicPlayer._on_select: 2.0ms
+14:05:36  MusicPlayer._poll_inner: 1.1ms
+14:05:37  MusicPlayer._poll_inner: 1.2ms
+14:05:41  MusicPlayer._poll_inner: 1.2ms
+14:05:42  
+════════════════════════════════════════════════════════════════════════════════
+  PERFORMANCE SUMMARY
+════════════════════════════════════════════════════════════════════════════════
+  Method                                         Calls     Total      Avg      Min      Max     Last
+  ──────────────────────────────────────────────────────────────────────────────
+  _apply_filter                                      1    226.4ms   226.4ms   226.4ms   226.4ms   226.4ms
+  _apply_filter_inner                                1    226.1ms   226.1ms   226.1ms   226.1ms   226.1ms
+  _build_tag_bar                                     1    128.8ms   128.8ms   128.8ms   128.8ms   128.8ms
+  _poll_inner                                       21     20.3ms     1.0ms     0.7ms     1.5ms     0.7ms
+  _on_select                                         1      2.0ms     2.0ms     2.0ms     2.0ms     2.0ms
+════════════════════════════════════════════════════════════════════════════════
+14:05:43  MusicPlayer._poll_inner: 2.0ms
+14:05:44  MusicPlayer._poll_inner: 1.1ms
+14:05:45  MusicPlayer._poll_inner: 1.4ms
+14:05:47  MusicPlayer._poll_inner: 2.1ms
+14:05:58  MusicPlayer._poll_inner: 1.1ms
+14:06:00  MusicPlayer._poll_inner: 1.1ms
+14:06:00  MusicPlayer._poll_inner: 1.1ms
+14:06:01  MusicPlayer._poll_inner: 1.4ms
+14:06:02  MusicPlayer._poll_inner: 1.9ms
+14:06:10  MusicPlayer._poll_inner: 1.0ms
+14:06:13  MusicPlayer._on_select: 1.7ms
+14:06:14  MusicPlayer._on_right_click: 38.7ms
+14:06:14  MusicPlayer._poll_inner: 1.2ms
+14:06:16  MusicPlayer._update_single_row: 1.1ms
+14:06:17  MusicPlayer._poll_inner: 1.2ms
+14:06:18  MusicPlayer._poll_inner: 1.1ms
+14:06:19  MusicPlayer._poll_inner: 1.3ms
+14:06:21  MusicPlayer._poll_inner: 1.3ms
+14:06:21  MusicPlayer._poll_inner: 1.1ms
+14:06:22  MusicPlayer._poll_inner: 1.9ms
+14:06:23  MusicPlayer._poll_inner: 1.1ms
+14:06:25  MusicPlayer._on_right_click: 19.3ms
+14:06:25  MusicPlayer._on_select: 1.0ms
+14:06:25  MusicPlayer._poll_inner: 1.0ms
+14:06:26  MusicPlayer._poll_inner: 1.1ms
+14:06:27  MusicPlayer._poll_inner: 1.1ms
+14:06:27  MusicPlayer._update_single_row: 1.3ms
+14:06:29  MusicPlayer._poll_inner: 1.1ms
+14:06:31  MusicPlayer._apply_filter_inner: 8.3ms
+14:06:31  MusicPlayer._apply_filter: 8.6ms
+14:06:31  MusicPlayer._on_select: 1.0ms
+14:06:31  MusicPlayer._poll_inner: 1.4ms
+14:06:37  MusicPlayer._poll_inner: 1.0ms
+14:06:39  MusicPlayer._poll_inner: 1.1ms
+14:06:40  MusicPlayer._poll_inner: 1.4ms
+14:06:44  MusicPlayer._poll_inner: 1.2ms
+14:06:46  MusicPlayer._poll_inner: 1.6ms
+14:06:49  MusicPlayer._poll_inner: 1.4ms
+14:06:50  MusicPlayer._poll_inner: 1.0ms
+14:06:50  MusicPlayer._poll_inner: 1.5ms
+14:06:53  MusicPlayer._poll_inner: 1.5ms
+14:06:53  MusicPlayer._poll_inner: 1.3ms
+14:06:54  MusicPlayer._poll_inner: 1.2ms
+14:06:56  MusicPlayer._poll_inner: 1.1ms
+14:06:58  MusicPlayer._poll_inner: 1.1ms
+14:07:00  MusicPlayer._poll_inner: 1.1ms
+14:07:02  MusicPlayer._poll_inner: 1.0ms
+14:07:03  MusicPlayer._poll_inner: 1.1ms
+14:07:05  MusicPlayer._poll_inner: 1.1ms
+14:07:06  MusicPlayer._poll_inner: 1.1ms
+14:07:08  MusicPlayer._poll_inner: 1.2ms
+14:07:09  MusicPlayer._poll_inner: 1.2ms
+14:07:10  MusicPlayer._poll_inner: 2.5ms
+14:07:11  MusicPlayer._poll_inner: 1.2ms
+14:07:12  MusicPlayer._poll_inner: 1.3ms
+14:07:16  MusicPlayer._poll_inner: 1.2ms
+14:07:17  MusicPlayer._poll_inner: 1.1ms
+14:07:18  MusicPlayer._poll_inner: 1.1ms
+14:07:19  MusicPlayer._poll_inner: 1.1ms
+14:07:23  MusicPlayer._poll_inner: 1.2ms
+14:07:25  MusicPlayer._poll_inner: 1.1ms
+14:07:26  MusicPlayer._poll_inner: 1.7ms
+14:07:28  MusicPlayer._poll_inner: 1.2ms
+14:07:28  MusicPlayer._poll_inner: 1.5ms
+14:07:30  MusicPlayer._poll_inner: 1.7ms
