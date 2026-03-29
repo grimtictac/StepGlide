@@ -1043,9 +1043,10 @@ class MusicPlayer(ctk.CTk):
         self.lbl_now_playing.pack(side='left', fill='x', expand=True, padx=(12, 8))
 
         self._lbl_genre = ctk.CTkLabel(top_bar, text='',
-                                       font=ctk.CTkFont(size=11),
+                                       font=ctk.CTkFont(size=14),
                                        fg_color='#2b2b2b', corner_radius=6,
-                                       text_color='#aaaaaa', width=0)
+                                       text_color='#aaaaaa', width=180,
+                                       anchor='w')
         self._lbl_genre.pack(side='left', padx=(0, 8), pady=6)
 
         self._lbl_rating = ctk.CTkLabel(top_bar, text='\u2014',
