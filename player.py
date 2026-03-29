@@ -77,7 +77,9 @@ class MusicPlayer(ctk.CTk):
 
         self.playlist = []
         self.display_indices = []
+        self._di_reverse = {}  # playlist_idx → display position (O(1) reverse lookup)
         self.genres = set()
+        self._path_set = set()  # O(1) duplicate path lookup
 
         self.current_index = None
         self.is_playing = False
@@ -421,6 +423,7 @@ class MusicPlayer(ctk.CTk):
                 'disliked_by': vdata['disliked_by'],
             }
             self.playlist.append(entry)
+            self._path_set.add(path)
             self.genres.add(entry['genre'])
 
         self._build_genre_list()
@@ -1173,10 +1176,7 @@ class MusicPlayer(ctk.CTk):
     def _prev_track(self):
         if not self.playlist or not self.display_indices:
             return
-        try:
-            pos = self.display_indices.index(self.current_index)
-        except ValueError:
-            pos = 0
+        pos = self._di_reverse.get(self.current_index, 0)
         prev_pos = (pos - 1) % len(self.display_indices)
         prev_idx = self.display_indices[prev_pos]
         self._load(prev_idx)
@@ -1426,16 +1426,13 @@ class MusicPlayer(ctk.CTk):
             self._save_config_to_xml()  # persist new tag to XML
             # Apply to selected tracks if any
             sel = self.tree.selection()
-            all_items = self.tree.get_children()
             updated_indices = []
             for item in sel:
-                try:
-                    idx = list(all_items).index(item)
-                    pl_idx = self.display_indices[idx]
+                pos = self._item_to_pos(item)
+                if pos is not None and pos < len(self.display_indices):
+                    pl_idx = self.display_indices[pos]
                     self._add_tag_to_track(pl_idx, tag)
                     updated_indices.append(pl_idx)
-                except (ValueError, IndexError):
-                    pass
             # Update only the affected rows instead of full rebuild
             for pl_idx in updated_indices:
                 self._update_single_row(pl_idx)
@@ -1918,6 +1915,7 @@ class MusicPlayer(ctk.CTk):
                         prev_selected.add(self.display_indices[pos])
             self.tree.delete(*all_items)
         self.display_indices = []
+        self._di_reverse = {}  # playlist_idx → display position (O(1) reverse lookup)
 
         genre_filter = self._get_genres_for_filter()
         search_term = self._search_var.get().strip().lower() if hasattr(self, '_search_var') else ''
@@ -2070,14 +2068,19 @@ class MusicPlayer(ctk.CTk):
         CHUNK = 400
         tree_insert = self.tree.insert
         di_append = self.display_indices.append
+        di_reverse = self._di_reverse
         self.tree.configure(selectmode='none')
+        pos_counter = 0
         for start in range(0, len(row_data), CHUNK):
             for idx, vals, rtags in row_data[start:start + CHUNK]:
                 tree_insert('', 'end', values=vals, tags=rtags)
                 di_append(idx)
+                di_reverse[idx] = pos_counter
+                pos_counter += 1
             if start + CHUNK < len(row_data):
                 self.update()
         self.tree.configure(selectmode='extended')
+        self._invalidate_item_cache()  # treeview contents changed
 
         # Restore selection
         if prev_selected:
@@ -2154,7 +2157,7 @@ class MusicPlayer(ctk.CTk):
         self.lbl_now_playing.configure(text=f'\u266b  Added {added} tracks')
 
     def _add_path(self, path):
-        if any(t['path'] == path for t in self.playlist):
+        if path in self._path_set:
             return False
         title = os.path.basename(path)
         genre = 'Unknown'
@@ -2180,6 +2183,7 @@ class MusicPlayer(ctk.CTk):
                  'genre': genre, 'comment': comment, 'length': length, 'tags': [],
                  'rating': 0, 'liked_by': set(), 'disliked_by': set()}
         self.playlist.append(entry)
+        self._path_set.add(path)
         self.genres.add(genre)
         stats = self._ensure_track_in_db(path, title, genre, comment, length)
         entry['play_count'] = stats[0]
@@ -2197,17 +2201,14 @@ class MusicPlayer(ctk.CTk):
         if not all_items:
             return
         # Only touch the specific item that needs updating, not all items
-        try:
-            if self.current_index is not None and self.is_playing:
-                pos = self.display_indices.index(self.current_index)
-                if pos < len(all_items):
-                    item = all_items[pos]
-                    tags = list(self.tree.item(item, 'tags'))
-                    if self._now_playing_tag not in tags:
-                        tags.append(self._now_playing_tag)
-                        self.tree.item(item, tags=tags)
-        except ValueError:
-            pass
+        if self.current_index is not None and self.is_playing:
+            pos = self._di_reverse.get(self.current_index)
+            if pos is not None and pos < len(all_items):
+                item = all_items[pos]
+                tags = list(self.tree.item(item, 'tags'))
+                if self._now_playing_tag not in tags:
+                    tags.append(self._now_playing_tag)
+                    self.tree.item(item, tags=tags)
         # Also clear the tag from the previous now-playing item if needed
         if hasattr(self, '_prev_now_playing_pos'):
             prev_pos = self._prev_now_playing_pos
@@ -2218,16 +2219,26 @@ class MusicPlayer(ctk.CTk):
                     tags.remove(self._now_playing_tag)
                     self.tree.item(item, tags=tags)
         # Remember current position for next time
-        try:
-            self._prev_now_playing_pos = self.display_indices.index(self.current_index) if (self.current_index is not None and self.is_playing) else None
-        except ValueError:
-            self._prev_now_playing_pos = None
+        self._prev_now_playing_pos = self._di_reverse.get(self.current_index) if (self.current_index is not None and self.is_playing) else None
+
+    def _item_to_pos(self, item):
+        """Convert a treeview item ID to its display position in O(1).
+        Returns the index into display_indices, or None if not found."""
+        cache = getattr(self, '_item_pos_cache', None)
+        if cache is None:
+            all_items = self.tree.get_children()
+            cache = {iid: i for i, iid in enumerate(all_items)}
+            self._item_pos_cache = cache
+        return cache.get(item)
+
+    def _invalidate_item_cache(self):
+        """Invalidate the item-to-position cache after treeview changes."""
+        self._item_pos_cache = None
 
     def _update_single_row(self, playlist_idx):
         """Update one row's values in the treeview without a full rebuild."""
-        try:
-            pos = self.display_indices.index(playlist_idx)
-        except ValueError:
+        pos = self._di_reverse.get(playlist_idx)
+        if pos is None:
             return
         all_items = self.tree.get_children()
         if pos >= len(all_items):
@@ -2263,15 +2274,13 @@ class MusicPlayer(ctk.CTk):
             self.current_index = index
             for item in self.tree.selection():
                 self.tree.selection_remove(item)
-            try:
-                pos = self.display_indices.index(index)
+            pos = self._di_reverse.get(index)
+            if pos is not None:
                 all_items = self.tree.get_children()
                 if pos < len(all_items):
                     item = all_items[pos]
                     self.tree.selection_set(item)
                     self.tree.see(item)
-            except ValueError:
-                pass
             return True
         except Exception as e:
             messagebox.showerror('Error', f'Could not load {path}: {e}')
@@ -2358,10 +2367,7 @@ class MusicPlayer(ctk.CTk):
         if queue_next is not None:
             nxt = queue_next
         elif self.display_indices:
-            try:
-                pos = self.display_indices.index(self.current_index)
-            except ValueError:
-                pos = 0
+            pos = self._di_reverse.get(self.current_index, 0)
             next_pos = (pos + 1) % len(self.display_indices)
             nxt = self.display_indices[next_pos]
         else:
@@ -2482,13 +2488,10 @@ class MusicPlayer(ctk.CTk):
         sel = self.tree.selection()
         if not sel:
             return
-        all_items = self.tree.get_children()
         for item in sel:
-            try:
-                idx = list(all_items).index(item)
-                self._play_queue.append(self.display_indices[idx])
-            except (ValueError, IndexError):
-                pass
+            pos = self._item_to_pos(item)
+            if pos is not None and pos < len(self.display_indices):
+                self._play_queue.append(self.display_indices[pos])
         self._refresh_queue_listbox()
 
     def _insert_in_queue(self, playlist_idx, position=0):
@@ -2824,16 +2827,13 @@ class MusicPlayer(ctk.CTk):
         sel = self.tree.selection()
         if not sel:
             return
-        all_items = self.tree.get_children()
         for item in sel:
-            try:
-                idx = list(all_items).index(item)
-                playlist_idx = self.display_indices[idx]
+            pos = self._item_to_pos(item)
+            if pos is not None and pos < len(self.display_indices):
+                playlist_idx = self.display_indices[pos]
                 path = self.playlist[playlist_idx]['path']
                 if path not in self._playlists[playlist_name]:
                     self._playlists[playlist_name].append(path)
-            except (ValueError, IndexError):
-                pass
         self._save_config_to_xml()
         self._refresh_playlist_listbox()
 
@@ -2847,16 +2847,13 @@ class MusicPlayer(ctk.CTk):
         # Preserve multi-selection: only reset if right-clicked item isn't already selected
         if item not in self.tree.selection():
             self.tree.selection_set(item)
-        all_items = self.tree.get_children()
 
         # Gather all selected playlist indices
         selected_indices = []
         for sel_item in self.tree.selection():
-            try:
-                idx = list(all_items).index(sel_item)
-                selected_indices.append(self.display_indices[idx])
-            except (ValueError, IndexError):
-                pass
+            pos = self._item_to_pos(sel_item)
+            if pos is not None and pos < len(self.display_indices):
+                selected_indices.append(self.display_indices[pos])
         if not selected_indices:
             return
 
@@ -3122,6 +3119,7 @@ class MusicPlayer(ctk.CTk):
         elif self.current_index is not None and self.current_index > playlist_idx:
             self.current_index -= 1
         self.playlist.pop(playlist_idx)
+        self._path_set.discard(path)
         con = sqlite3.connect(DB_PATH)
         con.execute("DELETE FROM track_tags WHERE track_id = (SELECT id FROM tracks WHERE file_path = ?)", (path,))
         con.execute("DELETE FROM track_plays WHERE track_id = (SELECT id FROM tracks WHERE file_path = ?)", (path,))
@@ -3142,17 +3140,15 @@ class MusicPlayer(ctk.CTk):
                                              fg_color='#555555', text_color='#888888')
             return
         item = sel[0]
-        all_items = self.tree.get_children()
-        try:
-            idx = list(all_items).index(item)
-            playlist_idx = self.display_indices[idx]
-        except (ValueError, IndexError):
+        pos = self._item_to_pos(item)
+        if pos is None or pos >= len(self.display_indices):
             if self._play_now_visible:
                 self.btn_play_now.configure(state='disabled',
                                             fg_color='#555555', text_color='#888888')
                 self.btn_play_next.configure(state='disabled',
                                              fg_color='#555555', text_color='#888888')
             return
+        playlist_idx = self.display_indices[pos]
 
         # Show "Play Now" button — disable if selected track is already playing
         entry = self.playlist[playlist_idx]
@@ -3177,12 +3173,10 @@ class MusicPlayer(ctk.CTk):
         if not sel:
             return
         item = sel[0]
-        all_items = self.tree.get_children()
-        try:
-            idx = list(all_items).index(item)
-            playlist_idx = self.display_indices[idx]
-        except (ValueError, IndexError):
+        pos = self._item_to_pos(item)
+        if pos is None or pos >= len(self.display_indices):
             return
+        playlist_idx = self.display_indices[pos]
         self._last_action = 'switching'
         self.vlc_player.stop()
         self.current_index = playlist_idx
@@ -3209,12 +3203,10 @@ class MusicPlayer(ctk.CTk):
         if not sel:
             return
         item = sel[0]
-        all_items = self.tree.get_children()
-        try:
-            idx = list(all_items).index(item)
-            playlist_idx = self.display_indices[idx]
-        except (ValueError, IndexError):
+        pos = self._item_to_pos(item)
+        if pos is None or pos >= len(self.display_indices):
             return
+        playlist_idx = self.display_indices[pos]
         self._insert_in_queue(playlist_idx, 0)
         entry = self.playlist[playlist_idx]
         title = entry.get('title', entry['basename'])
@@ -3227,12 +3219,10 @@ class MusicPlayer(ctk.CTk):
         if not sel:
             return
         item = sel[0]
-        all_items = self.tree.get_children()
-        try:
-            idx = list(all_items).index(item)
-            playlist_idx = self.display_indices[idx]
-        except Exception:
+        pos = self._item_to_pos(item)
+        if pos is None or pos >= len(self.display_indices):
             return
+        playlist_idx = self.display_indices[pos]
         entry = self.playlist[playlist_idx]
         title = entry.get('title', entry['basename'])
 
