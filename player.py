@@ -741,13 +741,27 @@ class MusicPlayer(ctk.CTk):
     # ── Vote / Rating helpers ────────────────────────────
 
     def _record_vote(self, playlist_idx, vote, voter=''):
-        """Record a +1 or -1 vote for a track, optionally with voter name."""
+        """Record a +1 or -1 vote for a track, optionally with voter name.
+        Each person can only vote once per song per day; they can re-vote on another day."""
         entry = self.playlist[playlist_idx]
         track_id = self._get_track_id(entry['path'])
         if not track_id:
             return
-        now = datetime.now(tz=timezone.utc).isoformat()
+        today_str = datetime.now(tz=timezone.utc).strftime('%Y-%m-%d')
         con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        # Check if this voter already voted on this track today
+        cur.execute(
+            "SELECT id FROM track_votes WHERE track_id = ? AND voter = ? AND voted_at LIKE ?",
+            (track_id, voter, f'{today_str}%'))
+        if cur.fetchone():
+            con.close()
+            who = voter or 'Anonymous'
+            messagebox.showinfo('Already Voted',
+                                f'{who} has already voted on this track today.\n'
+                                'You can vote again tomorrow.')
+            return
+        now = datetime.now(tz=timezone.utc).isoformat()
         con.execute("INSERT INTO track_votes (track_id, vote, voter, voted_at) VALUES (?, ?, ?, ?)",
                     (track_id, vote, voter, now))
         con.commit()
