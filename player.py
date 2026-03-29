@@ -554,7 +554,24 @@ class MusicPlayer(ctk.CTk):
             pass  # never let audit logging break the app
 
     def destroy(self):
-        """Flush pending audit entries before tearing down."""
+        """Clean up grabs, VLC, and flush audit entries before tearing down."""
+        # Release any lingering X11 grab so other apps get input immediately
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        for w in self.winfo_children():
+            try:
+                w.grab_release()
+            except Exception:
+                pass
+        # Stop VLC playback and release resources
+        try:
+            self.vlc_player.stop()
+            self.vlc_player.release()
+            self.vlc_instance.release()
+        except Exception:
+            pass
         self._flush_audit_log()
         super().destroy()
 
