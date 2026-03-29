@@ -1585,6 +1585,9 @@ class MusicPlayer(ctk.CTk):
 
     def _show_menu(self):
         menu = tk.Menu(self, tearoff=0)
+        # Disabled header so mouse-up from the button doesn't trigger the first real item
+        menu.add_command(label='  \u2500\u2500  Menu  \u2500\u2500', state='disabled')
+        menu.add_separator()
         menu.add_command(label='Add Files\u2026', command=self.add_files)
         menu.add_command(label='Add Folder\u2026', command=self.add_folder)
         menu.add_separator()
