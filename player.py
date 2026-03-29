@@ -16,6 +16,7 @@ import os
 import shutil
 import sqlite3
 import time
+from urllib.parse import unquote
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1620,6 +1621,8 @@ class MusicPlayer(ctk.CTk):
         menu.add_separator()
         menu.add_command(label='\U0001f4be  Snapshot DB', command=lambda: self.after(10, self._snapshot_db))
         menu.add_command(label='\U0001f5d1  Drop DB', command=lambda: self.after(10, self._drop_db))
+        menu.add_separator()
+        menu.add_command(label='\U0001f4e5  Import Rhythmbox\u2026', command=lambda: self.after(10, self._show_import_rhythmbox_dialog))
         x = self.btn_menu.winfo_rootx()
         y = self.btn_menu.winfo_rooty() + self.btn_menu.winfo_height()
         menu.tk_popup(x, y, 0)
@@ -1647,6 +1650,174 @@ class MusicPlayer(ctk.CTk):
             return
         os.remove(DB_PATH)
         self.destroy()
+
+    # ── Import Rhythmbox ─────────────────────────────────
+
+    def _show_import_rhythmbox_dialog(self):
+        """Dialog to import ratings and comments from a Rhythmbox rhythmdb.xml."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Import Rhythmbox')
+        dialog.geometry('600x280')
+        dialog.transient(self)
+        dialog.after(100, dialog.grab_set)
+
+        ctk.CTkLabel(dialog, text='Import from Rhythmbox',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(16, 4))
+        ctk.CTkLabel(dialog, text='Import ratings (as anonymous votes) and comments\n'
+                     'from a Rhythmbox rhythmdb.xml file.',
+                     font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 10))
+
+        # XML file path
+        ctk.CTkLabel(dialog, text='rhythmdb.xml file:', font=ctk.CTkFont(size=11),
+                     anchor='w').pack(fill='x', padx=20)
+        xml_var = tk.StringVar(value=os.path.expanduser('~/.local/share/rhythmbox/rhythmdb.xml'))
+        xml_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        xml_frame.pack(fill='x', padx=20)
+        xml_entry = ctk.CTkEntry(xml_frame, textvariable=xml_var, height=30,
+                                 font=ctk.CTkFont(size=11))
+        xml_entry.pack(side='left', fill='x', expand=True, padx=(0, 8))
+
+        def browse_xml():
+            f = filedialog.askopenfilename(title='Select rhythmdb.xml',
+                                           filetypes=[('XML files', '*.xml'), ('All', '*')])
+            if f:
+                xml_var.set(f)
+        ctk.CTkButton(xml_frame, text='Browse\u2026', width=80, fg_color='#4a4a4a',
+                      hover_color='#555555', command=browse_xml).pack(side='right')
+
+        # Root prefix to strip
+        ctk.CTkLabel(dialog, text='Rhythmbox file root (prefix to strip from paths):',
+                     font=ctk.CTkFont(size=11), anchor='w').pack(fill='x', padx=20, pady=(8, 0))
+        root_var = tk.StringVar(value='')
+        root_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        root_frame.pack(fill='x', padx=20)
+        root_entry = ctk.CTkEntry(root_frame, textvariable=root_var, height=30,
+                                  font=ctk.CTkFont(size=11))
+        root_entry.pack(side='left', fill='x', expand=True, padx=(0, 8))
+
+        def browse_root():
+            d = filedialog.askdirectory(title='Select Rhythmbox music root folder')
+            if d:
+                root_var.set(d)
+        ctk.CTkButton(root_frame, text='Browse\u2026', width=80, fg_color='#4a4a4a',
+                      hover_color='#555555', command=browse_root).pack(side='right')
+
+        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row.pack(fill='x', padx=20, pady=(14, 12))
+
+        def do_import():
+            xml_path = xml_var.get().strip()
+            rb_root = root_var.get().strip().rstrip('/')
+            if not xml_path or not os.path.isfile(xml_path):
+                messagebox.showerror('Error', 'Please select a valid rhythmdb.xml file.', parent=dialog)
+                return
+            if not rb_root:
+                messagebox.showerror('Error', 'Please specify the Rhythmbox music root folder.', parent=dialog)
+                return
+            dialog.destroy()
+            self._import_rhythmbox(xml_path, rb_root)
+
+        ctk.CTkButton(btn_row, text='Import', width=120, fg_color='#27ae60',
+                      hover_color='#2ecc71', command=do_import).pack(side='left', padx=(0, 8))
+        ctk.CTkButton(btn_row, text='Cancel', width=80, fg_color='#4a4a4a',
+                      hover_color='#555555', command=dialog.destroy).pack(side='left')
+
+    def _import_rhythmbox(self, xml_path, rb_root):
+        """Parse rhythmdb.xml and import ratings/comments into the DB.
+
+        Ratings (0-5 stars) are converted to anonymous +1 votes:
+        e.g. rating=4 → 4 anonymous +1 votes for that track.
+        Comments are written to the tracks.comment column.
+        """
+        self._log_action('import_rhythmbox', xml_path)
+        self.lbl_now_playing.configure(text='Importing Rhythmbox data\u2026')
+        self.update_idletasks()
+
+        try:
+            tree = ET.parse(xml_path)
+        except ET.ParseError as e:
+            messagebox.showerror('Import Error', f'Failed to parse XML:\n{e}')
+            self.lbl_now_playing.configure(text='Not Playing')
+            return
+
+        root = tree.getroot()
+        rb_root_prefix = 'file://' + rb_root
+        if not rb_root_prefix.endswith('/'):
+            rb_root_prefix += '/'
+
+        con = sqlite3.connect(DB_PATH)
+        cur = con.cursor()
+        now = datetime.now(tz=timezone.utc).isoformat()
+        imported_ratings = 0
+        imported_comments = 0
+        skipped = 0
+
+        for entry in root.findall('entry'):
+            if entry.get('type') != 'song':
+                continue
+
+            loc_el = entry.find('location')
+            if loc_el is None or not loc_el.text:
+                continue
+
+            # Decode the URL-encoded file:// path → absolute path → relative path
+            raw_url = loc_el.text  # e.g. file:///home/shauns/Music/song%20name.mp3
+            # Strip file:// prefix and URL-decode
+            if raw_url.startswith('file://'):
+                abs_path = unquote(raw_url[len('file://'):])
+            else:
+                abs_path = unquote(raw_url)
+
+            # Convert to relative using the Rhythmbox root
+            decoded_prefix = unquote(rb_root_prefix[len('file://'):])
+            if abs_path.startswith(decoded_prefix):
+                rel_path = abs_path[len(decoded_prefix):]
+            else:
+                skipped += 1
+                continue
+
+            # Look up the track in our DB by relative path
+            cur.execute("SELECT id FROM tracks WHERE file_path = ?", (rel_path,))
+            row = cur.fetchone()
+            if not row:
+                skipped += 1
+                continue
+            track_id = row[0]
+
+            # Import rating as anonymous +1 votes
+            rating_el = entry.find('rating')
+            if rating_el is not None and rating_el.text:
+                try:
+                    stars = int(float(rating_el.text))
+                except (ValueError, TypeError):
+                    stars = 0
+                if stars > 0:
+                    for _ in range(stars):
+                        con.execute(
+                            "INSERT INTO track_votes (track_id, vote, voter, voted_at) VALUES (?, ?, ?, ?)",
+                            (track_id, 1, '', now))
+                    imported_ratings += 1
+
+            # Import comment
+            comment_el = entry.find('comment')
+            if comment_el is not None and comment_el.text and comment_el.text.strip():
+                comment_text = comment_el.text.strip()
+                con.execute("UPDATE tracks SET comment = ? WHERE id = ? AND (comment IS NULL OR comment = '')",
+                            (comment_text, track_id))
+                if cur.rowcount > 0:
+                    imported_comments += 1
+
+        con.commit()
+        con.close()
+
+        # Reload to pick up the new votes/comments
+        self._load_tracks_from_db()
+        summary = (f'Rhythmbox import complete:\n\n'
+                   f'  Ratings imported: {imported_ratings} tracks\n'
+                   f'  Comments imported: {imported_comments} tracks\n'
+                   f'  Skipped (not in library): {skipped} entries')
+        self._log_action('import_rhythmbox_done', f'ratings={imported_ratings} comments={imported_comments} skipped={skipped}')
+        messagebox.showinfo('Import Complete', summary)
 
     # ── Library root ─────────────────────────────────────
 
