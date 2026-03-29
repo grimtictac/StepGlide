@@ -2248,8 +2248,11 @@ class MusicPlayer(ctk.CTk):
             self._update_tag_highlights()
             return
 
-        for btn in self._tag_buttons:
-            btn.destroy()
+        for w in self.tag_bar_frame.winfo_children():
+            try:
+                w.destroy()
+            except Exception:
+                pass
         self._tag_buttons = []
         self._tag_btn_map = {}
 
@@ -2276,35 +2279,36 @@ class MusicPlayer(ctk.CTk):
         self._tag_bar_wrapper.configure(height=bar_h)
         self._tag_bar_visible = True
 
-        # Build tag buttons row by row
+        # Build tag buttons row by row using pack-based row frames
+        inner = self.tag_bar_frame
         for row_num in sorted(rows_dict.keys()):
             tags_in_row = rows_dict[row_num]
-            for col, tag in enumerate(tags_in_row):
+            row_frame = ctk.CTkFrame(inner, fg_color='transparent')
+            row_frame.pack(fill='x', pady=1)
+            for tag in tags_in_row:
                 is_active = tag in self._active_tags
-                btn = ctk.CTkButton(self.tag_bar_frame, text=tag.upper(), height=22, width=70,
+                btn = ctk.CTkButton(row_frame, text=tag.upper(), height=22, width=70,
                                     font=ctk.CTkFont(size=9),
                                     fg_color='#1f6aa5' if is_active else 'transparent',
                                     border_width=1, border_color='#555555',
                                     command=lambda t=tag: self._on_tag_filter(t))
-                btn.grid(row=row_num, column=col, padx=1, pady=1, sticky='ew')
+                btn.pack(side='left', padx=1)
                 self._tag_buttons.append(btn)
                 self._tag_btn_map[tag] = btn
-
-        # ALL button — styled like Reset, on the right side of the last row
-        all_active = not self._active_tags
-        last_row = max(rows_dict.keys())
-        last_row_len = len(rows_dict[last_row])
-        btn_all = ctk.CTkButton(self.tag_bar_frame, text='ALL', height=22, width=46,
-                                font=ctk.CTkFont(size=9, weight='bold'),
-                                fg_color='transparent',
-                                border_width=1,
-                                border_color='#1f6aa5' if not all_active else '#555555',
-                                text_color='#1f6aa5' if not all_active else '#999999',
-                                hover_color='#3b3b3b',
-                                command=lambda: self._on_tag_filter('All'))
-        btn_all.grid(row=0, column=20, padx=(6, 2), pady=1, sticky='e')
-        self._tag_buttons.append(btn_all)
-        self._tag_btn_map['__ALL__'] = btn_all
+            # Place ALL button at the end of the first row
+            if row_num == sorted(rows_dict.keys())[0]:
+                all_active = not self._active_tags
+                btn_all = ctk.CTkButton(row_frame, text='ALL', height=22, width=46,
+                                        font=ctk.CTkFont(size=9, weight='bold'),
+                                        fg_color='transparent',
+                                        border_width=1,
+                                        border_color='#1f6aa5' if not all_active else '#555555',
+                                        text_color='#1f6aa5' if not all_active else '#999999',
+                                        hover_color='#3b3b3b',
+                                        command=lambda: self._on_tag_filter('All'))
+                btn_all.pack(side='left', padx=(6, 2))
+                self._tag_buttons.append(btn_all)
+                self._tag_btn_map['__ALL__'] = btn_all
 
     def _update_tag_highlights(self):
         """Update tag button colours in-place without destroying/recreating."""
