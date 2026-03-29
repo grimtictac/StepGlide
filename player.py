@@ -330,6 +330,17 @@ class MusicPlayer(ctk.CTk):
         """)
         con.commit()
 
+        # Track equalizer settings
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS track_eq (
+                track_id INTEGER PRIMARY KEY,
+                preamp REAL DEFAULT 0,
+                bands TEXT DEFAULT '',
+                FOREIGN KEY(track_id) REFERENCES tracks(id)
+            )
+        """)
+        con.commit()
+
         # One-time backfill
         cur = con.execute("SELECT COUNT(*) FROM tracks WHERE genre != 'Unknown'")
         has_real_genres = cur.fetchone()[0]
@@ -1167,6 +1178,13 @@ class MusicPlayer(ctk.CTk):
                                           checkbox_width=14, checkbox_height=14)
         _cb_auto_reset.pack(pady=(0, 2))
 
+        # Equalizer button (below speed widget)
+        self._btn_eq = ctk.CTkButton(ctrl_inner, text='🎛', width=36, height=34,
+                                      font=ctk.CTkFont(size=18),
+                                      fg_color='#2b2b2b', hover_color='#3b3b3b',
+                                      corner_radius=8, command=self._show_eq_dialog)
+        self._btn_eq.pack(side='left', padx=(4, 0))
+
         # ═══ PLAY NOW BAR (under play controls, always visible) ═══
         self._play_bar = ctk.CTkFrame(_content, fg_color='transparent')
         self._play_bar.pack(fill='x', padx=14, pady=(0, 2), after=self._controls_frame)
@@ -1545,6 +1563,7 @@ class MusicPlayer(ctk.CTk):
         _add_tooltip(speed_reset, 'Reset speed to 1×')
         _add_tooltip(speed_up, 'Increase speed')
         _add_tooltip(_cb_auto_reset, 'Auto-reset speed to 1× when song changes')
+        _add_tooltip(self._btn_eq, 'Equalizer')
         _add_tooltip(_btn_clear_queue, 'Clear queue')
         _add_tooltip(_btn_q_up, 'Move up in queue')
         _add_tooltip(_btn_q_down, 'Move down in queue')
@@ -3168,6 +3187,7 @@ class MusicPlayer(ctk.CTk):
             self._lbl_genre.configure(text='')
         self._update_now_playing_highlight()
         self._update_rating_display()
+        self._apply_eq_for_current_track()
 
     def play_pause(self):
         if self.is_playing and not self.is_paused:
@@ -3378,6 +3398,322 @@ class MusicPlayer(ctk.CTk):
         self._speed_var.set(1.0)
         self._log_action('speed_reset', '1.0×')
         self._apply_speed()
+
+    # ── Equalizer ────────────────────────────────────────
+
+    # VLC 10-band EQ frequencies
+    _EQ_BANDS = ['60 Hz', '170 Hz', '310 Hz', '600 Hz', '1 kHz',
+                 '3 kHz', '6 kHz', '12 kHz', '14 kHz', '16 kHz']
+
+    _EQ_PRESETS = {
+        'Flat':        (0, [0]*10),
+        'Bass Boost':  (2, [6, 5, 3, 1, 0, 0, 0, 0, 0, 0]),
+        'Treble Boost':(2, [0, 0, 0, 0, 0, 1, 3, 5, 6, 6]),
+        'Rock':        (1, [5, 3, 0, -2, -3, -2, 0, 3, 4, 5]),
+        'Pop':         (0, [-1, 2, 4, 4, 2, 0, -1, -1, -1, -1]),
+        'Jazz':        (0, [3, 2, 0, 1, -1, -1, 0, 1, 2, 3]),
+        'Classical':   (0, [4, 3, 2, 1, -1, -1, 0, 2, 3, 4]),
+        'Dance':       (1, [5, 4, 2, 0, 0, -2, -3, -2, 0, 0]),
+        'Latin':       (1, [3, 1, 0, 0, -2, -2, -2, 0, 3, 4]),
+        'Vocal':       (0, [-2, -1, 0, 3, 5, 5, 3, 0, -1, -2]),
+        'Loudness':    (3, [5, 3, 0, 0, -1, 0, 0, -3, 5, 3]),
+        'Headphones':  (1, [3, 4, 2, -1, -2, -1, 1, 3, 5, 5]),
+    }
+
+    def _get_current_track_id(self):
+        """Return the DB track_id for the currently playing track, or None."""
+        if self.current_index is None:
+            return None
+        entry = self.playlist[self.current_index]
+        path = entry.get('path', '')
+        return self._track_id_cache.get(path)
+
+    def _load_track_eq(self, track_id):
+        """Load EQ settings for a track from DB. Returns (preamp, bands) or None."""
+        if track_id is None:
+            return None
+        try:
+            con = sqlite3.connect(DB_PATH)
+            row = con.execute("SELECT preamp, bands FROM track_eq WHERE track_id = ?",
+                              (track_id,)).fetchone()
+            con.close()
+            if row:
+                preamp = float(row[0])
+                bands = [float(x) for x in row[1].split(',') if x.strip()] if row[1] else [0]*10
+                if len(bands) != 10:
+                    bands = [0]*10
+                return (preamp, bands)
+        except Exception:
+            pass
+        return None
+
+    def _save_track_eq(self, track_id, preamp, bands):
+        """Save EQ settings for a track to DB."""
+        if track_id is None:
+            return
+        bands_str = ','.join(f'{b:.1f}' for b in bands)
+        try:
+            con = sqlite3.connect(DB_PATH)
+            con.execute("""INSERT INTO track_eq (track_id, preamp, bands)
+                           VALUES (?, ?, ?)
+                           ON CONFLICT(track_id) DO UPDATE SET preamp=?, bands=?""",
+                        (track_id, preamp, bands_str, preamp, bands_str))
+            con.commit()
+            con.close()
+        except Exception:
+            pass
+
+    def _delete_track_eq(self, track_id):
+        """Remove EQ settings for a track from DB."""
+        if track_id is None:
+            return
+        try:
+            con = sqlite3.connect(DB_PATH)
+            con.execute("DELETE FROM track_eq WHERE track_id = ?", (track_id,))
+            con.commit()
+            con.close()
+        except Exception:
+            pass
+
+    def _apply_eq_to_player(self, preamp=None, bands=None):
+        """Apply equalizer settings to VLC media player."""
+        try:
+            mp = self.vlc_player.get_media_player()
+            if preamp is None and bands is None:
+                # Reset — disable EQ
+                mp.set_equalizer(None)
+                return
+            eq = vlc.AudioEqualizer()
+            eq.set_preamp(preamp or 0)
+            for i, val in enumerate(bands or [0]*10):
+                eq.set_amp_at_index(val, i)
+            mp.set_equalizer(eq)
+        except Exception:
+            pass
+
+    def _apply_eq_for_current_track(self):
+        """Load and apply EQ for the currently playing track, or reset."""
+        track_id = self._get_current_track_id()
+        eq_data = self._load_track_eq(track_id)
+        if eq_data:
+            self._apply_eq_to_player(eq_data[0], eq_data[1])
+            self._start_eq_throb()
+        else:
+            self._apply_eq_to_player()
+            self._stop_eq_throb()
+
+    def _update_eq_button_state(self):
+        """Update the EQ button appearance based on whether the current track has EQ."""
+        track_id = self._get_current_track_id()
+        eq_data = self._load_track_eq(track_id)
+        if eq_data and any(b != 0 for b in eq_data[1]):
+            self._start_eq_throb()
+        else:
+            self._stop_eq_throb()
+
+    def _start_eq_throb(self):
+        """Start a pulsating throb animation on the EQ button."""
+        if getattr(self, '_eq_throb_id', None) is not None:
+            return
+        self._eq_throb_step = 0
+        self._eq_throb_tick()
+
+    def _stop_eq_throb(self):
+        """Stop the EQ throb animation and reset button style."""
+        tid = getattr(self, '_eq_throb_id', None)
+        if tid is not None:
+            self.after_cancel(tid)
+            self._eq_throb_id = None
+        if hasattr(self, '_btn_eq'):
+            self._btn_eq.configure(fg_color='#2b2b2b', text_color='#dce4ee')
+
+    def _eq_throb_tick(self):
+        """One tick of the EQ throb animation — oscillates green tones."""
+        track_id = self._get_current_track_id()
+        eq_data = self._load_track_eq(track_id)
+        if not eq_data or not any(b != 0 for b in eq_data[1]):
+            self._eq_throb_id = None
+            self._btn_eq.configure(fg_color='#2b2b2b', text_color='#dce4ee')
+            return
+        step = getattr(self, '_eq_throb_step', 0)
+        cycle = [
+            ('#1a3d1a', '#4caf50'),
+            ('#1f4d1f', '#66bb6a'),
+            ('#256025', '#81c784'),
+            ('#2d742d', '#a5d6a7'),
+            ('#256025', '#81c784'),
+            ('#1f4d1f', '#66bb6a'),
+            ('#1a3d1a', '#4caf50'),
+            ('#153015', '#388e3c'),
+        ]
+        bg, fg = cycle[step % len(cycle)]
+        try:
+            self._btn_eq.configure(fg_color=bg, text_color=fg)
+        except Exception:
+            self._eq_throb_id = None
+            return
+        self._eq_throb_step = step + 1
+        self._eq_throb_id = self.after(200, self._eq_throb_tick)
+
+    def _show_eq_dialog(self):
+        """Open the equalizer dialog for the current track."""
+        track_id = self._get_current_track_id()
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Equalizer')
+        dialog.geometry('520x420')
+        dialog.transient(self)
+        dialog.after(100, dialog.grab_set)
+
+        # Header
+        if track_id and self.current_index is not None:
+            title = self.playlist[self.current_index].get('title', '(unknown)')
+            ctk.CTkLabel(dialog, text=f'EQ: {title[:50]}',
+                         font=ctk.CTkFont(size=13, weight='bold')).pack(pady=(10, 2))
+        else:
+            ctk.CTkLabel(dialog, text='No track playing',
+                         font=ctk.CTkFont(size=13, weight='bold'),
+                         text_color='#888888').pack(pady=(10, 2))
+
+        # Presets row
+        preset_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        preset_frame.pack(fill='x', padx=10, pady=(4, 2))
+        ctk.CTkLabel(preset_frame, text='Preset:', font=ctk.CTkFont(size=11)).pack(side='left', padx=(0, 6))
+        preset_var = tk.StringVar(value='Custom')
+        preset_menu = ctk.CTkOptionMenu(
+            preset_frame, variable=preset_var,
+            values=list(self._EQ_PRESETS.keys()) + ['Custom'],
+            command=lambda v: _apply_preset(v),
+            height=26, font=ctk.CTkFont(size=10),
+            fg_color='#3b3b3b', button_color='#4a4a4a',
+            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5')
+        preset_menu.pack(side='left')
+
+        # Preamp
+        preamp_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        preamp_frame.pack(fill='x', padx=10, pady=(4, 0))
+        ctk.CTkLabel(preamp_frame, text='Preamp', font=ctk.CTkFont(size=10),
+                     text_color='#888888', width=60).pack(side='left')
+        preamp_var = tk.DoubleVar(value=0)
+        preamp_slider = ctk.CTkSlider(preamp_frame, from_=-20, to=20,
+                                       variable=preamp_var, width=340, height=14,
+                                       command=lambda v: _on_slider_change(),
+                                       button_color='#4caf50', progress_color='#4caf50')
+        preamp_slider.pack(side='left', padx=4)
+        preamp_lbl = ctk.CTkLabel(preamp_frame, text='0 dB', font=ctk.CTkFont(size=10), width=50)
+        preamp_lbl.pack(side='left')
+
+        # Band sliders
+        bands_frame = ctk.CTkFrame(dialog, fg_color='#1a1a2e', corner_radius=8)
+        bands_frame.pack(fill='both', expand=True, padx=10, pady=6)
+
+        band_vars = []
+        band_lbls = []
+        for i, freq in enumerate(self._EQ_BANDS):
+            col_frame = ctk.CTkFrame(bands_frame, fg_color='transparent')
+            col_frame.pack(side='left', fill='y', expand=True, padx=1, pady=4)
+
+            val_lbl = ctk.CTkLabel(col_frame, text='0', font=ctk.CTkFont(size=9), width=30)
+            val_lbl.pack(pady=(2, 0))
+            band_lbls.append(val_lbl)
+
+            var = tk.DoubleVar(value=0)
+            band_vars.append(var)
+            slider = ctk.CTkSlider(col_frame, from_=-20, to=20, variable=var,
+                                    orientation='vertical', height=180, width=14,
+                                    command=lambda v, idx=i: _on_slider_change(),
+                                    button_color='#4caf50', progress_color='#4caf50')
+            slider.pack(fill='y', expand=True, padx=2)
+
+            ctk.CTkLabel(col_frame, text=freq, font=ctk.CTkFont(size=8),
+                         text_color='#888888').pack(pady=(0, 2))
+
+        # Load existing EQ if any
+        eq_data = self._load_track_eq(track_id) if track_id else None
+        if eq_data:
+            preamp_var.set(eq_data[0])
+            for i, val in enumerate(eq_data[1]):
+                if i < len(band_vars):
+                    band_vars[i].set(val)
+            # Find matching preset
+            _detect_preset()
+        else:
+            preset_var.set('Flat')
+
+        def _on_slider_change():
+            preamp_lbl.configure(text=f'{preamp_var.get():.0f} dB')
+            for i, v in enumerate(band_vars):
+                band_lbls[i].configure(text=f'{v.get():.0f}')
+            preset_var.set('Custom')
+            # Live preview
+            if track_id:
+                self._apply_eq_to_player(preamp_var.get(),
+                                          [v.get() for v in band_vars])
+
+        def _detect_preset():
+            """Check if current sliders match a preset."""
+            pa = preamp_var.get()
+            bands = [round(v.get(), 1) for v in band_vars]
+            for name, (p, b) in self._EQ_PRESETS.items():
+                if abs(pa - p) < 0.5 and all(abs(a - b_) < 0.5 for a, b_ in zip(bands, b)):
+                    preset_var.set(name)
+                    return
+            preset_var.set('Custom')
+
+        def _apply_preset(name):
+            if name == 'Custom':
+                return
+            preamp, bands = self._EQ_PRESETS[name]
+            preamp_var.set(preamp)
+            for i, val in enumerate(bands):
+                if i < len(band_vars):
+                    band_vars[i].set(val)
+            _on_slider_change()
+            preset_var.set(name)
+
+        # Update labels on initial load
+        preamp_lbl.configure(text=f'{preamp_var.get():.0f} dB')
+        for i, v in enumerate(band_vars):
+            band_lbls[i].configure(text=f'{v.get():.0f}')
+
+        # Buttons
+        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row.pack(fill='x', padx=10, pady=(0, 10))
+
+        def _save():
+            if not track_id:
+                messagebox.showinfo('No Track', 'No track is currently playing.', parent=dialog)
+                return
+            bands = [round(v.get(), 1) for v in band_vars]
+            pa = round(preamp_var.get(), 1)
+            if pa == 0 and all(b == 0 for b in bands):
+                self._delete_track_eq(track_id)
+                self._apply_eq_to_player()
+                self._stop_eq_throb()
+            else:
+                self._save_track_eq(track_id, pa, bands)
+                self._apply_eq_to_player(pa, bands)
+                self._start_eq_throb()
+            self._log_action('eq_save', f'track_id={track_id}')
+            dialog.destroy()
+
+        def _reset():
+            preamp_var.set(0)
+            for v in band_vars:
+                v.set(0)
+            _on_slider_change()
+            preset_var.set('Flat')
+            if track_id:
+                self._delete_track_eq(track_id)
+                self._apply_eq_to_player()
+                self._stop_eq_throb()
+
+        ctk.CTkButton(btn_row, text='Reset', fg_color='#8b0000', hover_color='#a52a2a',
+                      width=80, command=_reset).pack(side='left', padx=4)
+        ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
+                      width=80, command=dialog.destroy).pack(side='right', padx=4)
+        ctk.CTkButton(btn_row, text='Save', fg_color='#1f6aa5',
+                      width=80, command=_save).pack(side='right', padx=4)
 
     # ── Play queue management ────────────────────────────
 
