@@ -1063,10 +1063,15 @@ class MusicPlayer(ctk.CTk):
         tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 4))
 
         # Tag filter bar — scrollable multi-row wrapping layout
+        self._tag_bar_wrapper = ctk.CTkFrame(tree_frame, fg_color='transparent', height=0)
+        self._tag_bar_wrapper.pack(fill='x', pady=(0, 2))
+        self._tag_bar_wrapper.pack_propagate(False)
+        self._tag_bar_visible = False          # starts hidden (0 height)
+
         self.tag_bar_frame = ctk.CTkScrollableFrame(
-            tree_frame, fg_color='#2b2b2b', corner_radius=6,
+            self._tag_bar_wrapper, fg_color='#2b2b2b', corner_radius=6,
             height=50, orientation='vertical')
-        self.tag_bar_frame.pack(fill='x', pady=(0, 2))
+        self.tag_bar_frame.pack(fill='both', expand=True)
 
         # Search box (below tags)
         self._search_var = tk.StringVar()
@@ -1339,35 +1344,41 @@ class MusicPlayer(ctk.CTk):
                 visible_tags.add(tag)
 
         if not visible_tags:
-            lbl = ctk.CTkLabel(self.tag_bar_frame, text='  No tags in current view',
-                               font=ctk.CTkFont(size=10), text_color='#666666')
-            lbl.grid(row=0, column=0, padx=6, pady=5)
-            self._tag_buttons.append(lbl)
+            # Collapse tag bar when there are no tags
+            self._tag_bar_wrapper.configure(height=0)
+            self._tag_bar_visible = False
             return
 
+        # Show tag bar — size depends on number of rows needed
+        n_tags = len(visible_tags) + 1  # +1 for ALL button
+        max_cols = 8
+        n_rows = (n_tags + max_cols - 1) // max_cols
+        bar_h = min(n_rows * 32 + 8, 70)  # 32px per row, capped at 70
+        self._tag_bar_wrapper.configure(height=bar_h)
+        self._tag_bar_visible = True
+
         all_active = not self._active_tags  # empty set means "All"
-        btn_all = ctk.CTkButton(self.tag_bar_frame, text='ALL', height=26, width=50,
-                                font=ctk.CTkFont(size=11),
+        btn_all = ctk.CTkButton(self.tag_bar_frame, text='ALL', height=24, width=46,
+                                font=ctk.CTkFont(size=10),
                                 fg_color='#1f6aa5' if all_active else 'transparent',
                                 border_width=1, border_color='#555555',
                                 command=lambda: self._on_tag_filter('All'))
-        btn_all.grid(row=0, column=0, padx=(6, 2), pady=3)
+        btn_all.grid(row=0, column=0, padx=(4, 2), pady=2)
         self._tag_buttons.append(btn_all)
 
         col = 1
         row = 0
-        max_cols = 8  # wrap after this many tags per row
         for tag in sorted(visible_tags):
             if col >= max_cols:
                 col = 0
                 row += 1
             is_active = tag in self._active_tags
-            btn = ctk.CTkButton(self.tag_bar_frame, text=tag.upper(), height=26,
-                                font=ctk.CTkFont(size=11),
+            btn = ctk.CTkButton(self.tag_bar_frame, text=tag.upper(), height=24,
+                                font=ctk.CTkFont(size=10),
                                 fg_color='#1f6aa5' if is_active else 'transparent',
                                 border_width=1, border_color='#555555',
                                 command=lambda t=tag: self._on_tag_filter(t))
-            btn.grid(row=row, column=col, padx=2, pady=3)
+            btn.grid(row=row, column=col, padx=2, pady=2)
             self._tag_buttons.append(btn)
             col += 1
 
