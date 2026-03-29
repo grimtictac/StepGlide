@@ -164,7 +164,7 @@ class MusicPlayer(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title('Python Music Player')
-        self.geometry('1400x750')
+        self.geometry('1024x768')
         self.minsize(900, 500)
 
         ctk.set_appearance_mode('dark')
