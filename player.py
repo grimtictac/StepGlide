@@ -367,6 +367,26 @@ class MusicPlayer(ctk.CTk):
                         con.execute("UPDATE tracks SET length = ? WHERE id = ?", (length, track_id))
                 con.commit()
 
+        # Backfill missing artist/album from file tags
+        if MutagenFile is not None:
+            cur = con.execute("SELECT id, file_path FROM tracks WHERE artist IS NULL OR artist = ''")
+            rows_to_fill = cur.fetchall()
+            if rows_to_fill:
+                for track_id, fpath in rows_to_fill:
+                    artist = ''
+                    album = ''
+                    try:
+                        tags = MutagenFile(fpath, easy=True)
+                        if tags is not None:
+                            artist = tags.get('artist', [''])[0] or ''
+                            album = tags.get('album', [''])[0] or ''
+                    except Exception:
+                        pass
+                    if artist or album:
+                        con.execute("UPDATE tracks SET artist = ?, album = ? WHERE id = ?",
+                                    (artist, album, track_id))
+                con.commit()
+
         con.close()
         self._load_genre_groups()
 
@@ -535,7 +555,7 @@ class MusicPlayer(ctk.CTk):
         cur = con.cursor()
         cur.execute(
             "SELECT file_path, title, play_count, first_played, last_played, "
-            "file_created, genre, comment, length FROM tracks ORDER BY title"
+            "file_created, genre, comment, length, artist, album FROM tracks ORDER BY title"
         )
         rows = cur.fetchall()
 
@@ -567,7 +587,7 @@ class MusicPlayer(ctk.CTk):
 
         seen = set()
         for (path, db_title, play_count, first_played, last_played,
-             file_created, genre, comment, length) in rows:
+             file_created, genre, comment, length, artist, album) in rows:
             if path in seen:
                 continue
             seen.add(path)
@@ -576,6 +596,8 @@ class MusicPlayer(ctk.CTk):
                 'path': path,
                 'title': db_title or os.path.basename(path),
                 'basename': os.path.basename(path),
+                'artist': artist or '',
+                'album': album or '',
                 'genre': genre or 'Unknown',
                 'comment': comment or '',
                 'play_count': play_count or 0,
@@ -599,7 +621,7 @@ class MusicPlayer(ctk.CTk):
         self._refresh_play_log()
         self.lbl_now_playing.configure(text=f'\u266b  {len(self.playlist)} tracks loaded')
 
-    def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None):
+    def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None, artist='', album=''):
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute("SELECT play_count, first_played, last_played, file_created, length FROM tracks WHERE file_path = ?", (path,))
@@ -610,8 +632,8 @@ class MusicPlayer(ctk.CTk):
             except OSError:
                 file_created = None
             cur.execute(
-                "INSERT INTO tracks (file_path, title, file_created, genre, comment, length) VALUES (?, ?, ?, ?, ?, ?)",
-                (path, title, file_created, genre, comment, length)
+                "INSERT INTO tracks (file_path, title, file_created, genre, comment, length, artist, album) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (path, title, file_created, genre, comment, length, artist, album)
             )
             con.commit()
             con.close()
@@ -1308,7 +1330,7 @@ class MusicPlayer(ctk.CTk):
         self._search_var = tk.StringVar()
         self._search_var.trace_add('write', lambda *_: self._debounced_search())
         self._search_entry = ctk.CTkEntry(tree_frame, textvariable=self._search_var,
-                                           placeholder_text='\U0001f50d  Search title, comment, tags, liked by\u2026',
+                                           placeholder_text='\U0001f50d  Search title, artist, album, comment, tags, liked by\u2026',
                                            height=26, font=ctk.CTkFont(size=11))
         self._search_entry.pack(fill='x', pady=(0, 2))
 
@@ -1328,12 +1350,14 @@ class MusicPlayer(ctk.CTk):
             self._track_count_lbl.configure(text=base + self._perf_text)
         perf._ui_callback = _perf_ui_update
 
-        self._all_columns = ('Title', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
+        self._all_columns = ('Title', 'Artist', 'Album', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
                               'Plays', 'First Played', 'Last Played', 'File Created')
         self.tree = ttk.Treeview(tree_frame,
                                  columns=self._all_columns,
                                  show='headings', height=8)
-        self.tree.column('Title', width=200, anchor='w')
+        self.tree.column('Title', width=180, anchor='w')
+        self.tree.column('Artist', width=120, anchor='w')
+        self.tree.column('Album', width=120, anchor='w')
         self.tree.column('Length', width=55, anchor='center')
         self.tree.column('Rating', width=55, anchor='center')
         self.tree.column('Comment', width=100, anchor='w')
@@ -2102,6 +2126,8 @@ class MusicPlayer(ctk.CTk):
     # Column-to-entry-key mapping for sorting
     _SORT_KEYS = {
         'Title': lambda e: (e.get('title') or e['basename']).lower(),
+        'Artist': lambda e: (e.get('artist') or '').lower(),
+        'Album': lambda e: (e.get('album') or '').lower(),
         'Length': lambda e: e.get('length') or 0,
         'Rating': lambda e: e.get('rating', 0),
         'Comment': lambda e: (e.get('comment') or '').lower(),
@@ -2259,10 +2285,14 @@ class MusicPlayer(ctk.CTk):
                     continue
             if search_term:
                 title_lower = entry.get('title', entry['basename']).lower()
+                artist_lower = entry.get('artist', '').lower()
+                album_lower = entry.get('album', '').lower()
                 comment_lower = entry.get('comment', '').lower()
                 tags_lower = ' '.join(entry.get('tags', [])).lower()
                 liked_lower = ' '.join(entry.get('liked_by', set())).lower()
                 if (search_term not in title_lower
+                        and search_term not in artist_lower
+                        and search_term not in album_lower
                         and search_term not in comment_lower
                         and search_term not in tags_lower
                         and search_term not in liked_lower):
@@ -2284,6 +2314,8 @@ class MusicPlayer(ctk.CTk):
         for idx in matched:
             entry = playlist[idx]
             title = entry.get('title', entry['basename'])
+            artist = entry.get('artist', '')
+            album = entry.get('album', '')
             length_str = _fmt_dur(entry.get('length'))
             rating = entry.get('rating', 0)
             rating_str = f'+{rating}' if rating > 0 else str(rating)
@@ -2296,7 +2328,7 @@ class MusicPlayer(ctk.CTk):
             last_p = _fmt_ts(entry.get('last_played'), relative=True)
             file_c = _fmt_ts(entry.get('file_created'), relative=False)
             row_tags = (np_tag,) if (idx == cur_idx and is_playing) else ()
-            row_data.append((idx, (title, length_str, rating_str, comment, tags_str,
+            row_data.append((idx, (title, artist, album, length_str, rating_str, comment, tags_str,
                                     liked_str, disliked_str, plays, first_p, last_p, file_c),
                              row_tags))
 
@@ -2403,6 +2435,8 @@ class MusicPlayer(ctk.CTk):
         title = os.path.basename(path)
         genre = 'Unknown'
         comment = ''
+        artist = ''
+        album = ''
         length = None
         if MutagenFile is not None:
             try:
@@ -2412,6 +2446,8 @@ class MusicPlayer(ctk.CTk):
                     genre = tags.get('genre', [genre])[0]
                     comment_val = tags.get('comment', [''])[0]
                     comment = str(comment_val) if comment_val else ''
+                    artist = tags.get('artist', [''])[0] or ''
+                    album = tags.get('album', [''])[0] or ''
             except Exception:
                 pass
             try:
@@ -2421,12 +2457,13 @@ class MusicPlayer(ctk.CTk):
             except Exception:
                 pass
         entry = {'path': path, 'title': title, 'basename': os.path.basename(path),
+                 'artist': artist, 'album': album,
                  'genre': genre, 'comment': comment, 'length': length, 'tags': [],
                  'rating': 0, 'liked_by': set(), 'disliked_by': set()}
         self.playlist.append(entry)
         self._path_set.add(path)
         self.genres.add(genre)
-        stats = self._ensure_track_in_db(path, title, genre, comment, length)
+        stats = self._ensure_track_in_db(path, title, genre, comment, length, artist, album)
         entry['play_count'] = stats[0]
         entry['first_played'] = stats[1]
         entry['last_played'] = stats[2]
@@ -2487,6 +2524,8 @@ class MusicPlayer(ctk.CTk):
             return
         entry = self.playlist[playlist_idx]
         title = entry.get('title', entry['basename'])
+        artist = entry.get('artist', '')
+        album = entry.get('album', '')
         length_str = self._format_duration(entry.get('length'))
         rating = entry.get('rating', 0)
         rating_str = f'+{rating}' if rating > 0 else str(rating)
@@ -2499,7 +2538,7 @@ class MusicPlayer(ctk.CTk):
         last_p = self._format_ts(entry.get('last_played'), relative=True)
         file_c = self._format_ts(entry.get('file_created'), relative=False)
         self.tree.item(all_items[pos],
-                       values=(title, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
+                       values=(title, artist, album, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
                                plays, first_p, last_p, file_c))
 
     @perf.track
