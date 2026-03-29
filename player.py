@@ -1149,21 +1149,21 @@ class MusicPlayer(ctk.CTk):
                                           checkbox_width=14, checkbox_height=14)
         _cb_auto_reset.pack(pady=(0, 2))
 
-        # ═══ PLAY NOW BAR (under play controls, hidden until track selected) ═══
+        # ═══ PLAY NOW BAR (under play controls, always visible) ═══
         self._play_bar = ctk.CTkFrame(_content, fg_color='transparent')
+        self._play_bar.pack(fill='x', padx=14, pady=(0, 2), after=self._controls_frame)
         self.btn_play_now = ctk.CTkButton(self._play_bar, text='\u25b6  Play Now', height=30,
                                           font=ctk.CTkFont(size=15, weight='bold'),
-                                          fg_color='#f1c40f', hover_color='#f39c12',
-                                          text_color='#000000',
+                                          fg_color='#555555', text_color='#888888',
+                                          state='disabled',
                                           command=self._play_now_click)
         self.btn_play_now.pack(side='left', fill='x', expand=True, padx=(0, 3))
         self.btn_play_next = ctk.CTkButton(self._play_bar, text='\u23ed  Play Next', height=30,
                                            font=ctk.CTkFont(size=13, weight='bold'),
-                                           fg_color='#e67e22', hover_color='#d35400',
-                                           text_color='#000000',
+                                           fg_color='#555555', text_color='#888888',
+                                           state='disabled',
                                            command=self._play_next_click)
-        self.btn_play_next.pack(side='left', fill='x', padx=(3, 0))
-        self._play_now_visible = False
+        self.btn_play_next.pack(side='left', fill='x', expand=True, padx=(3, 0))
 
         self._tag_buttons = []
         self._tag_btn_map = {}
@@ -3952,24 +3952,22 @@ class MusicPlayer(ctk.CTk):
             return
         sel = self.tree.selection()
         if not sel:
-            if self._play_now_visible:
-                self.btn_play_now.configure(state='disabled',
-                                            fg_color='#555555', text_color='#888888')
-                self.btn_play_next.configure(state='disabled',
-                                             fg_color='#555555', text_color='#888888')
+            self.btn_play_now.configure(state='disabled',
+                                        fg_color='#555555', text_color='#888888')
+            self.btn_play_next.configure(state='disabled',
+                                         fg_color='#555555', text_color='#888888')
             return
         item = sel[0]
         pos = self._item_to_pos(item)
         if pos is None or pos >= len(self.display_indices):
-            if self._play_now_visible:
-                self.btn_play_now.configure(state='disabled',
-                                            fg_color='#555555', text_color='#888888')
-                self.btn_play_next.configure(state='disabled',
-                                             fg_color='#555555', text_color='#888888')
+            self.btn_play_now.configure(state='disabled',
+                                        fg_color='#555555', text_color='#888888')
+            self.btn_play_next.configure(state='disabled',
+                                         fg_color='#555555', text_color='#888888')
             return
         playlist_idx = self.display_indices[pos]
 
-        # Show "Play Now" button — disable if selected track is already playing
+        # Enable/disable "Play Now" — disable if selected track is already playing
         entry = self.playlist[playlist_idx]
         if playlist_idx == self.current_index and self.is_playing and not self.is_paused:
             self.btn_play_now.configure(text='\u25b6  Playing',
@@ -3981,9 +3979,6 @@ class MusicPlayer(ctk.CTk):
                                         fg_color='#f1c40f', text_color='#000000')
         self.btn_play_next.configure(state='normal',
                                      fg_color='#e67e22', text_color='#000000')
-        if not self._play_now_visible:
-            self._play_bar.pack(fill='x', padx=14, pady=(0, 2), after=self._controls_frame)
-            self._play_now_visible = True
 
     @perf.track
     def _play_now_click(self):
