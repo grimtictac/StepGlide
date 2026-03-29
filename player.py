@@ -1029,7 +1029,7 @@ class MusicPlayer(ctk.CTk):
         _content.pack(side='left', fill='both', expand=True)
 
         # ═══ ROW 1 — INFO BAR ═══
-        top_bar = ctk.CTkFrame(_content, height=38, fg_color='#1a1a2e')
+        top_bar = ctk.CTkFrame(_content, height=42, fg_color='#1a1a2e')
         top_bar.pack(fill='x')
         top_bar.pack_propagate(False)
 
@@ -1038,8 +1038,9 @@ class MusicPlayer(ctk.CTk):
         self.btn_menu.pack(side='left', padx=(8, 4), pady=4)
 
         self.lbl_now_playing = ctk.CTkLabel(top_bar, text='Not Playing',
-                                            font=ctk.CTkFont(size=16, weight='bold'))
-        self.lbl_now_playing.pack(side='left', fill='x', expand=True, padx=8)
+                                            font=ctk.CTkFont(size=20, weight='bold'),
+                                            anchor='w')
+        self.lbl_now_playing.pack(side='left', fill='x', expand=True, padx=(12, 8))
 
         self._lbl_genre = ctk.CTkLabel(top_bar, text='',
                                        font=ctk.CTkFont(size=11),
