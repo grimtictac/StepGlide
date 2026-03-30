@@ -4113,21 +4113,32 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkLabel(dialog, text='Configure genre proportions, rating, and recency filters.',
                      font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 8))
 
-        # Queue size
+        # Queue size — slider with live label
         size_frame = ctk.CTkFrame(dialog, fg_color='transparent')
         size_frame.pack(fill='x', padx=16, pady=(0, 6))
         ctk.CTkLabel(size_frame, text='Queue size:', font=ctk.CTkFont(size=12)).pack(side='left')
-        queue_size_var = tk.IntVar(value=20)
-        ctk.CTkEntry(size_frame, textvariable=queue_size_var, width=60, height=28,
-                     font=ctk.CTkFont(size=12)).pack(side='left', padx=8)
+        queue_size_var = tk.IntVar(value=50)
+        size_lbl = ctk.CTkLabel(size_frame, text='50', font=ctk.CTkFont(size=12, weight='bold'), width=36)
+        size_lbl.pack(side='right', padx=(4, 0))
+        def _on_size_change(val):
+            v = int(float(val))
+            queue_size_var.set(v)
+            size_lbl.configure(text=str(v))
+        ctk.CTkSlider(size_frame, from_=5, to=200, number_of_steps=39,
+                      variable=queue_size_var, width=200, height=16,
+                      command=_on_size_change,
+                      button_color='#1f6aa5', progress_color='#1f6aa5').pack(side='left', padx=8)
 
-        # Rating filter
+        # Rating filter — dropdown
         rating_frame = ctk.CTkFrame(dialog, fg_color='transparent')
         rating_frame.pack(fill='x', padx=16, pady=(0, 6))
         ctk.CTkLabel(rating_frame, text='Min rating:', font=ctk.CTkFont(size=12)).pack(side='left')
-        min_rating_var = tk.IntVar(value=0)
-        ctk.CTkEntry(rating_frame, textvariable=min_rating_var, width=60, height=28,
-                     font=ctk.CTkFont(size=12)).pack(side='left', padx=8)
+        rating_choices = ['Any', '+1', '+2', '+3', '+4', '+5']
+        rating_var = tk.StringVar(value='+3')
+        ctk.CTkOptionMenu(rating_frame, variable=rating_var, values=rating_choices,
+                          width=80, height=28, font=ctk.CTkFont(size=11),
+                          fg_color='#3b3b3b', button_color='#4a4a4a',
+                          dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5').pack(side='left', padx=8)
 
         # Recency filter
         recency_frame = ctk.CTkFrame(dialog, fg_color='transparent')
@@ -4174,7 +4185,8 @@ class MusicPlayer(ctk.CTk):
 
         def generate():
             size = max(1, queue_size_var.get())
-            min_rat = min_rating_var.get()
+            rv = rating_var.get()
+            min_rat = 0 if rv == 'Any' else int(rv.replace('+', ''))
             recency = recency_var.get()
 
             # Build recency cutoff
