@@ -3015,16 +3015,26 @@ class MusicPlayer(ctk.CTk):
 
     def _sort_by_column(self, col):
         if self._sort_column == col:
-            self._sort_reverse = not self._sort_reverse
+            if self._sort_reverse:
+                # Third click: reset to unsorted
+                self._sort_column = None
+                self._sort_reverse = False
+            else:
+                self._sort_reverse = True
         else:
             self._sort_column = col
             self._sort_reverse = False
-        # Update heading text to show sort indicator
+        self._update_sort_headings()
+        self._apply_filter()
+
+    def _update_sort_headings(self):
+        """Refresh all column headings with sort arrows."""
         for c in self._all_columns:
-            arrow = ''
             if c == self._sort_column:
                 arrow = ' \u25b2' if not self._sort_reverse else ' \u25bc'
-            self.tree.heading(c, text=f'{c}{arrow}')
+                self.tree.heading(c, text=f'\u2022 {c}{arrow}')
+            else:
+                self.tree.heading(c, text=c)
         self._apply_filter()
 
     @perf.track
@@ -3246,14 +3256,18 @@ class MusicPlayer(ctk.CTk):
                 self.tree.selection_set(*to_select)
                 self.tree.see(to_select[0])
 
-        # Update track count
+        # Update track count + sort info
         if hasattr(self, '_track_count_lbl'):
             total = len(playlist)
             shown = len(self.display_indices)
+            sort_info = ''
+            if self._sort_column:
+                direction = '\u25b2' if not self._sort_reverse else '\u25bc'
+                sort_info = f'  \u2022  sorted by {self._sort_column} {direction}'
             if shown == total:
-                self._track_count_lbl.configure(text=f'{total} tracks')
+                self._track_count_lbl.configure(text=f'{total} tracks{sort_info}')
             else:
-                self._track_count_lbl.configure(text=f'{shown} of {total} tracks')
+                self._track_count_lbl.configure(text=f'{shown} of {total} tracks{sort_info}')
 
     # ── File management ──────────────────────────────────
 
