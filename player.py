@@ -656,6 +656,27 @@ class MusicPlayer(ctk.CTk):
         self._flush_audit_log()
         super().destroy()
 
+    def _make_modal(self, dialog):
+        """Wire up a CTkToplevel for safe modal grab management.
+
+        Patches dialog.destroy so that grab_release() is always called
+        before the window is torn down, preventing lingering X11 grabs
+        that block input to other windows.
+        """
+        dialog.transient(self)
+        _orig_destroy = dialog.destroy
+
+        def _safe_destroy():
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+            _orig_destroy()
+
+        dialog.destroy = _safe_destroy
+        dialog.after(100, dialog.grab_set)
+        return dialog
+
     def _show_audit_log(self):
         """Show the audit log in a dialog."""
         self._flush_audit_log()
@@ -668,8 +689,7 @@ class MusicPlayer(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title('Audit Log')
         dialog.geometry('700x500')
-        dialog.transient(self)
-        dialog.after(100, dialog.grab_set)
+        self._make_modal(dialog)
 
         ctk.CTkLabel(dialog, text='Audit Log — Recent Actions',
                      font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(10, 6))
@@ -997,8 +1017,7 @@ class MusicPlayer(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title('Who is voting?')
         dialog.geometry('300x200')
-        dialog.transient(self)
-        dialog.after(100, dialog.grab_set)
+        self._make_modal(dialog)
 
         ctk.CTkLabel(dialog, text='Who is voting? (optional)',
                      font=ctk.CTkFont(size=13, weight='bold')).pack(pady=(12, 6))
@@ -1743,8 +1762,7 @@ class MusicPlayer(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title('Import Rhythmbox')
         dialog.geometry('600x280')
-        dialog.transient(self)
-        dialog.after(100, dialog.grab_set)
+        self._make_modal(dialog)
 
         ctk.CTkLabel(dialog, text='Import from Rhythmbox',
                      font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(16, 4))
@@ -1962,8 +1980,7 @@ class MusicPlayer(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title('Library Root')
         dialog.geometry('550x220')
-        dialog.transient(self)
-        dialog.after(100, dialog.grab_set)
+        self._make_modal(dialog)
 
         ctk.CTkLabel(dialog, text='Library Root Folder',
                      font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(16, 4))
@@ -2415,8 +2432,7 @@ class MusicPlayer(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title('Settings')
         dialog.geometry('520x650')
-        dialog.transient(self)
-        dialog.after(100, dialog.grab_set)
+        self._make_modal(dialog)
 
         # ── Tab bar ──
         tab_bar = ctk.CTkFrame(dialog, fg_color='transparent')
@@ -2827,6 +2843,14 @@ class MusicPlayer(ctk.CTk):
             genre_dialog.title('All Detected Genres')
             genre_dialog.geometry('350x450')
             genre_dialog.transient(dialog)
+            _orig_gd_destroy = genre_dialog.destroy
+            def _safe_gd_destroy():
+                try:
+                    genre_dialog.grab_release()
+                except Exception:
+                    pass
+                _orig_gd_destroy()
+            genre_dialog.destroy = _safe_gd_destroy
             genre_dialog.after(100, genre_dialog.grab_set)
 
             ctk.CTkLabel(genre_dialog, text='All Detected Genres',
@@ -3736,15 +3760,7 @@ class MusicPlayer(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title('Equalizer')
         dialog.geometry('520x420')
-        dialog.transient(self)
-        dialog.after(100, dialog.grab_set)
-
-        def _close_dialog():
-            try:
-                dialog.grab_release()
-            except Exception:
-                pass
-            dialog.destroy()
+        self._make_modal(dialog)
 
         # Header
         if track_id and self.current_index is not None:
@@ -3876,7 +3892,7 @@ class MusicPlayer(ctk.CTk):
                 self._apply_eq_to_player(pa, bands)
                 self._start_eq_throb()
             self._log_action('eq_save', f'track_id={track_id}')
-            _close_dialog()
+            dialog.destroy()
 
         def _reset():
             preamp_var.set(0)
@@ -3892,7 +3908,7 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(btn_row, text='Reset', fg_color='#8b0000', hover_color='#a52a2a',
                       width=80, command=_reset).pack(side='left', padx=4)
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
-                      width=80, command=_close_dialog).pack(side='right', padx=4)
+                      width=80, command=dialog.destroy).pack(side='right', padx=4)
         ctk.CTkButton(btn_row, text='Save', fg_color='#1f6aa5',
                       width=80, command=_save).pack(side='right', padx=4)
 
@@ -4105,8 +4121,7 @@ class MusicPlayer(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title('Random Queue Generator')
         dialog.geometry('520x620')
-        dialog.transient(self)
-        dialog.after(100, dialog.grab_set)
+        self._make_modal(dialog)
 
         ctk.CTkLabel(dialog, text='Random Queue Generator',
                      font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(12, 2))
@@ -4633,8 +4648,7 @@ class MusicPlayer(ctk.CTk):
         title = entry.get('title', entry['basename'])
         dialog.title(f'Play History — {title}')
         dialog.geometry('400x450')
-        dialog.transient(self)
-        dialog.after(100, dialog.grab_set)
+        self._make_modal(dialog)
 
         ctk.CTkLabel(dialog, text=f'Play History',
                      font=ctk.CTkFont(size=15, weight='bold')).pack(pady=(12, 2))
@@ -4712,8 +4726,7 @@ class MusicPlayer(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title('Change Genre')
         dialog.geometry('320x420')
-        dialog.transient(self)
-        dialog.after(100, dialog.grab_set)
+        self._make_modal(dialog)
 
         title = entry.get('title', entry['basename'])
         ctk.CTkLabel(dialog, text='Change Genre',
@@ -4930,7 +4943,6 @@ class MusicPlayer(ctk.CTk):
         dialog = ctk.CTkToplevel(self)
         dialog.title('Play Track')
         dialog.geometry('440x200')
-        dialog.transient(self)
         dialog.configure(fg_color='#1a2a3a')
         dialog.resizable(False, False)
 
@@ -4944,14 +4956,7 @@ class MusicPlayer(ctk.CTk):
         x = tree_x + (tree_w - dlg_w) // 2
         y = tree_y + (tree_h - dlg_h) // 2
         dialog.geometry(f'{dlg_w}x{dlg_h}+{x}+{y}')
-        dialog.after(100, dialog.grab_set)
-
-        def _close_dialog():
-            try:
-                dialog.grab_release()
-            except Exception:
-                pass
-            dialog.destroy()
+        self._make_modal(dialog)
 
         # Title
         ctk.CTkLabel(dialog, text=title[:70],
@@ -4974,7 +4979,7 @@ class MusicPlayer(ctk.CTk):
         btn_row.pack(fill='x', padx=24, pady=(0, 18))
 
         def play_now():
-            _close_dialog()
+            dialog.destroy()
             self._last_action = 'switching'
             self.vlc_player.stop()
             self.current_index = playlist_idx
@@ -4990,7 +4995,7 @@ class MusicPlayer(ctk.CTk):
                 self._update_now_playing()
 
         def play_next():
-            _close_dialog()
+            dialog.destroy()
             self._insert_in_queue(playlist_idx, 0)
 
         ctk.CTkButton(btn_row, text='\u25b6  Play Now', fg_color='#1f6aa5',
@@ -5004,12 +5009,12 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
                       hover_color='#666666', height=34,
                       font=ctk.CTkFont(size=13),
-                      command=_close_dialog).pack(side='left', padx=4, expand=True, fill='x')
+                      command=dialog.destroy).pack(side='left', padx=4, expand=True, fill='x')
 
         # Keyboard shortcuts
         dialog.bind('<Return>', lambda e: play_now() if not (e.state & 0x1) else play_next())
         dialog.bind('<Shift-Return>', lambda e: play_next())
-        dialog.bind('<Escape>', lambda e: _close_dialog())
+        dialog.bind('<Escape>', lambda e: dialog.destroy())
         dialog.focus_force()
 
     # ── Poll ─────────────────────────────────────────────
