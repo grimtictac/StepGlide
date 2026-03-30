@@ -12,5 +12,16 @@
     <tag name="beginner" />
     <tag name="class" />
   </tags>
-  <playlists />
+  <playlists>
+    <playlist name="Bob">
+      <track>Dec22/Genre/Rumba/Dj Maksy &amp; Michael Jackson - Stranger in Moscow (Rumba 2012) Rb25.mp3</track>
+      <track>Dec22/Genre/Rumba/Dj Maksy &amp; Carlinhos Brown - Ela samba Rb25.mp3</track>
+      <track>Dec22/Genre/Rumba/Lo so che finira Rb24.mp3</track>
+      <track>Dec22/Albums/Dj Maksy - Latin Jam Vol2/Rumba/Lo so che finira Rb24.mp3</track>
+      <track>Dec22/Genre/Rumba/Love the Way You Lie RB24 (copy).mp3</track>
+      <track>Dec22/Albums/Dj Maksy - Latin Jam Vol2/Rumba/Love the Way You Lie RB24.mp3</track>
+    </playlist>
+  </playlists>
+  <tooltips />
+  <interface queue_btn_throb="true" />
 </music_player_config>

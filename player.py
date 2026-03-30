@@ -3440,6 +3440,7 @@ class MusicPlayer(ctk.CTk):
         title = entry.get('title', entry['basename'])
         artist = entry.get('artist', '')
         album = entry.get('album', '')
+        genre = entry.get('genre', '')
         length_str = self._format_duration(entry.get('length'))
         rating = entry.get('rating', 0)
         rating_str = f'+{rating}' if rating > 0 else str(rating)
@@ -3452,7 +3453,7 @@ class MusicPlayer(ctk.CTk):
         last_p = self._format_ts(entry.get('last_played'), relative=True)
         file_c = self._format_ts(entry.get('file_created'), relative=False)
         self.tree.item(all_items[pos],
-                       values=(title, artist, album, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
+                       values=(title, artist, album, genre, length_str, rating_str, comment, tags_str, liked_str, disliked_str,
                                plays, first_p, last_p, file_c))
 
     @perf.track
