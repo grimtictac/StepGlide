@@ -1354,6 +1354,11 @@ class MusicPlayer(ctk.CTk):
         self._queue_listbox.pack(fill='both', expand=True, padx=4, pady=(0, 4))
         self._queue_listbox.bind('<Button-3>', self._on_queue_right_click)
         self._queue_listbox.bind('<Double-1>', self._on_queue_double_click)
+        # Queue drag-to-reorder
+        self._queue_listbox.bind('<ButtonPress-1>', self._queue_drag_start)
+        self._queue_listbox.bind('<B1-Motion>', self._queue_drag_motion)
+        self._queue_listbox.bind('<ButtonRelease-1>', self._queue_drag_end)
+        self._queue_drag_item = None
 
         queue_btn_row = ctk.CTkFrame(queue_panel, fg_color='transparent')
         queue_btn_row.pack(fill='x', padx=4, pady=(0, 6))
@@ -1637,6 +1642,11 @@ class MusicPlayer(ctk.CTk):
         self.tree.bind('<Double-1>', self._on_double)
         self.tree.bind('<<TreeviewSelect>>', self._on_select)
         self.tree.bind('<Button-3>', self._on_right_click)
+        # Drag tracks from treeview to queue
+        self._tree_drag_data = None
+        self.tree.bind('<ButtonPress-1>', self._tree_drag_start, add='+')
+        self.tree.bind('<B1-Motion>', self._tree_drag_motion)
+        self.tree.bind('<ButtonRelease-1>', self._tree_drag_end)
 
         sb = ctk.CTkScrollbar(tv_wrapper, command=self.tree.yview)
         sb.grid(row=0, column=1, sticky='ns')
@@ -4248,6 +4258,97 @@ class MusicPlayer(ctk.CTk):
         if 0 <= idx < len(self._play_queue):
             self._play_queue.pop(idx)
             self._refresh_queue_listbox()
+
+    # ── Queue drag-to-reorder ────────────────────────────
+
+    def _queue_drag_start(self, ev):
+        """Record which queue item the user pressed on."""
+        item = self._queue_listbox.identify_row(ev.y)
+        if item:
+            self._queue_drag_item = item
+            self._queue_listbox.selection_set(item)
+        else:
+            self._queue_drag_item = None
+
+    def _queue_drag_motion(self, ev):
+        """Visual feedback: move selection as the mouse drags over rows."""
+        if self._queue_drag_item is None:
+            return
+        target = self._queue_listbox.identify_row(ev.y)
+        if target and target != self._queue_drag_item:
+            items = list(self._queue_listbox.get_children())
+            try:
+                src_idx = items.index(self._queue_drag_item)
+                dst_idx = items.index(target)
+            except ValueError:
+                return
+            if src_idx != dst_idx:
+                # Swap in the data model
+                self._play_queue[src_idx], self._play_queue[dst_idx] = \
+                    self._play_queue[dst_idx], self._play_queue[src_idx]
+                # Rebuild treeview (fast for small queue)
+                self._refresh_queue_listbox()
+                # Update drag item to the new item at dst position
+                new_items = self._queue_listbox.get_children()
+                if dst_idx < len(new_items):
+                    self._queue_drag_item = new_items[dst_idx]
+                    self._queue_listbox.selection_set(self._queue_drag_item)
+
+    def _queue_drag_end(self, ev):
+        """Finish drag-to-reorder."""
+        self._queue_drag_item = None
+
+    # ── Drag tracks from main treeview to queue ──────────
+
+    def _tree_drag_start(self, ev):
+        """Record drag start position for threshold detection."""
+        self._tree_drag_data = {'x': ev.x, 'y': ev.y, 'dragging': False}
+
+    def _tree_drag_motion(self, ev):
+        """Start visual drag if mouse moves enough, show cursor feedback."""
+        if self._tree_drag_data is None:
+            return
+        if not self._tree_drag_data['dragging']:
+            dx = abs(ev.x - self._tree_drag_data['x'])
+            dy = abs(ev.y - self._tree_drag_data['y'])
+            if dx + dy < 8:
+                return  # Below drag threshold
+            self._tree_drag_data['dragging'] = True
+            self.tree.config(cursor='plus')
+
+    def _tree_drag_end(self, ev):
+        """If drag ended over the queue area, add selected tracks to queue."""
+        if self._tree_drag_data is None or not self._tree_drag_data.get('dragging'):
+            self._tree_drag_data = None
+            return
+        self.tree.config(cursor='')
+        self._tree_drag_data = None
+
+        # Check if the drop landed on the queue widget
+        try:
+            target_widget = self.winfo_containing(ev.x_root, ev.y_root)
+        except Exception:
+            return
+        # Walk up widget parents to see if drop is on queue area
+        w = target_widget
+        while w is not None:
+            if w is self._queue_listbox:
+                break
+            try:
+                w = w.master
+            except Exception:
+                w = None
+        if w is not self._queue_listbox:
+            return
+        # Add all selected tracks to queue
+        sel = self.tree.selection()
+        if not sel:
+            return
+        for item in sel:
+            pos = self._item_to_pos(item)
+            if pos is not None and pos < len(self.display_indices):
+                self._play_queue.append(self.display_indices[pos])
+        self._refresh_queue_listbox()
 
     def _random_queue_dialog(self):
         """Open a dialog to configure and generate a random play queue."""
