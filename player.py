@@ -283,6 +283,7 @@ class MusicPlayer(ctk.CTk):
 
         self._build_ui()
         self._load_tracks_from_db()
+        self._load_queue()
         self._refresh_playlist_listbox()
         self._bind_shortcuts()
         self.after(500, self._poll)
@@ -383,6 +384,15 @@ class MusicPlayer(ctk.CTk):
                 preamp REAL DEFAULT 0,
                 bands TEXT DEFAULT '',
                 FOREIGN KEY(track_id) REFERENCES tracks(id)
+            )
+        """)
+        con.commit()
+
+        # Persistent queue state
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS queue_state (
+                position INTEGER PRIMARY KEY,
+                file_path TEXT
             )
         """)
         con.commit()
@@ -4048,6 +4058,38 @@ class MusicPlayer(ctk.CTk):
             genre = entry.get('genre', '')
             self._queue_listbox.insert('', 'end', values=(title[:40], genre))
         self._queue_title_lbl.configure(text=f'Queue ({len(self._play_queue)})')
+        self._save_queue()
+
+    def _save_queue(self):
+        """Persist queue to DB so it survives restarts."""
+        try:
+            con = sqlite3.connect(DB_PATH)
+            con.execute("DELETE FROM queue_state")
+            for pos, pl_idx in enumerate(self._play_queue):
+                path = self.playlist[pl_idx]['path']
+                con.execute("INSERT INTO queue_state (position, file_path) VALUES (?, ?)",
+                            (pos, path))
+            con.commit()
+            con.close()
+        except Exception:
+            pass
+
+    def _load_queue(self):
+        """Restore queue from DB after tracks are loaded."""
+        try:
+            con = sqlite3.connect(DB_PATH)
+            rows = con.execute("SELECT file_path FROM queue_state ORDER BY position").fetchall()
+            con.close()
+            restored = []
+            for (path,) in rows:
+                idx = self._path_to_idx.get(path)
+                if idx is not None:
+                    restored.append(idx)
+            if restored:
+                self._play_queue = restored
+                self._refresh_queue_listbox()
+        except Exception:
+            pass
 
     def _add_to_queue(self, playlist_idx):
         """Add a track to the end of the play queue."""
