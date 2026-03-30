@@ -4624,9 +4624,13 @@ class MusicPlayer(ctk.CTk):
         pl_name = names[pl_idx]
         menu = tk.Menu(self, tearoff=0)
         menu.add_command(label='Rename…', command=lambda: self._rename_playlist(pl_name))
+        menu.add_command(label='Duplicate…', command=lambda: self._duplicate_playlist(pl_name))
         menu.add_command(label='Delete', command=lambda: self._delete_playlist(pl_name))
         menu.add_separator()
         menu.add_command(label='Load into Queue', command=lambda: self._playlist_to_queue(pl_name))
+        menu.add_separator()
+        menu.add_command(label='Save Current Queue as Playlist…',
+                         command=self._save_queue_as_playlist)
         menu.tk_popup(ev.x_root, ev.y_root)
 
     def _rename_playlist(self, old_name):
@@ -4670,6 +4674,52 @@ class MusicPlayer(ctk.CTk):
                     self._playlists[playlist_name].append(path)
         self._save_config_to_xml()
         self._refresh_playlist_listbox()
+
+    def _duplicate_playlist(self, name):
+        """Create a copy of an existing playlist."""
+        new_name = simpledialog.askstring('Duplicate Playlist', 'Name for copy:',
+                                          initialvalue=f'{name} (copy)', parent=self)
+        if new_name and new_name.strip():
+            new_name = new_name.strip()
+            if new_name not in self._playlists:
+                self._playlists[new_name] = list(self._playlists.get(name, []))
+                self._save_config_to_xml()
+                self._refresh_playlist_listbox()
+
+    def _save_queue_as_playlist(self):
+        """Save the current play queue as a new named playlist."""
+        if not self._play_queue:
+            messagebox.showinfo('Empty Queue', 'The queue is empty.')
+            return
+        name = simpledialog.askstring('Save Queue as Playlist',
+                                      'Playlist name:', parent=self)
+        if name and name.strip():
+            name = name.strip()
+            paths = [self.playlist[idx]['path'] for idx in self._play_queue]
+            self._playlists[name] = paths
+            self._save_config_to_xml()
+            self._refresh_playlist_listbox()
+            self._log_action('save_queue_as_playlist', f'{name} ({len(paths)} tracks)')
+
+    def _remove_selected_from_playlist(self):
+        """Remove selected tracks from the active playlist."""
+        if not self._active_playlist or self._active_playlist not in self._playlists:
+            return
+        sel = self.tree.selection()
+        if not sel:
+            return
+        paths_to_remove = set()
+        for item in sel:
+            pos = self._item_to_pos(item)
+            if pos is not None and pos < len(self.display_indices):
+                playlist_idx = self.display_indices[pos]
+                paths_to_remove.add(self.playlist[playlist_idx]['path'])
+        if paths_to_remove:
+            self._playlists[self._active_playlist] = [
+                p for p in self._playlists[self._active_playlist] if p not in paths_to_remove]
+            self._save_config_to_xml()
+            self._refresh_playlist_listbox()
+            self._apply_filter()
 
     # ── Track selection events ───────────────────────────
 
@@ -4744,6 +4794,13 @@ class MusicPlayer(ctk.CTk):
                 pl_menu.add_command(label=pl_name,
                                     command=lambda n=pl_name: self._add_selected_to_playlist(n))
             menu.add_cascade(label='\U0001f4c1  Add to Playlist', menu=pl_menu)
+
+        # Remove from active playlist option
+        if self._active_playlist and self._active_playlist in self._playlists:
+            n = len(selected_indices)
+            lbl = f'\U0001f5d1  Remove {n} from "{self._active_playlist}"' if multi else \
+                  f'\U0001f5d1  Remove from "{self._active_playlist}"'
+            menu.add_command(label=lbl, command=self._remove_selected_from_playlist)
 
         menu.add_separator()
         menu.add_command(label='\U0001f5d1  Remove from Library',
