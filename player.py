@@ -4104,7 +4104,7 @@ class MusicPlayer(ctk.CTk):
 
         dialog = ctk.CTkToplevel(self)
         dialog.title('Random Queue Generator')
-        dialog.geometry('480x550')
+        dialog.geometry('520x620')
         dialog.transient(self)
         dialog.after(100, dialog.grab_set)
 
@@ -4175,7 +4175,7 @@ class MusicPlayer(ctk.CTk):
                 tag_btns[tag] = btn
 
         # Genre proportions
-        ctk.CTkLabel(dialog, text='Genre Proportions (weights):',
+        ctk.CTkLabel(dialog, text='Genre Proportions:',
                      font=ctk.CTkFont(size=12, weight='bold')).pack(anchor='w', padx=16, pady=(4, 2))
 
         genre_scroll = ctk.CTkScrollableFrame(dialog, fg_color='#1a1a2e')
@@ -4188,19 +4188,29 @@ class MusicPlayer(ctk.CTk):
             if g:
                 genre_counts[g] = genre_counts.get(g, 0) + 1
 
+        _weight_labels = ['—', 'Low', 'Med', 'High', 'Max']
         genre_weight_vars = {}
         for genre in sorted(self.genres):
             row = ctk.CTkFrame(genre_scroll, fg_color='transparent')
             row.pack(fill='x', pady=1)
             ctk.CTkLabel(row, text=genre, font=ctk.CTkFont(size=11),
-                         text_color='#dce4ee', width=180, anchor='w').pack(side='left', padx=(8, 4))
-            wvar = tk.IntVar(value=1)
+                         text_color='#dce4ee', width=140, anchor='w').pack(side='left', padx=(8, 4))
+            wvar = tk.IntVar(value=0)
             genre_weight_vars[genre] = wvar
-            ctk.CTkEntry(row, textvariable=wvar, width=50, height=24,
-                         font=ctk.CTkFont(size=11)).pack(side='left', padx=4)
+            val_lbl = ctk.CTkLabel(row, text='—', font=ctk.CTkFont(size=9),
+                                   text_color='#aaaaaa', width=32)
+            val_lbl.pack(side='right', padx=(0, 4))
             count = genre_counts.get(genre, 0)
             ctk.CTkLabel(row, text=f'({count})', font=ctk.CTkFont(size=10),
-                         text_color='#666666').pack(side='left', padx=4)
+                         text_color='#666666', width=40).pack(side='right', padx=(0, 4))
+            def _on_genre_slide(val, v=wvar, lbl=val_lbl):
+                iv = int(round(float(val)))
+                v.set(iv)
+                lbl.configure(text=_weight_labels[iv])
+            ctk.CTkSlider(row, from_=0, to=4, number_of_steps=4,
+                          variable=wvar, width=120, height=14,
+                          command=_on_genre_slide,
+                          button_color='#1f6aa5', progress_color='#1f6aa5').pack(side='right', padx=4)
 
         # Buttons
         btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
