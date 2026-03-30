@@ -1563,13 +1563,23 @@ class MusicPlayer(ctk.CTk):
             height=50, orientation='vertical')
         self.tag_bar_frame.pack(fill='both', expand=True)
 
-        # Search box (below tags)
+        # Search box (below tags) with clear button
+        search_frame = ctk.CTkFrame(tree_frame, fg_color='transparent', height=26)
+        search_frame.pack(fill='x', pady=(0, 2))
+        search_frame.pack_propagate(False)
         self._search_var = tk.StringVar()
         self._search_var.trace_add('write', lambda *_: self._debounced_search())
-        self._search_entry = ctk.CTkEntry(tree_frame, textvariable=self._search_var,
-                                           placeholder_text='\U0001f50d  Search title, artist, album, comment, tags, liked by\u2026',
+        self._search_entry = ctk.CTkEntry(search_frame, textvariable=self._search_var,
+                                           placeholder_text='\U0001f50d  Search (artist:x genre:x title:x album:x)\u2026',
                                            height=26, font=ctk.CTkFont(size=11))
-        self._search_entry.pack(fill='x', pady=(0, 2))
+        self._search_entry.pack(side='left', fill='both', expand=True)
+        self._search_clear_btn = ctk.CTkButton(
+            search_frame, text='\u2715', width=26, height=26,
+            font=ctk.CTkFont(size=13), fg_color='#3b3b3b', hover_color='#555555',
+            command=lambda: self._search_var.set(''))
+        self._search_clear_btn.pack(side='right', padx=(2, 0))
+        self._search_clear_btn.pack_forget()  # hidden initially
+        self._search_var.trace_add('write', lambda *_: self._toggle_search_clear())
 
         # Perf info — stored for UI callback
         self._perf_text = ''
@@ -2917,6 +2927,64 @@ class MusicPlayer(ctk.CTk):
             self.after_cancel(self._search_debounce_id)
         self._search_debounce_id = self.after(200, self._apply_filter)
 
+    def _toggle_search_clear(self):
+        """Show/hide the ✕ clear button based on whether search box has text."""
+        if self._search_var.get():
+            self._search_clear_btn.pack(side='right', padx=(2, 0))
+        else:
+            self._search_clear_btn.pack_forget()
+
+    # Field-prefix mapping for field-specific search (e.g. "artist:beatles")
+    _SEARCH_FIELD_PREFIXES = {
+        'title:':   lambda e: (e.get('title') or e['basename']).lower(),
+        'artist:':  lambda e: (e.get('artist') or '').lower(),
+        'album:':   lambda e: (e.get('album') or '').lower(),
+        'genre:':   lambda e: (e.get('genre') or '').lower(),
+        'comment:': lambda e: (e.get('comment') or '').lower(),
+        'tags:':    lambda e: ' '.join(e.get('tags', [])).lower(),
+        'liked:':   lambda e: ' '.join(e.get('liked_by', set())).lower(),
+    }
+
+    @staticmethod
+    def _parse_search_tokens(raw):
+        """Parse search string into a list of (field_fn_or_None, term) tuples.
+
+        Supports:
+          - Plain words: matched against all fields (AND logic between words)
+          - Field prefixes: artist:beatles matches only the artist field
+          - Quoted phrases: "abbey road" treated as a single token
+        """
+        tokens = []
+        i = 0
+        while i < len(raw):
+            if raw[i] == ' ':
+                i += 1
+                continue
+            # Check for field prefix
+            field_fn = None
+            for prefix, fn in MusicPlayer._SEARCH_FIELD_PREFIXES.items():
+                if raw[i:].startswith(prefix):
+                    field_fn = fn
+                    i += len(prefix)
+                    break
+            # Check for quoted phrase
+            if i < len(raw) and raw[i] == '"':
+                end = raw.find('"', i + 1)
+                if end == -1:
+                    end = len(raw)
+                term = raw[i + 1:end].strip().lower()
+                i = end + 1
+            else:
+                # Read until next space
+                end = raw.find(' ', i)
+                if end == -1:
+                    end = len(raw)
+                term = raw[i:end].lower()
+                i = end
+            if term:
+                tokens.append((field_fn, term))
+        return tokens
+
     # Column-to-entry-key mapping for sorting
     _SORT_KEYS = {
         'Title': lambda e: (e.get('title') or e['basename']).lower(),
@@ -2975,7 +3043,8 @@ class MusicPlayer(ctk.CTk):
         self._di_reverse = {}  # playlist_idx → display position (O(1) reverse lookup)
 
         genre_filter = self._get_genres_for_filter()
-        search_term = self._search_var.get().strip().lower() if hasattr(self, '_search_var') else ''
+        search_raw = self._search_var.get().strip() if hasattr(self, '_search_var') else ''
+        search_tokens = self._parse_search_tokens(search_raw) if search_raw else []
 
         # Phase 1: collect matching indices — pre-cache filter values
         matched = []
@@ -3078,19 +3147,29 @@ class MusicPlayer(ctk.CTk):
                     continue
                 elif len_hi is not None and len_lo is None and track_len >= len_hi:
                     continue
-            if search_term:
-                title_lower = entry.get('title', entry['basename']).lower()
-                artist_lower = entry.get('artist', '').lower()
-                album_lower = entry.get('album', '').lower()
-                comment_lower = entry.get('comment', '').lower()
+            if search_tokens:
+                # Build a combined text blob for "any field" tokens (cached per entry)
+                title_lower = (entry.get('title') or entry['basename']).lower()
+                artist_lower = (entry.get('artist') or '').lower()
+                album_lower = (entry.get('album') or '').lower()
+                genre_lower = (entry.get('genre') or '').lower()
+                comment_lower = (entry.get('comment') or '').lower()
                 tags_lower = ' '.join(entry.get('tags', [])).lower()
                 liked_lower = ' '.join(entry.get('liked_by', set())).lower()
-                if (search_term not in title_lower
-                        and search_term not in artist_lower
-                        and search_term not in album_lower
-                        and search_term not in comment_lower
-                        and search_term not in tags_lower
-                        and search_term not in liked_lower):
+                all_text = f'{title_lower} {artist_lower} {album_lower} {genre_lower} {comment_lower} {tags_lower} {liked_lower}'
+                matched_all = True
+                for field_fn, term in search_tokens:
+                    if field_fn is not None:
+                        # Field-specific: only search that field
+                        if term not in field_fn(entry):
+                            matched_all = False
+                            break
+                    else:
+                        # Match against all fields
+                        if term not in all_text:
+                            matched_all = False
+                            break
+                if not matched_all:
                     continue
             matched.append(idx)
 
