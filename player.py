@@ -4151,6 +4151,29 @@ class MusicPlayer(ctk.CTk):
                           fg_color='#3b3b3b', button_color='#4a4a4a',
                           dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5').pack(side='left', padx=8)
 
+        # Tag filter — inclusive AND multiselect
+        selected_tags = set()
+        tag_btns = {}
+        if self._all_tags:
+            ctk.CTkLabel(dialog, text='Tags (must have ALL selected):',
+                         font=ctk.CTkFont(size=12, weight='bold')).pack(anchor='w', padx=16, pady=(4, 2))
+            tag_row = ctk.CTkFrame(dialog, fg_color='transparent')
+            tag_row.pack(fill='x', padx=16, pady=(0, 6))
+            def _toggle_tag(t):
+                if t in selected_tags:
+                    selected_tags.discard(t)
+                    tag_btns[t].configure(fg_color='transparent')
+                else:
+                    selected_tags.add(t)
+                    tag_btns[t].configure(fg_color='#1f6aa5')
+            for tag in sorted(self._all_tags):
+                btn = ctk.CTkButton(tag_row, text=tag.upper(), height=22, width=70,
+                                    font=ctk.CTkFont(size=9), fg_color='transparent',
+                                    border_width=1, border_color='#555555',
+                                    command=lambda t=tag: _toggle_tag(t))
+                btn.pack(side='left', padx=1, pady=1)
+                tag_btns[tag] = btn
+
         # Genre proportions
         ctk.CTkLabel(dialog, text='Genre Proportions (weights):',
                      font=ctk.CTkFont(size=12, weight='bold')).pack(anchor='w', padx=16, pady=(4, 2))
@@ -4221,6 +4244,11 @@ class MusicPlayer(ctk.CTk):
                 elif cutoff:
                     lp = entry.get('last_played')
                     if lp and lp > cutoff:
+                        continue
+                # Tag filter (inclusive AND — track must have ALL selected tags)
+                if selected_tags:
+                    track_tags = set(entry.get('tags', []))
+                    if not selected_tags.issubset(track_tags):
                         continue
                 eligible_by_genre.setdefault(g, []).append(idx)
 
