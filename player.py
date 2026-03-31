@@ -780,7 +780,7 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkLabel(dialog, text='Audit Log — Recent Actions',
                      font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(10, 6))
 
-        tree_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        tree_frame = tk.Frame(dialog, bg='#242424')
         tree_frame.pack(fill='both', expand=True, padx=10, pady=(0, 10))
 
         cols = ('Time', 'Action', 'Detail')
@@ -1136,7 +1136,7 @@ class MusicPlayer(ctk.CTk):
             dialog.destroy()
             self._record_vote(self.current_index, vote, voter)
 
-        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=20, pady=(4, 10))
         emoji = '\U0001f44d' if vote > 0 else '\U0001f44e'
         ctk.CTkButton(btn_row, text=f'{emoji}  Vote', command=submit,
@@ -1187,11 +1187,11 @@ class MusicPlayer(ctk.CTk):
         self._now_playing_tag = 'now_playing'
 
         # ═══ OUTER LAYOUT: content column + full-height volume strip ═══
-        _outer = ctk.CTkFrame(self, fg_color='transparent')
+        _outer = tk.Frame(self, bg='#242424')
         _outer.pack(fill='both', expand=True)
 
         # ── VOLUME STRIP (full-height right edge) ──
-        vol_strip = ctk.CTkFrame(_outer, width=70, fg_color='#1e1e2e', corner_radius=0)
+        vol_strip = tk.Frame(_outer, width=70, bg='#1e1e2e')
         vol_strip.pack(side='right', fill='y')
         vol_strip.pack_propagate(False)
 
@@ -1232,11 +1232,11 @@ class MusicPlayer(ctk.CTk):
             widget.bind('<Button-5>', _vol_scroll)       # Linux scroll down
 
         # ── CONTENT COLUMN (everything else) ──
-        _content = ctk.CTkFrame(_outer, fg_color='transparent')
+        _content = tk.Frame(_outer, bg='#242424')
         _content.pack(side='left', fill='both', expand=True)
 
         # ═══ ROW 1 — INFO BAR ═══
-        top_bar = ctk.CTkFrame(_content, height=42, fg_color='#1a1a2e')
+        top_bar = tk.Frame(_content, height=42, bg='#1a1a2e')
         top_bar.pack(fill='x')
         top_bar.pack_propagate(False)
 
@@ -1295,10 +1295,10 @@ class MusicPlayer(ctk.CTk):
         self.lbl_load = ctk.CTkLabel(top_bar, text='', font=ctk.CTkFont(size=10))
 
         # ═══ ROW 2 — CONTROLS BAR (transport + scrub + speed) ═══
-        self._controls_frame = ctk.CTkFrame(_content, fg_color='#1a1a2e')
+        self._controls_frame = tk.Frame(_content, bg='#1a1a2e')
         self._controls_frame.pack(fill='x')
 
-        ctrl_inner = ctk.CTkFrame(self._controls_frame, fg_color='transparent')
+        ctrl_inner = tk.Frame(self._controls_frame, bg='#1a1a2e')
         ctrl_inner.pack(fill='x', padx=10, pady=(2, 4))
 
         self.btn_play = ctk.CTkButton(ctrl_inner, text='\u25b6', width=52, height=34,
@@ -1329,7 +1329,8 @@ class MusicPlayer(ctk.CTk):
         self.lbl_time_total.pack(side='left')
 
         # Speed control (single row: − 1× + label Auto)
-        self._speed_frame = ctk.CTkFrame(ctrl_inner, fg_color='#2b2b2b', corner_radius=8)
+        self._speed_frame = tk.Frame(ctrl_inner, bg='#2b2b2b',
+                                      highlightthickness=0, highlightbackground='#2b2b2b')
         self._speed_frame.pack(side='left', padx=(6, 0))
 
         self._speed_var = tk.DoubleVar(value=1.0)
@@ -1362,7 +1363,7 @@ class MusicPlayer(ctk.CTk):
         self._btn_eq.pack(side='left', padx=(4, 0))
 
         # ═══ PLAY NOW BAR (under play controls, always visible) ═══
-        self._play_bar = ctk.CTkFrame(_content, fg_color='transparent')
+        self._play_bar = tk.Frame(_content, bg='#242424')
         self._play_bar.pack(fill='x', padx=14, pady=(0, 2), after=self._controls_frame)
         self.btn_play_now = ctk.CTkButton(self._play_bar, text='\u25b6  Play Now', height=30,
                                           font=ctk.CTkFont(size=15, weight='bold'),
@@ -1381,15 +1382,14 @@ class MusicPlayer(ctk.CTk):
         self._tag_btn_map = {}
 
         # ═══ MAIN AREA: Browse + Queue (resizable via PanedWindow) ═══
-        main_area = ctk.CTkFrame(_content, fg_color='transparent')
+        main_area = tk.Frame(_content, bg='#242424')
         main_area.pack(fill='both', expand=True, padx=4, pady=(4, 2))
         self._main_area = main_area  # saved for debug panel re-pack ordering
 
         # ═══ DEBUG LOG PANEL (hideable, at the bottom of _content) ═══
-        self._debug_panel_frame = ctk.CTkFrame(_content, height=280, fg_color='#1a1a1a',
-                                                corner_radius=0)
+        self._debug_panel_frame = tk.Frame(_content, height=280, bg='#1a1a1a')
         # Build the panel widgets but don't pack yet (hidden by default)
-        dbg_header = ctk.CTkFrame(self._debug_panel_frame, fg_color='transparent', height=24)
+        dbg_header = tk.Frame(self._debug_panel_frame, bg='#1a1a1a', height=24)
         dbg_header.pack(fill='x')
         dbg_header.pack_propagate(False)
         ctk.CTkLabel(dbg_header, text='\u2699  Debug Log',
@@ -1423,16 +1423,16 @@ class MusicPlayer(ctk.CTk):
         self._main_paned.pack(fill='both', expand=True)
 
         # ── LEFT SIDEBAR (genre + playlist panels) ──
-        self._left_sidebar = ctk.CTkFrame(self._main_paned, width=170, fg_color='transparent')
+        self._left_sidebar = tk.Frame(self._main_paned, width=170, bg='#242424')
 
         # ── BROWSE PANEL (fills centre) ──
-        self._browse_panel = ctk.CTkFrame(self._main_paned, fg_color='#2b2b2b', corner_radius=8)
+        self._browse_panel = tk.Frame(self._main_paned, bg='#2b2b2b')
         browse = self._browse_panel
 
         # ── RIGHT CONTAINER: queue button + queue/log panels ──
-        right_wrapper = ctk.CTkFrame(self._main_paned, fg_color='transparent')
+        right_wrapper = tk.Frame(self._main_paned, bg='#242424')
 
-        right_container = ctk.CTkFrame(right_wrapper, fg_color='transparent')
+        right_container = tk.Frame(right_wrapper, bg='#242424')
         right_container.pack(side='left', fill='both', expand=True)
 
         # Vertical PanedWindow inside right_container: queue on top, play log on bottom
@@ -1443,9 +1443,9 @@ class MusicPlayer(ctk.CTk):
         self._right_paned.pack(fill='both', expand=True)
 
         # ── PLAY QUEUE PANEL (top half) ──
-        queue_panel = ctk.CTkFrame(self._right_paned, fg_color='#2b2b2b', corner_radius=8)
+        queue_panel = tk.Frame(self._right_paned, bg='#2b2b2b')
 
-        queue_header = ctk.CTkFrame(queue_panel, fg_color='transparent')
+        queue_header = tk.Frame(queue_panel, bg='#2b2b2b')
         queue_header.pack(fill='x', padx=6, pady=(6, 2))
         self._queue_title_lbl = ctk.CTkLabel(queue_header, text='Queue (0)',
                      font=ctk.CTkFont(size=12, weight='bold'))
@@ -1471,7 +1471,7 @@ class MusicPlayer(ctk.CTk):
         self._queue_listbox.bind('<ButtonRelease-1>', self._queue_drag_end)
         self._queue_drag_item = None
 
-        queue_btn_row = ctk.CTkFrame(queue_panel, fg_color='transparent')
+        queue_btn_row = tk.Frame(queue_panel, bg='#2b2b2b')
         queue_btn_row.pack(fill='x', padx=4, pady=(0, 6))
         self._btn_send_to_queue = ctk.CTkButton(queue_btn_row, text='✚', width=34, height=28,
                       font=ctk.CTkFont(size=16, weight='bold'), fg_color='#1f6aa5',
@@ -1499,9 +1499,9 @@ class MusicPlayer(ctk.CTk):
         _btn_q_random.pack(side='right', padx=2)
 
         # ── PLAY LOG PANEL (below queue) ──
-        play_log_panel = ctk.CTkFrame(self._right_paned, fg_color='#2b2b2b', corner_radius=8)
+        play_log_panel = tk.Frame(self._right_paned, bg='#2b2b2b')
 
-        play_log_header = ctk.CTkFrame(play_log_panel, fg_color='transparent')
+        play_log_header = tk.Frame(play_log_panel, bg='#2b2b2b')
         play_log_header.pack(fill='x', padx=6, pady=(6, 2))
         ctk.CTkLabel(play_log_header, text='Play Log',
                      font=ctk.CTkFont(size=12, weight='bold')).pack(side='left')
@@ -1510,7 +1510,7 @@ class MusicPlayer(ctk.CTk):
                       hover_color='#3b3b3b', command=self._refresh_play_log)
         _btn_refresh_log.pack(side='right')
 
-        log_tree_frame = ctk.CTkFrame(play_log_panel, fg_color='transparent')
+        log_tree_frame = tk.Frame(play_log_panel, bg='#2b2b2b')
         log_tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 6))
         log_tree_frame.grid_rowconfigure(0, weight=1)
         log_tree_frame.grid_columnconfigure(0, weight=1)
@@ -1555,10 +1555,10 @@ class MusicPlayer(ctk.CTk):
         self._right_paned.bind('<Double-Button-1>', self._on_right_sash_dblclick)
 
         # ── GENRE LISTBOX ──
-        genre_panel = ctk.CTkFrame(self._left_sidebar, fg_color='#2b2b2b', corner_radius=8)
+        genre_panel = tk.Frame(self._left_sidebar, bg='#2b2b2b')
         genre_panel.pack(fill='both', expand=True, pady=(0, 4))
 
-        genre_header = ctk.CTkFrame(genre_panel, fg_color='transparent')
+        genre_header = tk.Frame(genre_panel, bg='#2b2b2b')
         genre_header.pack(fill='x', padx=6, pady=(6, 2))
         ctk.CTkLabel(genre_header, text='Genre',
                      font=ctk.CTkFont(size=12, weight='bold')).pack(side='left')
@@ -1578,10 +1578,10 @@ class MusicPlayer(ctk.CTk):
         self._genre_listbox.bind('<<ListboxSelect>>', self._on_genre_listbox_select)
 
         # ── PLAYLIST PANEL ──
-        playlist_panel = ctk.CTkFrame(self._left_sidebar, fg_color='#2b2b2b', corner_radius=8)
+        playlist_panel = tk.Frame(self._left_sidebar, bg='#2b2b2b')
         playlist_panel.pack(fill='both', expand=True)
 
-        playlist_header = ctk.CTkFrame(playlist_panel, fg_color='transparent')
+        playlist_header = tk.Frame(playlist_panel, bg='#2b2b2b')
         playlist_header.pack(fill='x', padx=6, pady=(6, 2))
         ctk.CTkLabel(playlist_header, text='Playlists',
                      font=ctk.CTkFont(size=12, weight='bold')).pack(side='left')
@@ -1600,14 +1600,14 @@ class MusicPlayer(ctk.CTk):
         self._playlist_listbox.bind('<Button-3>', self._on_playlist_right_click)
 
         # ── Filter area: two rows of dropdowns + full-height Reset button ──
-        self._filter_container = ctk.CTkFrame(browse, fg_color='transparent')
+        self._filter_container = tk.Frame(browse, bg='#2b2b2b')
         self._filter_container.pack(fill='x', padx=6, pady=(4, 2))
 
         # Left side: the two filter rows stacked
-        filter_left = ctk.CTkFrame(self._filter_container, fg_color='transparent')
+        filter_left = tk.Frame(self._filter_container, bg='#2b2b2b')
         filter_left.pack(side='left', fill='both', expand=True)
 
-        self._filter_row1 = ctk.CTkFrame(filter_left, fg_color='transparent')
+        self._filter_row1 = tk.Frame(filter_left, bg='#2b2b2b')
         self._filter_row1.pack(fill='x', pady=(0, 1))
         self._filter_row1.columnconfigure(1, weight=1)   # rating dropdown
         self._filter_row1.columnconfigure(3, weight=2)   # liked-by dropdown
@@ -1635,7 +1635,7 @@ class MusicPlayer(ctk.CTk):
             values=['All'], command=self._on_liked_by_filter, **_dd_style)
         self._liked_by_dropdown.grid(row=0, column=3, sticky='ew', padx=(0, 6))
 
-        self._filter_row2 = ctk.CTkFrame(filter_left, fg_color='transparent')
+        self._filter_row2 = tk.Frame(filter_left, bg='#2b2b2b')
         self._filter_row2.pack(fill='x', pady=(0, 0))
         self._filter_row2.columnconfigure(1, weight=1)
         self._filter_row2.columnconfigure(3, weight=1)
@@ -1684,12 +1684,12 @@ class MusicPlayer(ctk.CTk):
         self._btn_reset_filters.pack(side='right', fill='y', padx=(4, 0))
 
         # Track list section
-        self._tree_frame = ctk.CTkFrame(browse, fg_color='transparent')
+        self._tree_frame = tk.Frame(browse, bg='#2b2b2b')
         self._tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 4))
         tree_frame = self._tree_frame
 
         # Tag filter bar — scrollable multi-row wrapping layout
-        self._tag_bar_wrapper = ctk.CTkFrame(tree_frame, fg_color='transparent', height=0)
+        self._tag_bar_wrapper = tk.Frame(tree_frame, bg='#2b2b2b', height=0)
         self._tag_bar_wrapper.pack(fill='x', pady=(0, 2))
         self._tag_bar_wrapper.pack_propagate(False)
         self._tag_bar_visible = False          # starts hidden (0 height)
@@ -1700,7 +1700,7 @@ class MusicPlayer(ctk.CTk):
         self.tag_bar_frame.pack(fill='both', expand=True)
 
         # Search box (below tags) with clear button
-        search_frame = ctk.CTkFrame(tree_frame, fg_color='transparent', height=26)
+        search_frame = tk.Frame(tree_frame, bg='#2b2b2b', height=26)
         search_frame.pack(fill='x', pady=(0, 2))
         search_frame.pack_propagate(False)
         self._search_var = tk.StringVar()
@@ -1733,7 +1733,7 @@ class MusicPlayer(ctk.CTk):
                               'Plays', 'First Played', 'Last Played', 'File Created')
 
         # Grid-based sub-frame for treeview + scrollbars (avoids pack side conflicts)
-        tv_wrapper = ctk.CTkFrame(tree_frame, fg_color='transparent')
+        tv_wrapper = tk.Frame(tree_frame, bg='#2b2b2b')
         tv_wrapper.pack(fill='both', expand=True)
         tv_wrapper.grid_rowconfigure(0, weight=1)
         tv_wrapper.grid_columnconfigure(0, weight=1)
@@ -1778,7 +1778,7 @@ class MusicPlayer(ctk.CTk):
         self.tree.config(xscrollcommand=tree_hsb.set)
 
         # ── Status row below track listing (track count + perf) ──
-        status_row = ctk.CTkFrame(tree_frame, fg_color='transparent')
+        status_row = tk.Frame(tree_frame, bg='#2b2b2b')
         status_row.pack(fill='x', pady=(1, 0))
         self._track_count_lbl = ctk.CTkLabel(status_row, text='0 tracks',
                                               font=ctk.CTkFont(size=10),
@@ -1935,7 +1935,7 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkLabel(dialog, text='rhythmdb.xml file:', font=ctk.CTkFont(size=11),
                      anchor='w').pack(fill='x', padx=20)
         xml_var = tk.StringVar(value=os.path.expanduser('~/.local/share/rhythmbox/rhythmdb.xml'))
-        xml_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        xml_frame = tk.Frame(dialog, bg='#242424')
         xml_frame.pack(fill='x', padx=20)
         xml_entry = ctk.CTkEntry(xml_frame, textvariable=xml_var, height=30,
                                  font=ctk.CTkFont(size=11))
@@ -1953,7 +1953,7 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkLabel(dialog, text='Rhythmbox file root (prefix to strip from paths):',
                      font=ctk.CTkFont(size=11), anchor='w').pack(fill='x', padx=20, pady=(8, 0))
         root_var = tk.StringVar(value='')
-        root_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        root_frame = tk.Frame(dialog, bg='#242424')
         root_frame.pack(fill='x', padx=20)
         root_entry = ctk.CTkEntry(root_frame, textvariable=root_var, height=30,
                                   font=ctk.CTkFont(size=11))
@@ -1966,11 +1966,11 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(root_frame, text='Browse\u2026', width=80, fg_color='#4a4a4a',
                       hover_color='#555555', command=browse_root).pack(side='right')
 
-        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=20, pady=(14, 12))
 
         # Progress area (hidden until import starts)
-        progress_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        progress_frame = tk.Frame(dialog, bg='#242424')
         prog_bar = ctk.CTkProgressBar(progress_frame, mode='determinate', width=400)
         prog_bar.set(0)
         prog_bar.pack(fill='x', padx=10, pady=(4, 2))
@@ -2149,7 +2149,7 @@ class MusicPlayer(ctk.CTk):
                      font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 10))
 
         path_var = tk.StringVar(value=self._library_root or '')
-        path_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        path_frame = tk.Frame(dialog, bg='#242424')
         path_frame.pack(fill='x', padx=20)
         path_entry = ctk.CTkEntry(path_frame, textvariable=path_var, height=32,
                                   font=ctk.CTkFont(size=12))
@@ -2164,7 +2164,7 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkButton(path_frame, text='Browse\u2026', width=80, fg_color='#4a4a4a',
                       hover_color='#555555', command=browse).pack(side='right')
 
-        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=20, pady=(18, 12))
 
         def save():
@@ -2465,7 +2465,7 @@ class MusicPlayer(ctk.CTk):
         inner = self.tag_bar_frame
         for row_num in sorted(rows_dict.keys()):
             tags_in_row = rows_dict[row_num]
-            row_frame = ctk.CTkFrame(inner, fg_color='transparent')
+            row_frame = tk.Frame(inner, bg='#2b2b2b')
             row_frame.pack(fill='x', pady=1)
             for tag in tags_in_row:
                 is_active = tag in self._active_tags
@@ -2597,17 +2597,17 @@ class MusicPlayer(ctk.CTk):
         self._make_modal(dialog)
 
         # ── Tab bar ──
-        tab_bar = ctk.CTkFrame(dialog, fg_color='transparent')
+        tab_bar = tk.Frame(dialog, bg='#242424')
         tab_bar.pack(fill='x', padx=10, pady=(10, 0))
 
-        tab_container = ctk.CTkFrame(dialog, fg_color='transparent')
+        tab_container = tk.Frame(dialog, bg='#242424')
         tab_container.pack(fill='both', expand=True, padx=10, pady=6)
 
-        genre_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
-        tags_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
-        length_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
-        tooltips_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
-        interface_frame = ctk.CTkFrame(tab_container, fg_color='transparent')
+        genre_frame = tk.Frame(tab_container, bg='#242424')
+        tags_frame = tk.Frame(tab_container, bg='#242424')
+        length_frame = tk.Frame(tab_container, bg='#242424')
+        tooltips_frame = tk.Frame(tab_container, bg='#242424')
+        interface_frame = tk.Frame(tab_container, bg='#242424')
 
         active_tab = [None]
         tab_buttons = {}
@@ -2686,10 +2686,10 @@ class MusicPlayer(ctk.CTk):
             cb_vars.clear()
 
             for gname in list(working_groups.keys()):
-                gf = ctk.CTkFrame(genre_content, fg_color='#2b2b2b', corner_radius=8)
+                gf = tk.Frame(genre_content, bg='#2b2b2b')
                 gf.pack(fill='x', pady=4)
 
-                header = ctk.CTkFrame(gf, fg_color='transparent')
+                header = tk.Frame(gf, bg='#2b2b2b')
                 header.pack(fill='x', padx=8, pady=(6, 2))
                 ctk.CTkLabel(header, text=gname, font=ctk.CTkFont(size=13, weight='bold')).pack(side='left')
                 ctk.CTkButton(header, text='\U0001f5d1', width=30, height=24, fg_color='transparent',
@@ -2719,7 +2719,7 @@ class MusicPlayer(ctk.CTk):
                 assigned.update(members)
             ungrouped = [g for g in all_genres if g not in assigned]
             if ungrouped:
-                uf = ctk.CTkFrame(genre_content, fg_color='#222222', corner_radius=8)
+                uf = tk.Frame(genre_content, bg='#222222')
                 uf._is_ungrouped = True
                 uf.pack(fill='x', pady=4)
                 ctk.CTkLabel(uf, text='Ungrouped', font=ctk.CTkFont(size=13, weight='bold'),
@@ -2761,7 +2761,7 @@ class MusicPlayer(ctk.CTk):
 
         rebuild_genre_tab()
 
-        genre_btn_row = ctk.CTkFrame(genre_frame, fg_color='transparent')
+        genre_btn_row = tk.Frame(genre_frame, bg='#242424')
         genre_btn_row.pack(fill='x', pady=(6, 0))
         ctk.CTkButton(genre_btn_row, text='+ New Group', command=add_group).pack(side='left', padx=4)
 
@@ -2778,7 +2778,7 @@ class MusicPlayer(ctk.CTk):
             for w in tags_content.winfo_children():
                 w.destroy()
             for tag in sorted(self._all_tags):
-                row = ctk.CTkFrame(tags_content, fg_color='#2b2b2b', corner_radius=8)
+                row = tk.Frame(tags_content, bg='#2b2b2b')
                 row.pack(fill='x', pady=2)
                 ctk.CTkLabel(row, text=tag.upper(), font=ctk.CTkFont(size=12)).pack(side='left', padx=10, pady=6)
                 ctk.CTkButton(row, text='\U0001f5d1', width=30, height=24, fg_color='transparent',
@@ -2806,7 +2806,7 @@ class MusicPlayer(ctk.CTk):
 
         rebuild_tags_tab()
 
-        tags_btn_row = ctk.CTkFrame(tags_frame, fg_color='transparent')
+        tags_btn_row = tk.Frame(tags_frame, bg='#242424')
         tags_btn_row.pack(fill='x', pady=(6, 0))
         ctk.CTkButton(tags_btn_row, text='+ New Tag', command=on_add_tag).pack(side='left', padx=4)
 
@@ -2847,7 +2847,7 @@ class MusicPlayer(ctk.CTk):
                 w.destroy()
 
             for i, dur in enumerate(working_durations):
-                row = ctk.CTkFrame(length_content, fg_color='#2b2b2b', corner_radius=8)
+                row = tk.Frame(length_content, bg='#2b2b2b')
                 row.pack(fill='x', pady=2)
                 row.columnconfigure(1, weight=1)
                 row.columnconfigure(3, weight=0)
@@ -2900,7 +2900,7 @@ class MusicPlayer(ctk.CTk):
 
         rebuild_length_tab()
 
-        length_btn_row = ctk.CTkFrame(length_frame, fg_color='transparent')
+        length_btn_row = tk.Frame(length_frame, bg='#242424')
         length_btn_row.pack(fill='x', pady=(6, 0))
         ctk.CTkButton(length_btn_row, text='+ Add Range', command=add_duration).pack(side='left', padx=4)
 
@@ -2926,7 +2926,7 @@ class MusicPlayer(ctk.CTk):
                 w.destroy()
             tooltip_entry_vars.clear()
             for key in sorted(_DEFAULT_TOOLTIPS.keys()):
-                row = ctk.CTkFrame(tooltips_content, fg_color='#2b2b2b', corner_radius=6)
+                row = tk.Frame(tooltips_content, bg='#2b2b2b')
                 row.pack(fill='x', pady=2)
                 row.columnconfigure(1, weight=1)
 
@@ -2951,7 +2951,7 @@ class MusicPlayer(ctk.CTk):
 
         rebuild_tooltips_tab()
 
-        tooltips_btn_row = ctk.CTkFrame(tooltips_frame, fg_color='transparent')
+        tooltips_btn_row = tk.Frame(tooltips_frame, bg='#242424')
         tooltips_btn_row.pack(fill='x', pady=(6, 0))
 
         def reset_all_tooltips():
@@ -2967,12 +2967,12 @@ class MusicPlayer(ctk.CTk):
         ctk.CTkLabel(interface_frame, text='Toggle visual cues and animation effects.',
                      font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 10))
 
-        iface_content = ctk.CTkFrame(interface_frame, fg_color='transparent')
+        iface_content = tk.Frame(interface_frame, bg='#242424')
         iface_content.pack(fill='both', expand=True, padx=4)
 
         # Queue button throb toggle
         working_queue_throb = tk.BooleanVar(value=self._queue_btn_throb_enabled)
-        qbt_row = ctk.CTkFrame(iface_content, fg_color='#2b2b2b', corner_radius=8)
+        qbt_row = tk.Frame(iface_content, bg='#2b2b2b')
         qbt_row.pack(fill='x', pady=4)
         ctk.CTkLabel(qbt_row, text='✚ Queue button glow/throb on track selection',
                      font=ctk.CTkFont(size=12)).pack(side='left', padx=10, pady=10)
@@ -2980,7 +2980,7 @@ class MusicPlayer(ctk.CTk):
                        width=44, height=22).pack(side='right', padx=10, pady=10)
 
         # ═══════════════ BOTTOM BUTTONS ═══════════════
-        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=10, pady=10)
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
                       command=dialog.destroy).pack(side='right', padx=4)
@@ -3032,8 +3032,7 @@ class MusicPlayer(ctk.CTk):
 
             for i, genre in enumerate(sorted(self.genres), 1):
                 count = genre_counts.get(genre, 0)
-                row = ctk.CTkFrame(genre_list, fg_color='#2b2b2b' if i % 2 == 0 else '#252535',
-                                   corner_radius=4)
+                row = tk.Frame(genre_list, bg='#2b2b2b' if i % 2 == 0 else '#252535')
                 row.pack(fill='x', pady=1)
                 ctk.CTkLabel(row, text=genre, font=ctk.CTkFont(size=11),
                              text_color='#dce4ee').pack(side='left', padx=8, pady=4)
@@ -3782,11 +3781,11 @@ class MusicPlayer(ctk.CTk):
         self._speed_label.configure(text=f'{speed:.1f}×')
         # Highlight speed box when speed is not 1.0
         if abs(speed - 1.0) > 0.05:
-            self._speed_frame.configure(fg_color='#5c2d00', border_width=2, border_color='#ff9800')
+            self._speed_frame.configure(bg='#5c2d00', highlightthickness=2, highlightbackground='#ff9800')
             self._speed_label.configure(text_color='#ff9800')
             self._start_speed_throb()
         else:
-            self._speed_frame.configure(fg_color='#2b2b2b', border_width=0, border_color='#2b2b2b')
+            self._speed_frame.configure(bg='#2b2b2b', highlightthickness=0, highlightbackground='#2b2b2b')
             self._speed_label.configure(text_color='#dce4ee')
             self._stop_speed_throb()
 
@@ -3823,7 +3822,7 @@ class MusicPlayer(ctk.CTk):
         ]
         bg, fg = cycle[step % len(cycle)]
         try:
-            self._speed_frame.configure(fg_color=bg, border_color=fg)
+            self._speed_frame.configure(bg=bg, highlightbackground=fg)
             self._speed_label.configure(text_color=fg)
         except Exception as e:
             self._debug_log('DEBUG', f'speed throb tick: {e}')
@@ -4029,7 +4028,7 @@ class MusicPlayer(ctk.CTk):
                          text_color='#888888').pack(pady=(10, 2))
 
         # Presets row
-        preset_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        preset_frame = tk.Frame(dialog, bg='#242424')
         preset_frame.pack(fill='x', padx=10, pady=(4, 2))
         ctk.CTkLabel(preset_frame, text='Preset:', font=ctk.CTkFont(size=11)).pack(side='left', padx=(0, 6))
         preset_var = tk.StringVar(value='Custom')
@@ -4043,7 +4042,7 @@ class MusicPlayer(ctk.CTk):
         preset_menu.pack(side='left')
 
         # Preamp
-        preamp_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        preamp_frame = tk.Frame(dialog, bg='#242424')
         preamp_frame.pack(fill='x', padx=10, pady=(4, 0))
         ctk.CTkLabel(preamp_frame, text='Preamp', font=ctk.CTkFont(size=10),
                      text_color='#888888', width=60).pack(side='left')
@@ -4057,13 +4056,13 @@ class MusicPlayer(ctk.CTk):
         preamp_lbl.pack(side='left')
 
         # Band sliders
-        bands_frame = ctk.CTkFrame(dialog, fg_color='#1a1a2e', corner_radius=8)
+        bands_frame = tk.Frame(dialog, bg='#1a1a2e')
         bands_frame.pack(fill='both', expand=True, padx=10, pady=6)
 
         band_vars = []
         band_lbls = []
         for i, freq in enumerate(self._EQ_BANDS):
-            col_frame = ctk.CTkFrame(bands_frame, fg_color='transparent')
+            col_frame = tk.Frame(bands_frame, bg='#1a1a2e')
             col_frame.pack(side='left', fill='y', expand=True, padx=1, pady=4)
 
             val_lbl = ctk.CTkLabel(col_frame, text='0', font=ctk.CTkFont(size=9), width=30)
@@ -4130,7 +4129,7 @@ class MusicPlayer(ctk.CTk):
             band_lbls[i].configure(text=f'{v.get():.0f}')
 
         # Buttons
-        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=10, pady=(0, 10))
 
         def _save():
@@ -4514,7 +4513,7 @@ class MusicPlayer(ctk.CTk):
                      font=ctk.CTkFont(size=11), text_color='#888888').pack(pady=(0, 8))
 
         # Queue size — slider with live label
-        size_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        size_frame = tk.Frame(dialog, bg='#242424')
         size_frame.pack(fill='x', padx=16, pady=(0, 6))
         ctk.CTkLabel(size_frame, text='Queue size:', font=ctk.CTkFont(size=12)).pack(side='left')
         queue_size_var = tk.IntVar(value=50)
@@ -4530,7 +4529,7 @@ class MusicPlayer(ctk.CTk):
                       button_color='#1f6aa5', progress_color='#1f6aa5').pack(side='left', padx=8)
 
         # Rating filter — dropdown
-        rating_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        rating_frame = tk.Frame(dialog, bg='#242424')
         rating_frame.pack(fill='x', padx=16, pady=(0, 6))
         ctk.CTkLabel(rating_frame, text='Min rating:', font=ctk.CTkFont(size=12)).pack(side='left')
         rating_choices = ['Any', '+1', '+2', '+3', '+4', '+5']
@@ -4541,7 +4540,7 @@ class MusicPlayer(ctk.CTk):
                           dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5').pack(side='left', padx=8)
 
         # Recency filter
-        recency_frame = ctk.CTkFrame(dialog, fg_color='transparent')
+        recency_frame = tk.Frame(dialog, bg='#242424')
         recency_frame.pack(fill='x', padx=16, pady=(0, 8))
         ctk.CTkLabel(recency_frame, text='Not played in last:', font=ctk.CTkFont(size=12)).pack(side='left')
         recency_var = tk.StringVar(value='No filter')
@@ -4557,7 +4556,7 @@ class MusicPlayer(ctk.CTk):
         if self._all_tags:
             ctk.CTkLabel(dialog, text='Tags (must have ALL selected):',
                          font=ctk.CTkFont(size=12, weight='bold')).pack(anchor='w', padx=16, pady=(4, 2))
-            tag_row = ctk.CTkFrame(dialog, fg_color='transparent')
+            tag_row = tk.Frame(dialog, bg='#242424')
             tag_row.pack(fill='x', padx=16, pady=(0, 6))
             def _toggle_tag(t):
                 if t in selected_tags:
@@ -4591,7 +4590,7 @@ class MusicPlayer(ctk.CTk):
         _weight_labels = ['—', 'Low', 'Med', 'High', 'Max']
         genre_weight_vars = {}
         for genre in sorted(self.genres):
-            row = ctk.CTkFrame(genre_scroll, fg_color='transparent')
+            row = tk.Frame(genre_scroll, bg='#1a1a2e')
             row.pack(fill='x', pady=1)
             ctk.CTkLabel(row, text=genre, font=ctk.CTkFont(size=11),
                          text_color='#dce4ee', width=140, anchor='w').pack(side='left', padx=(8, 4))
@@ -4613,7 +4612,7 @@ class MusicPlayer(ctk.CTk):
                           button_color='#1f6aa5', progress_color='#1f6aa5').pack(side='right', padx=4)
 
         # Buttons
-        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=16, pady=(4, 12))
 
         def generate():
@@ -5149,7 +5148,7 @@ class MusicPlayer(ctk.CTk):
                      font=ctk.CTkFont(size=12), text_color='#aaaaaa',
                      wraplength=360).pack(pady=(0, 8))
 
-        stats_frame = ctk.CTkFrame(dialog, fg_color='#2b2b2b', corner_radius=8)
+        stats_frame = tk.Frame(dialog, bg='#2b2b2b')
         stats_frame.pack(fill='x', padx=16, pady=(0, 8))
 
         play_count = entry.get('play_count', 0)
@@ -5169,8 +5168,7 @@ class MusicPlayer(ctk.CTk):
             for i, (played_at,) in enumerate(rows, 1):
                 ts_abs = self._format_ts(played_at, relative=False)
                 ts_rel = self._format_ts(played_at, relative=True)
-                row = ctk.CTkFrame(list_frame, fg_color='#2b2b2b' if i % 2 == 0 else '#252535',
-                                   corner_radius=4)
+                row = tk.Frame(list_frame, bg='#2b2b2b' if i % 2 == 0 else '#252535')
                 row.pack(fill='x', pady=1)
                 ctk.CTkLabel(row, text=f'#{i}', font=ctk.CTkFont(size=11, weight='bold'),
                              text_color='#888888', width=40).pack(side='left', padx=(8, 4), pady=4)
@@ -5271,7 +5269,7 @@ class MusicPlayer(ctk.CTk):
                 self._update_single_row(playlist_idx)
             dialog.destroy()
 
-        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=16, pady=(0, 12))
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
                       command=dialog.destroy).pack(side='right', padx=4)
@@ -5462,13 +5460,13 @@ class MusicPlayer(ctk.CTk):
                          font=ctk.CTkFont(size=11),
                          text_color='#88aacc', wraplength=400).pack(pady=(0, 8))
         else:
-            ctk.CTkFrame(dialog, fg_color='transparent', height=8).pack()
+            tk.Frame(dialog, bg='#242424', height=8).pack()
 
         # Hint label
         ctk.CTkLabel(dialog, text='Enter = Play Now    Shift+Enter = Play Next    Esc = Cancel',
                      font=ctk.CTkFont(size=9), text_color='#667788').pack(pady=(0, 8))
 
-        btn_row = ctk.CTkFrame(dialog, fg_color='transparent')
+        btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=24, pady=(0, 18))
 
         def play_now():
