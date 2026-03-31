@@ -279,6 +279,12 @@ class MusicPlayer(ctk.CTk):
         # Interface settings (toggleable behaviours)
         self._queue_btn_throb_enabled = True  # glow/throb ✚ when track selected
 
+        # Debug log buffer (ring buffer, max 2000 entries)
+        self._debug_log_entries = []
+        self._debug_log_max = 2000
+        self._debug_panel_visible = False
+
+        self._debug_log('INFO', 'MusicPlayer starting up')
         self._init_database()
 
         self._build_ui()
@@ -287,10 +293,12 @@ class MusicPlayer(ctk.CTk):
         self._refresh_playlist_listbox()
         self._bind_shortcuts()
         self.after(500, self._poll)
+        self._debug_log('INFO', 'Startup complete')
 
     # ── Database helpers ─────────────────────────────────
 
     def _init_database(self):
+        self._debug_log('INFO', f'Initializing database: {DB_PATH}')
         con = sqlite3.connect(DB_PATH)
         con.execute("""
             CREATE TABLE IF NOT EXISTS tracks (
@@ -416,8 +424,8 @@ class MusicPlayer(ctk.CTk):
                         genre = tags.get('genre', ['Unknown'])[0]
                         c = tags.get('comment', [''])[0]
                         comment = str(c) if c else ''
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._debug_log('WARN', f'Backfill genre/comment failed for {fpath}: {e}')
                 con.execute(
                     "UPDATE tracks SET genre = ?, comment = ?, title = ? WHERE id = ?",
                     (genre, comment, title, track_id)
@@ -435,8 +443,8 @@ class MusicPlayer(ctk.CTk):
                         audio = MutagenFile(self._abs_path(fpath))
                         if audio is not None and audio.info is not None:
                             length = audio.info.length
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self._debug_log('WARN', f'Backfill length failed for {fpath}: {e}')
                     if length is not None:
                         con.execute("UPDATE tracks SET length = ? WHERE id = ?", (length, track_id))
                 con.commit()
@@ -454,8 +462,8 @@ class MusicPlayer(ctk.CTk):
                         if tags is not None:
                             artist = tags.get('artist', [''])[0] or ''
                             album = tags.get('album', [''])[0] or ''
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self._debug_log('WARN', f'Backfill artist/album failed for {fpath}: {e}')
                     if artist or album:
                         con.execute("UPDATE tracks SET artist = ?, album = ? WHERE id = ?",
                                     (artist, album, track_id))
@@ -641,28 +649,78 @@ class MusicPlayer(ctk.CTk):
                             batch)
             con.commit()
             con.close()
-        except Exception:
-            pass  # never let audit logging break the app
+        except Exception as e:
+            self._debug_log('ERROR', f'flush_audit_log failed: {e}')
+
+    # ── Debug log ────────────────────────────────────────
+
+    _LOG_COLORS = {
+        'INFO':  '#8bc34a',
+        'WARN':  '#ff9800',
+        'ERROR': '#f44336',
+        'DEBUG': '#888888',
+    }
+
+    def _debug_log(self, level, msg):
+        """Append a timestamped message to the debug log panel."""
+        ts = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        line = f'[{ts}] {level:5s}  {msg}'
+        self._debug_log_entries.append((level, line))
+        if len(self._debug_log_entries) > self._debug_log_max:
+            self._debug_log_entries = self._debug_log_entries[-self._debug_log_max:]
+        # Append to the UI widget if it exists and panel is visible
+        if hasattr(self, '_debug_text') and self._debug_panel_visible:
+            self._debug_text.configure(state='normal')
+            color = self._LOG_COLORS.get(level, '#dce4ee')
+            tag = f'log_{level}'
+            self._debug_text.insert('end', line + '\n', tag)
+            self._debug_text.configure(state='disabled')
+            self._debug_text.see('end')
+
+    def _toggle_debug_panel(self):
+        """Show/hide the debug log panel at the bottom."""
+        if self._debug_panel_visible:
+            self._debug_panel_frame.pack_forget()
+            self._debug_panel_visible = False
+        else:
+            self._debug_panel_frame.pack(fill='x', side='bottom')
+            self._debug_panel_visible = True
+            # Replay buffered entries into the text widget
+            self._debug_text.configure(state='normal')
+            self._debug_text.delete('1.0', 'end')
+            for level, line in self._debug_log_entries:
+                tag = f'log_{level}'
+                self._debug_text.insert('end', line + '\n', tag)
+            self._debug_text.configure(state='disabled')
+            self._debug_text.see('end')
+
+    def _clear_debug_log(self):
+        """Clear the debug log buffer and text widget."""
+        self._debug_log_entries.clear()
+        if hasattr(self, '_debug_text'):
+            self._debug_text.configure(state='normal')
+            self._debug_text.delete('1.0', 'end')
+            self._debug_text.configure(state='disabled')
 
     def destroy(self):
         """Clean up grabs, VLC, and flush audit entries before tearing down."""
         # Release any lingering X11 grab so other apps get input immediately
         try:
             self.grab_release()
-        except Exception:
-            pass
+        except Exception as e:
+            self._debug_log('DEBUG', f'grab_release on destroy: {e}')
         for w in self.winfo_children():
             try:
                 w.grab_release()
-            except Exception:
-                pass
+            except Exception as e:
+                self._debug_log('DEBUG', f'child grab_release on destroy: {e}')
         # Stop VLC playback and release resources
         try:
             self.vlc_player.stop()
             self.vlc_player.release()
             self.vlc_instance.release()
-        except Exception:
-            pass
+        except Exception as e:
+            self._debug_log('WARN', f'VLC cleanup on destroy: {e}')
         self._flush_audit_log()
         super().destroy()
 
@@ -679,8 +737,8 @@ class MusicPlayer(ctk.CTk):
         def _safe_destroy():
             try:
                 dialog.grab_release()
-            except Exception:
-                pass
+            except Exception as e:
+                self._debug_log('DEBUG', f'modal grab_release: {e}')
             _orig_destroy()
 
         dialog.destroy = _safe_destroy
@@ -725,7 +783,8 @@ class MusicPlayer(ctk.CTk):
             try:
                 dt = datetime.fromisoformat(ts).astimezone(tz=None)
                 display_ts = dt.strftime('%Y-%m-%d %H:%M:%S')
-            except Exception:
+            except Exception as e:
+                self._debug_log('WARN', f'Audit log timestamp parse failed: {e}')
                 display_ts = str(ts)[:19]
             tree.insert('', 'end', values=(display_ts, action, detail or ''))
 
@@ -733,6 +792,7 @@ class MusicPlayer(ctk.CTk):
                       width=100).pack(pady=(0, 10))
 
     def _load_tracks_from_db(self):
+        self._debug_log('INFO', 'Loading tracks from database')
         con = sqlite3.connect(DB_PATH)
         cur = con.cursor()
         cur.execute(
@@ -803,6 +863,7 @@ class MusicPlayer(ctk.CTk):
         self._apply_filter()
         self._build_tag_bar()
         self._refresh_play_log()
+        self._debug_log('INFO', f'Loaded {len(self.playlist)} tracks, {len(self.genres)} genres')
         self.lbl_now_playing.configure(text=f'{len(self.playlist)} tracks loaded')
 
     def _ensure_track_in_db(self, path, title='', genre='Unknown', comment='', length=None, artist='', album=''):
@@ -889,7 +950,8 @@ class MusicPlayer(ctk.CTk):
             dt = datetime.fromisoformat(iso_str)
             if dt.tzinfo is not None:
                 dt = dt.astimezone(tz=None)
-        except Exception:
+        except Exception as e:
+            # static method — can't debug_log; return truncated string
             return str(iso_str)[:16]
         if not relative:
             return dt.strftime('%b %d, %Y')
@@ -1304,6 +1366,36 @@ class MusicPlayer(ctk.CTk):
         main_area = ctk.CTkFrame(_content, fg_color='transparent')
         main_area.pack(fill='both', expand=True, padx=4, pady=(4, 2))
 
+        # ═══ DEBUG LOG PANEL (hideable, at the bottom of _content) ═══
+        self._debug_panel_frame = ctk.CTkFrame(_content, height=180, fg_color='#1a1a1a',
+                                                corner_radius=0)
+        # Build the panel widgets but don't pack yet (hidden by default)
+        dbg_header = ctk.CTkFrame(self._debug_panel_frame, fg_color='transparent', height=24)
+        dbg_header.pack(fill='x')
+        dbg_header.pack_propagate(False)
+        ctk.CTkLabel(dbg_header, text='\u2699  Debug Log',
+                     font=ctk.CTkFont(size=11, weight='bold'),
+                     text_color='#888888').pack(side='left', padx=6)
+        ctk.CTkButton(dbg_header, text='Clear', width=44, height=18,
+                      font=ctk.CTkFont(size=9), fg_color='#333333',
+                      hover_color='#444444',
+                      command=self._clear_debug_log).pack(side='right', padx=4)
+        ctk.CTkButton(dbg_header, text='✕  Hide', width=54, height=18,
+                      font=ctk.CTkFont(size=9), fg_color='#333333',
+                      hover_color='#444444',
+                      command=self._toggle_debug_panel).pack(side='right', padx=2)
+        self._debug_text = tk.Text(self._debug_panel_frame, bg='#111111', fg='#dce4ee',
+                                    font=('Consolas', 9), borderwidth=0, highlightthickness=0,
+                                    state='disabled', wrap='none', height=10)
+        self._debug_text.pack(fill='both', expand=True, padx=4, pady=(0, 4))
+        dbg_sb = ttk.Scrollbar(self._debug_text, orient='vertical',
+                                command=self._debug_text.yview)
+        dbg_sb.pack(side='right', fill='y')
+        self._debug_text.config(yscrollcommand=dbg_sb.set)
+        # Configure color tags
+        for level, color in self._LOG_COLORS.items():
+            self._debug_text.tag_configure(f'log_{level}', foreground=color)
+
         # Horizontal PanedWindow: left sidebar | browse | queue/log strip
         self._main_paned = tk.PanedWindow(main_area, orient='horizontal',
                                            bg='#333333', sashwidth=10, sashrelief='raised',
@@ -1703,6 +1795,7 @@ class MusicPlayer(ctk.CTk):
         self.bind('<Escape>', lambda e: self.stop())
         self.bind('<Control-f>', lambda e: self._focus_search())
         self.bind('<Control-l>', lambda e: self._toggle_lite_mode())
+        self.bind('<F10>', lambda e: self._toggle_debug_panel())
         self.bind('<F11>', lambda e: self._toggle_fullscreen())
         self.bind('<F12>', lambda e: perf.dump())
 
@@ -1719,6 +1812,7 @@ class MusicPlayer(ctk.CTk):
     def _prev_track(self):
         if not self.playlist or not self.display_indices:
             return
+        self._debug_log('INFO', 'Previous track')
         pos = self._di_reverse.get(self.current_index, 0)
         prev_pos = (pos - 1) % len(self.display_indices)
         prev_idx = self.display_indices[prev_pos]
@@ -1749,6 +1843,8 @@ class MusicPlayer(ctk.CTk):
         menu.add_command(label=fs_label, command=lambda: self.after(10, self._toggle_fullscreen))
         menu.add_separator()
         menu.add_command(label='\U0001f4cb  View Audit Log', command=lambda: self.after(10, self._show_audit_log))
+        dbg_label = '\u2713  Debug Log (F10)' if self._debug_panel_visible else '    Debug Log (F10)'
+        menu.add_command(label=dbg_label, command=lambda: self.after(10, self._toggle_debug_panel))
         menu.add_separator()
         root_label = f'\U0001f4c1  Library Root: {self._library_root}' if self._library_root else '\U0001f4c1  Set Library Root\u2026'
         menu.add_command(label=root_label, command=lambda: self.after(10, self._show_library_root_dialog))
@@ -2072,6 +2168,7 @@ class MusicPlayer(ctk.CTk):
         if not self._library_root or not os.path.isdir(self._library_root):
             messagebox.showerror('No library root', 'Set a library root folder first.')
             return
+        self._debug_log('INFO', f'Scanning library: {self._library_root}')
         self._log_action('scan_library', self._library_root)
         exts = ('.mp3', '.wav', '.ogg', '.flac')
 
@@ -2301,8 +2398,8 @@ class MusicPlayer(ctk.CTk):
         for w in self.tag_bar_frame.winfo_children():
             try:
                 w.destroy()
-            except Exception:
-                pass
+            except Exception as e:
+                self._debug_log('DEBUG', f'tag bar widget destroy: {e}')
         self._tag_buttons = []
         self._tag_btn_map = {}
 
@@ -2372,8 +2469,8 @@ class MusicPlayer(ctk.CTk):
                         text_color='#1f6aa5' if not all_active else '#999999')
                 else:
                     btn.configure(fg_color='#1f6aa5' if tag_key in self._active_tags else 'transparent')
-            except Exception:
-                pass
+            except Exception as e:
+                self._debug_log('DEBUG', f'tag highlight update: {e}')
 
     def _on_tag_filter(self, tag):
         if tag == 'All':
@@ -2877,8 +2974,8 @@ class MusicPlayer(ctk.CTk):
             def _safe_gd_destroy():
                 try:
                     genre_dialog.grab_release()
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._debug_log('DEBUG', f'genre dialog grab_release: {e}')
                 _orig_gd_destroy()
             genre_dialog.destroy = _safe_gd_destroy
             genre_dialog.after(100, genre_dialog.grab_set)
@@ -3134,7 +3231,8 @@ class MusicPlayer(ctk.CTk):
                 fp = entry.get('first_played')
                 try:
                     fp_date = datetime.fromisoformat(fp).date() if fp else None
-                except Exception:
+                except Exception as e:
+                    self._debug_log('DEBUG', f'first_played date parse: {e}')
                     fp_date = None
                 if fp_filter_val == 'Today' and (not fp_date or fp_date != today):
                     continue
@@ -3146,7 +3244,8 @@ class MusicPlayer(ctk.CTk):
                 lp = entry.get('last_played')
                 try:
                     lp_date = datetime.fromisoformat(lp).date() if lp else None
-                except Exception:
+                except Exception as e:
+                    self._debug_log('DEBUG', f'last_played date parse: {e}')
                     lp_date = None
                 if lp_filter_val == 'Today' and (not lp_date or lp_date != today):
                     continue
@@ -3158,7 +3257,8 @@ class MusicPlayer(ctk.CTk):
                 fc = entry.get('file_created')
                 try:
                     fc_date = datetime.fromisoformat(fc).date() if fc else None
-                except Exception:
+                except Exception as e:
+                    self._debug_log('DEBUG', f'file_created date parse: {e}')
                     fc_date = None
                 if fc_filter_val == 'Today' and (not fc_date or fc_date != today):
                     continue
@@ -3361,14 +3461,14 @@ class MusicPlayer(ctk.CTk):
                     comment = str(comment_val) if comment_val else ''
                     artist = tags.get('artist', [''])[0] or ''
                     album = tags.get('album', [''])[0] or ''
-            except Exception:
-                pass
+            except Exception as e:
+                self._debug_log('WARN', f'Tag read failed for {abs_path}: {e}')
             try:
                 audio = MutagenFile(abs_path)
                 if audio is not None and audio.info is not None:
                     length = audio.info.length
-            except Exception:
-                pass
+            except Exception as e:
+                self._debug_log('WARN', f'Audio info read failed for {abs_path}: {e}')
         entry = {'path': rel, 'title': title, 'basename': os.path.basename(abs_path),
                  'artist': artist, 'album': album,
                  'genre': genre, 'comment': comment, 'length': length, 'tags': [],
@@ -3461,6 +3561,7 @@ class MusicPlayer(ctk.CTk):
         if index is None or index < 0 or index >= len(self.playlist):
             return False
         path = self._abs_path(self.playlist[index]['path'])
+        self._debug_log('INFO', f'Loading: {self.playlist[index].get("title", os.path.basename(path))}')
         try:
             media = self.vlc_instance.media_new(path)
             self.vlc_media_list = self.vlc_instance.media_list_new()
@@ -3507,6 +3608,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = True
             self.is_playing = False
             self._last_action = 'paused'
+            self._debug_log('INFO', 'Paused')
             self._log_action('pause', self.playlist[self.current_index]['title'] if self.current_index is not None else '')
             self.btn_play.configure(text='\u25b6', fg_color='#1f6aa5', hover_color='#1a5a8a')
             self._update_now_playing('Paused')
@@ -3518,6 +3620,7 @@ class MusicPlayer(ctk.CTk):
             self.is_playing = True
             self._last_action = 'playing'
             self._play_started_at = time.time()
+            self._debug_log('INFO', 'Resumed')
             self._log_action('resume', self.playlist[self.current_index]['title'] if self.current_index is not None else '')
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
             self._update_now_playing()
@@ -3548,6 +3651,7 @@ class MusicPlayer(ctk.CTk):
             messagebox.showerror('Playback error', str(e))
 
     def stop(self):
+        self._debug_log('INFO', 'Stopped')
         self._log_action('stop', self.playlist[self.current_index]['title'] if self.current_index is not None else '')
         self.vlc_player.stop()
         self.is_playing = False
@@ -3563,6 +3667,7 @@ class MusicPlayer(ctk.CTk):
     def _next_track(self):
         if not self.playlist:
             return
+        self._debug_log('INFO', 'Next track')
         # Auto-reset speed to 1.0× if enabled
         if self._auto_reset_speed.get() and self._speed_var.get() != 1.0:
             self._speed_reset()
@@ -3685,7 +3790,8 @@ class MusicPlayer(ctk.CTk):
         try:
             self._speed_frame.configure(fg_color=bg, border_color=fg)
             self._speed_label.configure(text_color=fg)
-        except Exception:
+        except Exception as e:
+            self._debug_log('DEBUG', f'speed throb tick: {e}')
             self._speed_throb_id = None
             return
         self._speed_throb_step = step + 1
@@ -3755,8 +3861,8 @@ class MusicPlayer(ctk.CTk):
                 if len(bands) != 10:
                     bands = [0]*10
                 return (preamp, bands)
-        except Exception:
-            pass
+        except Exception as e:
+            self._debug_log('ERROR', f'load_track_eq failed: {e}')
         return None
 
     def _save_track_eq(self, track_id, preamp, bands):
@@ -3772,8 +3878,8 @@ class MusicPlayer(ctk.CTk):
                         (track_id, preamp, bands_str, preamp, bands_str))
             con.commit()
             con.close()
-        except Exception:
-            pass
+        except Exception as e:
+            self._debug_log('ERROR', f'save_track_eq failed: {e}')
 
     def _delete_track_eq(self, track_id):
         """Remove EQ settings for a track from DB."""
@@ -3784,8 +3890,8 @@ class MusicPlayer(ctk.CTk):
             con.execute("DELETE FROM track_eq WHERE track_id = ?", (track_id,))
             con.commit()
             con.close()
-        except Exception:
-            pass
+        except Exception as e:
+            self._debug_log('ERROR', f'delete_track_eq failed: {e}')
 
     def _apply_eq_to_player(self, preamp=None, bands=None):
         """Apply equalizer settings to VLC media player."""
@@ -3800,8 +3906,8 @@ class MusicPlayer(ctk.CTk):
             for i, val in enumerate(bands or [0]*10):
                 eq.set_amp_at_index(val, i)
             mp.set_equalizer(eq)
-        except Exception:
-            pass
+        except Exception as e:
+            self._debug_log('ERROR', f'apply_eq_to_player failed: {e}')
 
     def _apply_eq_for_current_track(self):
         """Load and apply EQ for the currently playing track, or reset."""
@@ -3861,7 +3967,8 @@ class MusicPlayer(ctk.CTk):
         bg, fg = cycle[step % len(cycle)]
         try:
             self._btn_eq.configure(fg_color=bg, text_color=fg)
-        except Exception:
+        except Exception as e:
+            self._debug_log('DEBUG', f'eq throb tick: {e}')
             self._eq_throb_id = None
             return
         self._eq_throb_step = step + 1
@@ -4066,7 +4173,8 @@ class MusicPlayer(ctk.CTk):
         bg, fg = cycle[step % len(cycle)]
         try:
             self._btn_send_to_queue.configure(fg_color=bg, text_color=fg)
-        except Exception:
+        except Exception as e:
+            self._debug_log('DEBUG', f'queue btn throb tick: {e}')
             self._queue_btn_throb_id = None
             return
         self._queue_btn_throb_step = step + 1
@@ -4096,8 +4204,8 @@ class MusicPlayer(ctk.CTk):
                             (pos, path))
             con.commit()
             con.close()
-        except Exception:
-            pass
+        except Exception as e:
+            self._debug_log('ERROR', f'save_queue failed: {e}')
 
     def _load_queue(self):
         """Restore queue from DB after tracks are loaded."""
@@ -4113,12 +4221,15 @@ class MusicPlayer(ctk.CTk):
             if restored:
                 self._play_queue = restored
                 self._refresh_queue_listbox()
-        except Exception:
-            pass
+                self._debug_log('INFO', f'Restored {len(restored)} queued tracks')
+        except Exception as e:
+            self._debug_log('ERROR', f'load_queue failed: {e}')
 
     def _add_to_queue(self, playlist_idx):
         """Add a track to the end of the play queue."""
         self._play_queue.append(playlist_idx)
+        entry = self.playlist[playlist_idx]
+        self._debug_log('INFO', f'Queued: {entry.get("title", entry["basename"])}')
         self._refresh_queue_listbox()
 
     def _add_multiple_to_queue(self, playlist_indices):
@@ -4328,7 +4439,8 @@ class MusicPlayer(ctk.CTk):
         # Check if the drop landed on the queue widget
         try:
             target_widget = self.winfo_containing(ev.x_root, ev.y_root)
-        except Exception:
+        except Exception as e:
+            self._debug_log('DEBUG', f'drag end winfo_containing: {e}')
             return
         # Walk up widget parents to see if drop is on queue area
         w = target_widget
@@ -4337,7 +4449,8 @@ class MusicPlayer(ctk.CTk):
                 break
             try:
                 w = w.master
-            except Exception:
+            except Exception as e:
+                self._debug_log('DEBUG', f'drag end walk parent: {e}')
                 w = None
         if w is not self._queue_listbox:
             return
@@ -4581,7 +4694,8 @@ class MusicPlayer(ctk.CTk):
                 dt = datetime.fromisoformat(played_at).astimezone(tz=None)
                 date_str = dt.strftime('%Y-%m-%d')
                 time_str = dt.strftime('%H:%M')
-            except Exception:
+            except Exception as e:
+                self._debug_log('DEBUG', f'play log timestamp parse: {e}')
                 date_str = str(played_at)[:10]
                 time_str = ''
             if date_str not in date_nodes:
@@ -5316,8 +5430,8 @@ class MusicPlayer(ctk.CTk):
     def _poll(self):
         try:
             self._poll_inner()
-        except Exception:
-            pass  # never let poll crash kill the event loop
+        except Exception as e:
+            self._debug_log('ERROR', f'poll crashed: {e}')
         self.after(500, self._poll)
 
     @perf.track(quiet=True)
