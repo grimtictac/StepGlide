@@ -1412,9 +1412,9 @@ class MusicPlayer(ctk.CTk):
 
         # Horizontal PanedWindow: left sidebar | browse | queue/log strip
         self._main_paned = tk.PanedWindow(main_area, orient='horizontal',
-                                           bg='#333333', sashwidth=10, sashrelief='raised',
+                                           bg='#444444', sashwidth=14, sashrelief='flat',
                                            opaqueresize=False, borderwidth=0,
-                                           sashpad=2)
+                                           sashpad=4, sashcursor='sb_h_double_arrow')
         self._main_paned.pack(fill='both', expand=True)
 
         # ── LEFT SIDEBAR (genre + playlist panels) ──
@@ -1432,9 +1432,9 @@ class MusicPlayer(ctk.CTk):
 
         # Vertical PanedWindow inside right_container: queue on top, play log on bottom
         self._right_paned = tk.PanedWindow(right_container, orient='vertical',
-                                            bg='#333333', sashwidth=10, sashrelief='raised',
+                                            bg='#444444', sashwidth=14, sashrelief='flat',
                                             opaqueresize=False, borderwidth=0,
-                                            sashpad=2)
+                                            sashpad=4, sashcursor='sb_v_double_arrow')
         self._right_paned.pack(fill='both', expand=True)
 
         # ── PLAY QUEUE PANEL (top half) ──
@@ -1538,6 +1538,16 @@ class MusicPlayer(ctk.CTk):
         self._main_paned.add(self._left_sidebar, minsize=120, stretch='never', width=170)
         self._main_paned.add(browse, minsize=300, stretch='always')
         self._main_paned.add(right_wrapper, minsize=150, stretch='never', width=240)
+
+        # Snap-toggle state: remember widths/heights before collapsing
+        self._sidebar_snap_width = 170    # default sidebar width
+        self._sidebar_collapsed = False
+        self._right_snap_width = 240      # default right panel width
+        self._right_collapsed = False
+
+        # Double-click sash to snap panels open/closed
+        self._main_paned.bind('<Double-Button-1>', self._on_main_sash_dblclick)
+        self._right_paned.bind('<Double-Button-1>', self._on_right_sash_dblclick)
 
         # ── GENRE LISTBOX ──
         genre_panel = ctk.CTkFrame(self._left_sidebar, fg_color='#2b2b2b', corner_radius=8)
@@ -1809,6 +1819,8 @@ class MusicPlayer(ctk.CTk):
         self.bind('<Escape>', lambda e: self.stop())
         self.bind('<Control-f>', lambda e: self._focus_search())
         self.bind('<Control-l>', lambda e: self._toggle_lite_mode())
+        self.bind('<F1>', lambda e: self._toggle_sidebar())
+        self.bind('<F2>', lambda e: self._toggle_right_panel())
         self.bind('<F10>', lambda e: self._toggle_debug_panel())
         self.bind('<F11>', lambda e: self._toggle_fullscreen())
         self.bind('<F12>', lambda e: perf.dump())
@@ -1853,6 +1865,10 @@ class MusicPlayer(ctk.CTk):
         menu.add_separator()
         lite_label = '\u2713  Lite Mode' if self._lite_mode else '    Lite Mode'
         menu.add_command(label=lite_label, command=lambda: self.after(10, self._toggle_lite_mode))
+        sb_label = '\u2713  Sidebar (F1)' if not self._sidebar_collapsed else '    Sidebar (F1)'
+        menu.add_command(label=sb_label, command=lambda: self.after(10, self._toggle_sidebar))
+        rp_label = '\u2713  Queue / Log (F2)' if not self._right_collapsed else '    Queue / Log (F2)'
+        menu.add_command(label=rp_label, command=lambda: self.after(10, self._toggle_right_panel))
         fs_label = 'Exit Fullscreen' if self.attributes('-fullscreen') else 'Fullscreen (F11)'
         menu.add_command(label=fs_label, command=lambda: self.after(10, self._toggle_fullscreen))
         menu.add_separator()
@@ -4797,6 +4813,56 @@ class MusicPlayer(ctk.CTk):
             self._tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 4))
             # Show left sidebar
             self._main_paned.paneconfigure(self._left_sidebar, hide=False)
+
+    # ── Panel snap-toggle ────────────────────────────────
+
+    def _on_main_sash_dblclick(self, ev):
+        """Double-click a horizontal sash to snap the nearest panel open/closed."""
+        # Identify which sash was hit — returns '' or ('sash', N) or 'sash N'
+        try:
+            ident = self._main_paned.identify(ev.x, ev.y)
+        except Exception:
+            return
+        if not ident:
+            return
+        # Normalise: could be tuple ('sash', '0') or string 'sash 0'
+        parts = ident if isinstance(ident, (list, tuple)) else str(ident).split()
+        if len(parts) < 2 or parts[0] != 'sash':
+            return
+        sash_num = int(parts[1])
+        if sash_num == 0:
+            self._toggle_sidebar()
+        elif sash_num == 1:
+            self._toggle_right_panel()
+
+    def _on_right_sash_dblclick(self, ev):
+        """Double-click the vertical sash to balance queue/play-log 50/50."""
+        total_h = self._right_paned.winfo_height()
+        if total_h > 0:
+            self._right_paned.sash_place(0, 0, total_h // 2)
+
+    def _toggle_sidebar(self):
+        """Snap the left sidebar open/closed."""
+        if self._sidebar_collapsed:
+            self._main_paned.paneconfigure(self._left_sidebar, hide=False)
+            self._sidebar_collapsed = False
+            self._debug_log('INFO', 'Sidebar opened')
+        else:
+            self._main_paned.paneconfigure(self._left_sidebar, hide=True)
+            self._sidebar_collapsed = True
+            self._debug_log('INFO', 'Sidebar collapsed')
+
+    def _toggle_right_panel(self):
+        """Snap the right queue/log panel open/closed."""
+        right_w = self._main_paned.panes()[-1]
+        if self._right_collapsed:
+            self._main_paned.paneconfigure(right_w, hide=False)
+            self._right_collapsed = False
+            self._debug_log('INFO', 'Right panel opened')
+        else:
+            self._main_paned.paneconfigure(right_w, hide=True)
+            self._right_collapsed = True
+            self._debug_log('INFO', 'Right panel collapsed')
 
     # ── Playlist management ────────────────────────────
 
