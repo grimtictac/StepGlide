@@ -284,7 +284,18 @@ class MusicPlayer(ctk.CTk):
         self._debug_log_max = 2000
         self._debug_panel_visible = False
 
+        # File logger — always writes to a timestamped log file
+        self._debug_logger = logging.getLogger('debug')
+        self._debug_logger.setLevel(logging.DEBUG)
+        self._debug_logger.propagate = False
+        _dbg_ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._debug_log_path = os.path.join(_PERF_LOG_DIR, f'debug_{_dbg_ts}.log')
+        _dbg_fh = logging.FileHandler(self._debug_log_path, encoding='utf-8')
+        _dbg_fh.setFormatter(logging.Formatter('%(asctime)s  %(message)s', datefmt='%H:%M:%S'))
+        self._debug_logger.addHandler(_dbg_fh)
+
         self._debug_log('INFO', 'MusicPlayer starting up')
+        self._debug_log('INFO', f'Debug log file: {self._debug_log_path}')
         self._init_database()
 
         self._build_ui()
@@ -662,12 +673,15 @@ class MusicPlayer(ctk.CTk):
     }
 
     def _debug_log(self, level, msg):
-        """Append a timestamped message to the debug log panel."""
+        """Append a timestamped message to the debug log panel and log file."""
         ts = datetime.now().strftime('%H:%M:%S.%f')[:-3]
         line = f'[{ts}] {level:5s}  {msg}'
         self._debug_log_entries.append((level, line))
         if len(self._debug_log_entries) > self._debug_log_max:
             self._debug_log_entries = self._debug_log_entries[-self._debug_log_max:]
+        # Always write to the log file
+        if hasattr(self, '_debug_logger'):
+            self._debug_logger.info(f'{level:5s}  {msg}')
         # Append to the UI widget if it exists and panel is visible
         if hasattr(self, '_debug_text') and self._debug_panel_visible:
             self._debug_text.configure(state='normal')
@@ -1367,7 +1381,7 @@ class MusicPlayer(ctk.CTk):
         main_area.pack(fill='both', expand=True, padx=4, pady=(4, 2))
 
         # ═══ DEBUG LOG PANEL (hideable, at the bottom of _content) ═══
-        self._debug_panel_frame = ctk.CTkFrame(_content, height=180, fg_color='#1a1a1a',
+        self._debug_panel_frame = ctk.CTkFrame(_content, height=280, fg_color='#1a1a1a',
                                                 corner_radius=0)
         # Build the panel widgets but don't pack yet (hidden by default)
         dbg_header = ctk.CTkFrame(self._debug_panel_frame, fg_color='transparent', height=24)
@@ -1386,7 +1400,7 @@ class MusicPlayer(ctk.CTk):
                       command=self._toggle_debug_panel).pack(side='right', padx=2)
         self._debug_text = tk.Text(self._debug_panel_frame, bg='#111111', fg='#dce4ee',
                                     font=('Consolas', 9), borderwidth=0, highlightthickness=0,
-                                    state='disabled', wrap='none', height=10)
+                                    state='disabled', wrap='none', height=16)
         self._debug_text.pack(fill='both', expand=True, padx=4, pady=(0, 4))
         dbg_sb = ttk.Scrollbar(self._debug_text, orient='vertical',
                                 command=self._debug_text.yview)
