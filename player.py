@@ -697,7 +697,11 @@ class MusicPlayer(ctk.CTk):
             self._debug_panel_frame.pack_forget()
             self._debug_panel_visible = False
         else:
+            # Re-pack: debug panel must be packed BEFORE main_area so it
+            # reserves height at the bottom; main_area (expand=True) fills rest.
+            self._main_area.pack_forget()
             self._debug_panel_frame.pack(fill='x', side='bottom')
+            self._main_area.pack(fill='both', expand=True, padx=4, pady=(4, 2))
             self._debug_panel_visible = True
             # Replay buffered entries into the text widget
             self._debug_text.configure(state='normal')
@@ -1379,6 +1383,7 @@ class MusicPlayer(ctk.CTk):
         # ═══ MAIN AREA: Browse + Queue (resizable via PanedWindow) ═══
         main_area = ctk.CTkFrame(_content, fg_color='transparent')
         main_area.pack(fill='both', expand=True, padx=4, pady=(4, 2))
+        self._main_area = main_area  # saved for debug panel re-pack ordering
 
         # ═══ DEBUG LOG PANEL (hideable, at the bottom of _content) ═══
         self._debug_panel_frame = ctk.CTkFrame(_content, height=280, fg_color='#1a1a1a',
