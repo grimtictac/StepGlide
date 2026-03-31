@@ -793,7 +793,7 @@ class MusicPlayer(ctk.CTk):
         tree.column('Detail', width=350, anchor='w')
         tree.pack(side='left', fill='both', expand=True)
 
-        sb = ctk.CTkScrollbar(tree_frame, command=tree.yview)
+        sb = ttk.Scrollbar(tree_frame, orient='vertical', command=tree.yview)
         sb.pack(side='right', fill='y')
         tree.config(yscrollcommand=sb.set)
 
@@ -1527,7 +1527,7 @@ class MusicPlayer(ctk.CTk):
         self._play_log_tree.grid(row=0, column=0, sticky='nsew')
         self._play_log_tree.bind('<Double-1>', self._on_play_log_double_click)
 
-        log_vsb = ctk.CTkScrollbar(log_tree_frame, command=self._play_log_tree.yview)
+        log_vsb = ttk.Scrollbar(log_tree_frame, orient='vertical', command=self._play_log_tree.yview)
         log_vsb.grid(row=0, column=1, sticky='ns')
         self._play_log_tree.config(yscrollcommand=log_vsb.set)
 
@@ -1769,7 +1769,7 @@ class MusicPlayer(ctk.CTk):
         self.tree.bind('<B1-Motion>', self._tree_drag_motion)
         self.tree.bind('<ButtonRelease-1>', self._tree_drag_end)
 
-        sb = ctk.CTkScrollbar(tv_wrapper, command=self.tree.yview)
+        sb = ttk.Scrollbar(tv_wrapper, orient='vertical', command=self.tree.yview)
         sb.grid(row=0, column=1, sticky='ns')
         self.tree.config(yscrollcommand=sb.set)
 
