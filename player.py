@@ -1413,7 +1413,7 @@ class MusicPlayer(ctk.CTk):
         # Horizontal PanedWindow: left sidebar | browse | queue/log strip
         self._main_paned = tk.PanedWindow(main_area, orient='horizontal',
                                            bg='#333333', sashwidth=10, sashrelief='raised',
-                                           opaqueresize=True, borderwidth=0,
+                                           opaqueresize=False, borderwidth=0,
                                            sashpad=2)
         self._main_paned.pack(fill='both', expand=True)
 
@@ -1433,7 +1433,7 @@ class MusicPlayer(ctk.CTk):
         # Vertical PanedWindow inside right_container: queue on top, play log on bottom
         self._right_paned = tk.PanedWindow(right_container, orient='vertical',
                                             bg='#333333', sashwidth=10, sashrelief='raised',
-                                            opaqueresize=True, borderwidth=0,
+                                            opaqueresize=False, borderwidth=0,
                                             sashpad=2)
         self._right_paned.pack(fill='both', expand=True)
 
