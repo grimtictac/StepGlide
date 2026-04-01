@@ -228,6 +228,7 @@ class MusicPlayer(ctk.CTk):
         self.is_paused = False
         self._last_action = None
         self._play_started_at = 0  # time.time() when play was issued
+        self._consecutive_skips = 0  # track rapid auto-advance failures
 
         # Active filters
         self._active_genre = 'All'
@@ -1890,6 +1891,9 @@ class MusicPlayer(ctk.CTk):
         prev_pos = (pos - 1) % len(self.display_indices)
         prev_idx = self.display_indices[prev_pos]
         if not self._load(prev_idx):
+            self._last_action = 'stopped'
+            self.is_playing = False
+            self.is_paused = False
             return
         self.vlc_player.play()
         self.is_playing = True
@@ -3781,6 +3785,7 @@ class MusicPlayer(ctk.CTk):
             self.is_paused = False
             self._last_action = 'playing'
             self._play_started_at = time.time()
+            self._consecutive_skips = 0
             self._record_play_immediate()
             self._log_action('play', self.playlist[self.current_index]['title'] if self.current_index is not None else '')
             self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
@@ -3820,6 +3825,10 @@ class MusicPlayer(ctk.CTk):
         else:
             nxt = 0 if self.current_index is None else (self.current_index + 1) % len(self.playlist)
         if not self._load(nxt):
+            # Break the auto-advance cycle so poll doesn't keep retrying
+            self._last_action = 'stopped'
+            self.is_playing = False
+            self.is_paused = False
             return
         self.vlc_player.play()
         self.is_playing = True
@@ -5663,6 +5672,10 @@ class MusicPlayer(ctk.CTk):
         mp = self.vlc_player.get_media_player()
         is_playing = mp.is_playing()
 
+        # Reset consecutive skip counter when a track is genuinely playing
+        if is_playing and self._consecutive_skips > 0:
+            self._consecutive_skips = 0
+
         if not self._user_scrubbing:
             length = mp.get_length()
             pos = mp.get_position()
@@ -5679,7 +5692,13 @@ class MusicPlayer(ctk.CTk):
             # Guard: don't auto-advance within 1.5s of play being issued (VLC async startup)
             if time.time() - self._play_started_at < 1.5:
                 pass
+            elif self._consecutive_skips >= 3:
+                # Too many consecutive failures — stop instead of cycling forever
+                self._debug_log('WARN', f'Stopped after {self._consecutive_skips} consecutive failed tracks')
+                self._consecutive_skips = 0
+                self.stop()
             elif self.playlist and len(self.display_indices) > 1:
+                self._consecutive_skips += 1
                 self._next_track()
             elif self.playlist:
                 self.stop()
