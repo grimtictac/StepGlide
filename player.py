@@ -279,6 +279,10 @@ class MusicPlayer(ctk.CTk):
         # Interface settings (toggleable behaviours)
         self._queue_btn_throb_enabled = True  # glow/throb ✚ when track selected
 
+        # Column visibility: which columns are shown in the track listing
+        # (populated fully after _all_columns is set; XML config can override)
+        self._visible_columns = None  # set in _build_ui after _all_columns is defined
+
         # Debug log buffer (ring buffer, max 2000 entries)
         self._debug_log_entries = []
         self._debug_log_max = 2000
@@ -577,6 +581,12 @@ class MusicPlayer(ctk.CTk):
         if iface_el is not None:
             val = iface_el.get('queue_btn_throb', 'true')
             self._queue_btn_throb_enabled = val.lower() != 'false'
+        # Visible columns
+        vis_el = root.find('visible_columns')
+        if vis_el is not None:
+            cols_text = vis_el.text
+            if cols_text:
+                self._visible_columns = [c.strip() for c in cols_text.split(',') if c.strip()]
 
     def _save_config_to_xml(self):
         """Save all settings to the XML config file."""
@@ -624,6 +634,10 @@ class MusicPlayer(ctk.CTk):
         # Interface settings
         iface_el = ET.SubElement(root, 'interface',
                                   queue_btn_throb=str(self._queue_btn_throb_enabled).lower())
+        # Visible columns
+        if self._visible_columns is not None:
+            vis_el = ET.SubElement(root, 'visible_columns')
+            vis_el.text = ','.join(self._visible_columns)
         # Write with indentation
         ET.indent(root)
         tree = ET.ElementTree(root)
@@ -1752,6 +1766,9 @@ class MusicPlayer(ctk.CTk):
 
         self._all_columns = ('Title', 'Artist', 'Album', 'Genre', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
                               'Plays', 'First Played', 'Last Played', 'File Created')
+        # Default visible columns to all if not loaded from config
+        if self._visible_columns is None:
+            self._visible_columns = list(self._all_columns)
 
         # Grid-based sub-frame for treeview + scrollbars (avoids pack side conflicts)
         tv_wrapper = tk.Frame(tree_frame, bg='#2b2b2b')
@@ -1789,6 +1806,8 @@ class MusicPlayer(ctk.CTk):
         self.tree.bind('<ButtonPress-1>', self._tree_drag_start, add='+')
         self.tree.bind('<B1-Motion>', self._tree_drag_motion)
         self.tree.bind('<ButtonRelease-1>', self._tree_drag_end)
+        # Apply persisted column visibility
+        self._apply_visible_columns()
 
         sb = ttk.Scrollbar(tv_wrapper, orient='vertical', command=self.tree.yview)
         sb.grid(row=0, column=1, sticky='ns')
@@ -3184,6 +3203,46 @@ class MusicPlayer(ctk.CTk):
         'Last Played': lambda e: e.get('last_played') or '',
         'File Created': lambda e: e.get('file_created') or '',
     }
+
+    # ── Column visibility ────────────────────────────────
+
+    def _apply_visible_columns(self):
+        """Set treeview displaycolumns from _visible_columns list."""
+        # Filter to only columns that actually exist
+        valid = [c for c in self._visible_columns if c in self._all_columns]
+        if not valid:
+            valid = list(self._all_columns)
+        self._visible_columns = valid
+        self.tree.configure(displaycolumns=valid)
+
+    def _show_column_visibility_menu(self, ev):
+        """Show a right-click menu on headings to toggle column visibility."""
+        menu = tk.Menu(self, tearoff=0)
+        for col in self._all_columns:
+            is_visible = col in self._visible_columns
+            # Title is always visible
+            if col == 'Title':
+                menu.add_command(label=f'\u2611  {col}  (always shown)', state='disabled')
+            else:
+                label = f'\u2611  {col}' if is_visible else f'\u2610  {col}'
+                menu.add_command(label=label,
+                                 command=lambda c=col, v=is_visible: self._toggle_column(c, not v))
+        try:
+            menu.tk_popup(ev.x_root, ev.y_root)
+        finally:
+            menu.grab_release()
+
+    def _toggle_column(self, col, show):
+        """Toggle visibility of a single column and persist."""
+        if show:
+            if col not in self._visible_columns:
+                # Insert in original column order
+                ordered = [c for c in self._all_columns if c in self._visible_columns or c == col]
+                self._visible_columns = ordered
+        else:
+            self._visible_columns = [c for c in self._visible_columns if c != col]
+        self._apply_visible_columns()
+        self._save_config_to_xml()
 
     def _sort_by_column(self, col):
         if self._sort_column == col:
@@ -5054,6 +5113,11 @@ class MusicPlayer(ctk.CTk):
     @perf.track
     def _on_right_click(self, ev):
         """Show context menu on right-click."""
+        # If click is on a heading, show column visibility menu instead
+        region = self.tree.identify_region(ev.x, ev.y)
+        if region == 'heading':
+            self._show_column_visibility_menu(ev)
+            return
         item = self.tree.identify_row(ev.y)
         if not item:
             return
