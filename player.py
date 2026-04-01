@@ -1765,7 +1765,7 @@ class MusicPlayer(ctk.CTk):
         perf._ui_callback = _perf_ui_update
 
         self._all_columns = ('Title', 'Artist', 'Album', 'Genre', 'Length', 'Rating', 'Comment', 'Tags', 'Liked By', 'Disliked By',
-                              'Plays', 'First Played', 'Last Played', 'File Created')
+                              'Plays', 'First Played', 'Last Played', 'File Created', 'Path', 'Relative Path')
         # Default visible columns to all if not loaded from config
         if self._visible_columns is None:
             self._visible_columns = list(self._all_columns)
@@ -1793,6 +1793,8 @@ class MusicPlayer(ctk.CTk):
         self.tree.column('First Played', width=90, anchor='w')
         self.tree.column('Last Played', width=90, anchor='w')
         self.tree.column('File Created', width=90, anchor='w')
+        self.tree.column('Path', width=250, anchor='w')
+        self.tree.column('Relative Path', width=200, anchor='w')
         for col in self._all_columns:
             self.tree.heading(col, text=col,
                               command=lambda c=col: self._sort_by_column(c))
@@ -3202,6 +3204,8 @@ class MusicPlayer(ctk.CTk):
         'First Played': lambda e: e.get('first_played') or '',
         'Last Played': lambda e: e.get('last_played') or '',
         'File Created': lambda e: e.get('file_created') or '',
+        'Path': lambda e: e.get('path', '').lower(),
+        'Relative Path': lambda e: e.get('path', '').lower(),
     }
 
     # ── Column visibility ────────────────────────────────
@@ -3409,7 +3413,8 @@ class MusicPlayer(ctk.CTk):
                 comment_lower = (entry.get('comment') or '').lower()
                 tags_lower = ' '.join(entry.get('tags', [])).lower()
                 liked_lower = ' '.join(entry.get('liked_by', set())).lower()
-                all_text = f'{title_lower} {artist_lower} {album_lower} {genre_lower} {comment_lower} {tags_lower} {liked_lower}'
+                path_lower = entry.get('path', '').lower()
+                all_text = f'{title_lower} {artist_lower} {album_lower} {genre_lower} {comment_lower} {tags_lower} {liked_lower} {path_lower}'
                 matched_all = True
                 for field_fn, term in search_tokens:
                     if field_fn is not None:
@@ -3434,6 +3439,7 @@ class MusicPlayer(ctk.CTk):
         # Phase 3: build row data list (pure Python — fast)
         _fmt_dur = self._format_duration
         _fmt_ts = self._format_ts
+        _rel_path = self._rel_path
         cur_idx = self.current_index
         is_playing = self.is_playing
         np_tag = self._now_playing_tag
@@ -3455,9 +3461,12 @@ class MusicPlayer(ctk.CTk):
             first_p = _fmt_ts(entry.get('first_played'), relative=False)
             last_p = _fmt_ts(entry.get('last_played'), relative=True)
             file_c = _fmt_ts(entry.get('file_created'), relative=False)
+            abs_path = entry.get('path', '')
+            rel_path = _rel_path(abs_path)
             row_tags = (np_tag,) if (idx == cur_idx and is_playing) else ()
             row_data.append((idx, (title, artist, album, genre, length_str, rating_str, comment, tags_str,
-                                    liked_str, disliked_str, plays, first_p, last_p, file_c),
+                                    liked_str, disliked_str, plays, first_p, last_p, file_c,
+                                    abs_path, rel_path),
                              row_tags))
 
         # Phase 4: bulk insert into treeview (no chunking/update_idletasks —
