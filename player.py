@@ -2442,10 +2442,15 @@ class MusicPlayer(ctk.CTk):
     @perf.track
     def _build_tag_bar(self):
         """Build tag buttons from the static _all_tags set. Uses row
-        assignments from XML config; tags without a row go on the last row."""
+        assignments from XML config; tags without a row go on the last row.
+
+        When tags haven't changed, only highlight colours are updated
+        (~0 ms).  When the tag set does change, buttons are rebuilt but
+        this is rare (only when tags are added/removed from the library).
+        """
         all_tags = self._all_tags
 
-        # If the tag set hasn't changed, just update highlights
+        # Fast path: if the tag set hasn't changed, just update highlights
         prev_tags = set(k for k in self._tag_btn_map if k != '__ALL__')
         if all_tags == prev_tags and self._tag_buttons:
             self._update_tag_highlights()
@@ -2482,16 +2487,21 @@ class MusicPlayer(ctk.CTk):
         self._tag_bar_wrapper.configure(height=bar_h)
         self._tag_bar_visible = True
 
+        # Pre-create shared font once to avoid per-button CTkFont overhead
+        _tag_font = ctk.CTkFont(size=9)
+        _tag_font_bold = ctk.CTkFont(size=9, weight='bold')
+
         # Build tag buttons row by row using pack-based row frames
         inner = self.tag_bar_frame
-        for row_num in sorted(rows_dict.keys()):
+        sorted_keys = sorted(rows_dict.keys())
+        for row_num in sorted_keys:
             tags_in_row = rows_dict[row_num]
             row_frame = tk.Frame(inner, bg='#2b2b2b')
             row_frame.pack(fill='x', pady=1)
             for tag in tags_in_row:
                 is_active = tag in self._active_tags
                 btn = ctk.CTkButton(row_frame, text=tag.upper(), height=22, width=70,
-                                    font=ctk.CTkFont(size=9),
+                                    font=_tag_font,
                                     fg_color='#1f6aa5' if is_active else 'transparent',
                                     border_width=1, border_color='#555555',
                                     command=lambda t=tag: self._on_tag_filter(t))
@@ -2499,10 +2509,10 @@ class MusicPlayer(ctk.CTk):
                 self._tag_buttons.append(btn)
                 self._tag_btn_map[tag] = btn
             # Place ALL button at the end of the first row
-            if row_num == sorted(rows_dict.keys())[0]:
+            if row_num == sorted_keys[0]:
                 all_active = not self._active_tags
                 btn_all = ctk.CTkButton(row_frame, text='ALL', height=22, width=46,
-                                        font=ctk.CTkFont(size=9, weight='bold'),
+                                        font=_tag_font_bold,
                                         fg_color='transparent',
                                         border_width=1,
                                         border_color='#1f6aa5' if not all_active else '#555555',
