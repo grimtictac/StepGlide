@@ -14,6 +14,17 @@ dist/
 
 # Database (user-specific play history)
 music_player.db
+music_player.db.*
 
-# Performance logs
+# Performance & debug logs
 perf_*.log
+debug_*.log
+
+# User config (machine-specific paths)
+music_player_config.xml
+music_player_config.xml.*
+
+# One-off migration/fixup scripts
+migrate_ctk.py
+fixup_ctk.py
+fixup2_ctk.py
