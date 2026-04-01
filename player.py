@@ -3439,7 +3439,7 @@ class MusicPlayer(ctk.CTk):
         # Phase 3: build row data list (pure Python — fast)
         _fmt_dur = self._format_duration
         _fmt_ts = self._format_ts
-        _rel_path = self._rel_path
+        _abs_path = self._abs_path
         cur_idx = self.current_index
         is_playing = self.is_playing
         np_tag = self._now_playing_tag
@@ -3461,8 +3461,8 @@ class MusicPlayer(ctk.CTk):
             first_p = _fmt_ts(entry.get('first_played'), relative=False)
             last_p = _fmt_ts(entry.get('last_played'), relative=True)
             file_c = _fmt_ts(entry.get('file_created'), relative=False)
-            abs_path = entry.get('path', '')
-            rel_path = _rel_path(abs_path)
+            rel_path = entry.get('path', '')
+            abs_path = _abs_path(rel_path)
             row_tags = (np_tag,) if (idx == cur_idx and is_playing) else ()
             row_data.append((idx, (title, artist, album, genre, length_str, rating_str, comment, tags_str,
                                     liked_str, disliked_str, plays, first_p, last_p, file_c,
