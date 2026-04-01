@@ -3197,7 +3197,6 @@ class MusicPlayer(ctk.CTk):
             self._sort_column = col
             self._sort_reverse = False
         self._update_sort_headings()
-        self._apply_filter()
 
     def _update_sort_headings(self):
         """Refresh all column headings with sort arrows."""
@@ -3402,21 +3401,19 @@ class MusicPlayer(ctk.CTk):
                                     liked_str, disliked_str, plays, first_p, last_p, file_c),
                              row_tags))
 
-        # Phase 4: insert into treeview in chunks (keeps UI responsive)
-        CHUNK = 400
+        # Phase 4: bulk insert into treeview (no chunking/update_idletasks —
+        # the full insert takes ~50-60 ms which doesn't need intermediate UI
+        # updates; the old chunked approach with update_idletasks forced CTk
+        # geometry processing across the whole widget tree every 400 rows,
+        # costing ~230 ms extra on a ~7 000-track library).
         tree_insert = self.tree.insert
         di_append = self.display_indices.append
         di_reverse = self._di_reverse
         self.tree.configure(selectmode='none')
-        pos_counter = 0
-        for start in range(0, len(row_data), CHUNK):
-            for idx, vals, rtags in row_data[start:start + CHUNK]:
-                tree_insert('', 'end', values=vals, tags=rtags)
-                di_append(idx)
-                di_reverse[idx] = pos_counter
-                pos_counter += 1
-            if start + CHUNK < len(row_data):
-                self.update_idletasks()
+        for pos_counter, (idx, vals, rtags) in enumerate(row_data):
+            tree_insert('', 'end', values=vals, tags=rtags)
+            di_append(idx)
+            di_reverse[idx] = pos_counter
         self.tree.configure(selectmode='extended')
         self._invalidate_item_cache()  # treeview contents changed
 
