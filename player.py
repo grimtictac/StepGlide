@@ -5452,14 +5452,22 @@ class MusicPlayer(ctk.CTk):
         album = entry.get('album', '')
         genre = entry.get('genre', '')
 
-        dialog = ctk.CTkToplevel(self)
-        dialog.title('Play Track')
-        dialog.geometry('440x200')
-        dialog.configure(fg_color='#1a2a3a')
-        dialog.resizable(False, False)
+        # Build or reuse the play dialog (avoids ~27 ms CTk widget creation)
+        dlg = getattr(self, '_play_dlg', None)
+        if dlg is None or not dlg.winfo_exists():
+            self._build_play_dialog()
+            dlg = self._play_dlg
+
+        # Update text
+        self._play_dlg_title.configure(text=title[:70])
+        sub_parts = [p for p in [artist, album, genre] if p]
+        self._play_dlg_subtitle.configure(
+            text=' \u2022 '.join(sub_parts)[:80] if sub_parts else '')
+
+        # Store action target for button callbacks
+        self._play_dlg_idx = playlist_idx
 
         # Position over the track listing (centre of the treeview)
-        self.update_idletasks()
         tree_x = self.tree.winfo_rootx()
         tree_y = self.tree.winfo_rooty()
         tree_w = self.tree.winfo_width()
@@ -5467,67 +5475,90 @@ class MusicPlayer(ctk.CTk):
         dlg_w, dlg_h = 440, 200
         x = tree_x + (tree_w - dlg_w) // 2
         y = tree_y + (tree_h - dlg_h) // 2
-        dialog.geometry(f'{dlg_w}x{dlg_h}+{x}+{y}')
-        self._make_modal(dialog)
+        dlg.geometry(f'{dlg_w}x{dlg_h}+{x}+{y}')
+        dlg.deiconify()
+        dlg.transient(self)
+        dlg.after(100, dlg.grab_set)
+        dlg.focus_force()
 
-        # Title
-        ctk.CTkLabel(dialog, text=title[:70],
-                     font=ctk.CTkFont(size=14, weight='bold'),
-                     wraplength=400, text_color='#ffffff').pack(pady=(18, 2))
-        # Subtitle: artist / album / genre
-        sub_parts = [p for p in [artist, album, genre] if p]
-        if sub_parts:
-            ctk.CTkLabel(dialog, text=' \u2022 '.join(sub_parts)[:80],
-                         font=ctk.CTkFont(size=11),
-                         text_color='#88aacc', wraplength=400).pack(pady=(0, 8))
-        else:
-            tk.Frame(dialog, bg='#242424', height=8).pack()
+    def _build_play_dialog(self):
+        """Create the reusable play-confirmation dialog (built once)."""
+        dialog = ctk.CTkToplevel(self)
+        dialog.title('Play Track')
+        dialog.geometry('440x200')
+        dialog.configure(fg_color='#1a2a3a')
+        dialog.resizable(False, False)
+        dialog.protocol('WM_DELETE_WINDOW', self._hide_play_dialog)
 
-        # Hint label
+        self._play_dlg_title = ctk.CTkLabel(
+            dialog, text='', font=ctk.CTkFont(size=14, weight='bold'),
+            wraplength=400, text_color='#ffffff')
+        self._play_dlg_title.pack(pady=(18, 2))
+
+        self._play_dlg_subtitle = ctk.CTkLabel(
+            dialog, text='', font=ctk.CTkFont(size=11),
+            text_color='#88aacc', wraplength=400)
+        self._play_dlg_subtitle.pack(pady=(0, 8))
+
         ctk.CTkLabel(dialog, text='Enter = Play Now    Shift+Enter = Play Next    Esc = Cancel',
                      font=ctk.CTkFont(size=9), text_color='#667788').pack(pady=(0, 8))
 
         btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=24, pady=(0, 18))
 
-        def play_now():
-            dialog.destroy()
-            self._last_action = 'switching'
-            self.vlc_player.stop()
-            self.current_index = playlist_idx
-            loaded = self._load(playlist_idx)
-            if loaded:
-                self.vlc_player.play()
-                self.is_playing = True
-                self.is_paused = False
-                self._last_action = 'playing'
-                self._play_started_at = time.time()
-                self._record_play_immediate()
-                self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
-                self._update_now_playing()
-
-        def play_next():
-            dialog.destroy()
-            self._insert_in_queue(playlist_idx, 0)
-
         ctk.CTkButton(btn_row, text='\u25b6  Play Now', fg_color='#1f6aa5',
                       hover_color='#2980b9', height=34,
                       font=ctk.CTkFont(size=13, weight='bold'),
-                      command=play_now).pack(side='left', padx=4, expand=True, fill='x')
+                      command=self._play_dlg_play_now).pack(side='left', padx=4, expand=True, fill='x')
         ctk.CTkButton(btn_row, text='\u23ed  Play Next', fg_color='#e67e22',
                       hover_color='#d35400', height=34,
                       font=ctk.CTkFont(size=13, weight='bold'),
-                      command=play_next).pack(side='left', padx=4, expand=True, fill='x')
+                      command=self._play_dlg_play_next).pack(side='left', padx=4, expand=True, fill='x')
         ctk.CTkButton(btn_row, text='Cancel', fg_color='#555555',
                       hover_color='#666666', height=34,
                       font=ctk.CTkFont(size=13),
-                      command=dialog.destroy).pack(side='left', padx=4, expand=True, fill='x')
+                      command=self._hide_play_dialog).pack(side='left', padx=4, expand=True, fill='x')
 
-        # Keyboard shortcuts
-        dialog.bind('<Return>', lambda e: play_now() if not (e.state & 0x1) else play_next())
-        dialog.bind('<Shift-Return>', lambda e: play_next())
-        dialog.bind('<Escape>', lambda e: dialog.destroy())
-        dialog.focus_force()
+        dialog.bind('<Return>', lambda e: self._play_dlg_play_now() if not (e.state & 0x1) else self._play_dlg_play_next())
+        dialog.bind('<Shift-Return>', lambda e: self._play_dlg_play_next())
+        dialog.bind('<Escape>', lambda e: self._hide_play_dialog())
+
+        self._play_dlg = dialog
+
+    def _hide_play_dialog(self):
+        """Hide (not destroy) the play dialog and release the grab."""
+        dlg = getattr(self, '_play_dlg', None)
+        if dlg and dlg.winfo_exists():
+            try:
+                dlg.grab_release()
+            except Exception as e:
+                self._debug_log('DEBUG', f'play dlg grab_release: {e}')
+            dlg.withdraw()
+
+    def _play_dlg_play_now(self):
+        playlist_idx = getattr(self, '_play_dlg_idx', None)
+        self._hide_play_dialog()
+        if playlist_idx is None:
+            return
+        self._last_action = 'switching'
+        self.vlc_player.stop()
+        self.current_index = playlist_idx
+        loaded = self._load(playlist_idx)
+        if loaded:
+            self.vlc_player.play()
+            self.is_playing = True
+            self.is_paused = False
+            self._last_action = 'playing'
+            self._play_started_at = time.time()
+            self._record_play_immediate()
+            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+            self._update_now_playing()
+
+    def _play_dlg_play_next(self):
+        playlist_idx = getattr(self, '_play_dlg_idx', None)
+        self._hide_play_dialog()
+        if playlist_idx is not None:
+            self._insert_in_queue(playlist_idx, 0)
 
     # ── Poll ─────────────────────────────────────────────
 
