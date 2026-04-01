@@ -1889,7 +1889,8 @@ class MusicPlayer(ctk.CTk):
         pos = self._di_reverse.get(self.current_index, 0)
         prev_pos = (pos - 1) % len(self.display_indices)
         prev_idx = self.display_indices[prev_pos]
-        self._load(prev_idx)
+        if not self._load(prev_idx):
+            return
         self.vlc_player.play()
         self.is_playing = True
         self.is_paused = False
@@ -3691,6 +3692,13 @@ class MusicPlayer(ctk.CTk):
         if index is None or index < 0 or index >= len(self.playlist):
             return False
         path = self._abs_path(self.playlist[index]['path'])
+        if not os.path.isfile(path):
+            title = self.playlist[index].get('title', os.path.basename(path))
+            messagebox.showwarning('File not found',
+                                   f'Cannot play \u201c{title}\u201d\n\n'
+                                   f'The file no longer exists:\n{path}')
+            self._debug_log('WARN', f'File not found: {path}')
+            return False
         self._debug_log('INFO', f'Loading: {self.playlist[index].get("title", os.path.basename(path))}')
         try:
             media = self.vlc_instance.media_new(path)
@@ -3811,7 +3819,8 @@ class MusicPlayer(ctk.CTk):
             nxt = self.display_indices[next_pos]
         else:
             nxt = 0 if self.current_index is None else (self.current_index + 1) % len(self.playlist)
-        self._load(nxt)
+        if not self._load(nxt):
+            return
         self.vlc_player.play()
         self.is_playing = True
         self.is_paused = False
