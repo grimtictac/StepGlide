@@ -961,18 +961,33 @@ class MusicPlayer(ctk.CTk):
         return row if row else (0, None, None, None)
 
     @staticmethod
-    def _format_ts(iso_str, relative=False):
+    @functools.lru_cache(maxsize=16384)
+    def _format_ts_absolute(iso_str):
+        """Format an ISO timestamp as 'Mon DD, YYYY'.  Cached (deterministic)."""
         if not iso_str:
             return 'Never'
         try:
             dt = datetime.fromisoformat(iso_str)
             if dt.tzinfo is not None:
                 dt = dt.astimezone(tz=None)
-        except Exception as e:
-            # static method — can't debug_log; return truncated string
+        except Exception:
             return str(iso_str)[:16]
-        if not relative:
-            return dt.strftime('%b %d, %Y')
+        return dt.strftime('%b %d, %Y')
+
+    @staticmethod
+    @functools.lru_cache(maxsize=16384)
+    def _format_ts_relative(iso_str, _now_minute):
+        """Format an ISO timestamp as relative text ('3d ago' etc.).
+        *_now_minute* is ``int(time.time()) // 60`` — the cache stays valid
+        for one minute so repeated calls within the same filter pass are free."""
+        if not iso_str:
+            return 'Never'
+        try:
+            dt = datetime.fromisoformat(iso_str)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(tz=None)
+        except Exception:
+            return str(iso_str)[:16]
         now = datetime.now()
         diff = now - dt.replace(tzinfo=None)
         secs = int(diff.total_seconds())
@@ -988,6 +1003,12 @@ class MusicPlayer(ctk.CTk):
         if days < 7:
             return f'{days}d ago'
         return dt.strftime('%b %d, %Y')
+
+    @staticmethod
+    def _format_ts(iso_str, relative=False):
+        if relative:
+            return MusicPlayer._format_ts_relative(iso_str, int(time.time()) // 60)
+        return MusicPlayer._format_ts_absolute(iso_str)
 
     @staticmethod
     def _format_duration(seconds):
