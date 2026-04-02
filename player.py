@@ -4504,15 +4504,20 @@ class MusicPlayer(ctk.CTk):
         self.vlc_player.stop()
         self.current_index = playlist_idx
         loaded = self._load(playlist_idx)
-        if loaded:
-            self.vlc_player.play()
-            self.is_playing = True
+        if not loaded:
+            self._last_action = 'stopped'
+            self.is_playing = False
             self.is_paused = False
-            self._last_action = 'playing'
-            self._play_started_at = time.time()
-            self._record_play_immediate()
-            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
-            self._update_now_playing()
+            return
+        self.vlc_player.play()
+        self.is_playing = True
+        self.is_paused = False
+        self._last_action = 'playing'
+        self._play_started_at = time.time()
+        self._consecutive_skips = 0
+        self._record_play_immediate()
+        self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+        self._update_now_playing()
 
     def _queue_remove_at(self, idx):
         if 0 <= idx < len(self._play_queue):
@@ -4886,7 +4891,7 @@ class MusicPlayer(ctk.CTk):
         menu.tk_popup(ev.x_root, ev.y_root)
 
     def _on_play_log_double_click(self, ev):
-        """Double-click a play log entry to select the track in the main track listing."""
+        """Double-click a play log entry to play the track."""
         item = self._play_log_tree.identify_row(ev.y)
         if not item or item not in self._play_log_track_map:
             return
@@ -4895,19 +4900,22 @@ class MusicPlayer(ctk.CTk):
         # Find the playlist index for this track (O(1) lookup)
         playlist_idx = self._path_to_idx.get(file_path)
         if playlist_idx is None:
+            messagebox.showwarning('Track not found',
+                                   f'\u201c{title}\u201d is no longer in the library.')
             return
 
-        # Find the tree position via the reverse display index map
+        # Select the track in the main treeview
         pos = self._di_reverse.get(playlist_idx)
-        if pos is None:
-            return
-        children = self.tree.get_children()
-        if pos >= len(children):
-            return
-        tree_iid = children[pos]
-        self.tree.selection_set(tree_iid)
-        self.tree.see(tree_iid)
-        self.tree.focus(tree_iid)
+        if pos is not None:
+            children = self.tree.get_children()
+            if pos < len(children):
+                tree_iid = children[pos]
+                self.tree.selection_set(tree_iid)
+                self.tree.see(tree_iid)
+                self.tree.focus(tree_iid)
+
+        # Play it
+        self._context_play(playlist_idx)
 
     # ── Lite mode ──────────────────────────────────────────
 
@@ -5231,16 +5239,21 @@ class MusicPlayer(ctk.CTk):
         self.vlc_player.stop()
         self.current_index = playlist_idx
         loaded = self._load(playlist_idx)
-        if loaded:
-            self.vlc_player.play()
-            self.is_playing = True
+        if not loaded:
+            self._last_action = 'stopped'
+            self.is_playing = False
             self.is_paused = False
-            self._last_action = 'playing'
-            self._play_started_at = time.time()
-            self._record_play_immediate()
-            self._log_action('context_play', self.playlist[playlist_idx]['title'])
-            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
-            self._update_now_playing()
+            return
+        self.vlc_player.play()
+        self.is_playing = True
+        self.is_paused = False
+        self._last_action = 'playing'
+        self._play_started_at = time.time()
+        self._consecutive_skips = 0
+        self._record_play_immediate()
+        self._log_action('context_play', self.playlist[playlist_idx]['title'])
+        self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+        self._update_now_playing()
 
     def _show_play_history(self, entry):
         """Show a dialog listing all play events for a track."""
@@ -5500,16 +5513,21 @@ class MusicPlayer(ctk.CTk):
         self.vlc_player.stop()
         self.current_index = playlist_idx
         loaded = self._load(playlist_idx)
-        if loaded:
-            self.vlc_player.play()
-            self.is_playing = True
+        if not loaded:
+            self._last_action = 'stopped'
+            self.is_playing = False
             self.is_paused = False
-            self._last_action = 'playing'
-            self._play_started_at = time.time()
-            self._record_play_immediate()
-            self._log_action('play_now', self.playlist[playlist_idx]['title'])
-            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
-            self._update_now_playing()
+            return
+        self.vlc_player.play()
+        self.is_playing = True
+        self.is_paused = False
+        self._last_action = 'playing'
+        self._play_started_at = time.time()
+        self._consecutive_skips = 0
+        self._record_play_immediate()
+        self._log_action('play_now', self.playlist[playlist_idx]['title'])
+        self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+        self._update_now_playing()
         # Disable Play Now button after clicking it
         title = self.playlist[playlist_idx].get('title', self.playlist[playlist_idx]['basename'])
         self.btn_play_now.configure(text=f'\u25b6  Playing \u2014 {title[:40]}',
@@ -5642,15 +5660,20 @@ class MusicPlayer(ctk.CTk):
         self.vlc_player.stop()
         self.current_index = playlist_idx
         loaded = self._load(playlist_idx)
-        if loaded:
-            self.vlc_player.play()
-            self.is_playing = True
+        if not loaded:
+            self._last_action = 'stopped'
+            self.is_playing = False
             self.is_paused = False
-            self._last_action = 'playing'
-            self._play_started_at = time.time()
-            self._record_play_immediate()
-            self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
-            self._update_now_playing()
+            return
+        self.vlc_player.play()
+        self.is_playing = True
+        self.is_paused = False
+        self._last_action = 'playing'
+        self._play_started_at = time.time()
+        self._consecutive_skips = 0
+        self._record_play_immediate()
+        self.btn_play.configure(text='\u23f8', fg_color='#27ae60', hover_color='#2ecc71')
+        self._update_now_playing()
 
     def _play_dlg_play_next(self):
         playlist_idx = getattr(self, '_play_dlg_idx', None)
