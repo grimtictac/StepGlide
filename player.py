@@ -1136,6 +1136,12 @@ class MusicPlayer(ctk.CTk):
         self._update_single_row(playlist_idx)
         self._update_rating_display()
         self._rebuild_liked_by_dropdown()
+        # Show toast feedback
+        emoji = '\U0001f44d' if vote > 0 else '\U0001f44e'
+        who = voter or 'Anonymous'
+        title = entry.get('title', entry['basename'])
+        action = 'liked' if vote > 0 else 'disliked'
+        self._show_vote_toast(f'{emoji}  {who} {action} \u201c{title[:40]}\u201d')
 
     def _get_play_log_vote_target(self):
         """Return (playlist_idx, title) from the selected play-log entry,
@@ -1187,6 +1193,31 @@ class MusicPlayer(ctk.CTk):
     def _on_voter_changed(self, value):
         """Called when the voter dropdown selection changes — persist to config."""
         self._save_config_to_xml()
+
+    def _show_vote_toast(self, text, duration_ms=2500):
+        """Show a brief toast notification overlaying the play log panel."""
+        if hasattr(self, '_vote_toast_label') and self._vote_toast_label.winfo_exists():
+            self._vote_toast_label.configure(text=text)
+            # Cancel any pending hide
+            if hasattr(self, '_vote_toast_after_id') and self._vote_toast_after_id:
+                self.after_cancel(self._vote_toast_after_id)
+        else:
+            self._vote_toast_label = ctk.CTkLabel(
+                self, text=text,
+                font=ctk.CTkFont(size=13, weight='bold'),
+                fg_color='#1a1a2e', text_color='#ffffff',
+                corner_radius=10, height=36)
+        # Place centered near bottom of window
+        self._vote_toast_label.place(relx=0.5, rely=0.92, anchor='center')
+        self._vote_toast_label.lift()
+        self._vote_toast_after_id = self.after(
+            duration_ms, self._hide_vote_toast)
+
+    def _hide_vote_toast(self):
+        """Hide the vote toast notification."""
+        if hasattr(self, '_vote_toast_label') and self._vote_toast_label.winfo_exists():
+            self._vote_toast_label.place_forget()
+        self._vote_toast_after_id = None
 
     def _quick_vote(self, vote):
         """Vote using the voter dropdown value on the selected play-log track."""
