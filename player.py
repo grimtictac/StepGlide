@@ -136,6 +136,9 @@ perf = PerfTracker()
 _DEFAULT_TOOLTIPS = {
     'mute': 'Mute / Unmute',
     'menu': 'Menu — Add Files / Folders',
+    'thumbs_up': 'Like (Shift+click for voter picker)',
+    'thumbs_down': 'Dislike (Shift+click for voter picker)',
+    'voter': 'Select who is voting',
     'play': 'Play / Pause',
     'stop': 'Stop',
     'play_now': 'Play selected track now',
@@ -1181,6 +1184,10 @@ class MusicPlayer(ctk.CTk):
         self._vote_bar_label.configure(text=f'\U0001f3b5  {short}{rating_str}')
         self._vote_bar_frame.pack(fill='x', padx=4, pady=(0, 4))
 
+    def _on_voter_changed(self, value):
+        """Called when the voter dropdown selection changes — persist to config."""
+        self._save_config_to_xml()
+
     def _quick_vote(self, vote):
         """Vote using the voter dropdown value on the selected play-log track."""
         target = self._get_play_log_vote_target()
@@ -1572,6 +1579,39 @@ class MusicPlayer(ctk.CTk):
                       hover_color='#3b3b3b', command=self._refresh_play_log)
         _btn_refresh_log.pack(side='right')
 
+        # ── Voting controls in play-log header ──
+        self._btn_pl_thumbs_down = ctk.CTkButton(
+            play_log_header, text='\U0001f44e', width=32, height=24,
+            font=ctk.CTkFont(size=14), fg_color='#c0392b', hover_color='#e74c3c',
+            command=lambda: self._quick_vote(-1))
+        self._btn_pl_thumbs_down.pack(side='right', padx=(2, 4))
+        self._btn_pl_thumbs_down.bind('<Shift-Button-1>',
+            lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(-1)), 'break'))
+
+        self._pl_voter_dropdown = ctk.CTkOptionMenu(
+            play_log_header, variable=self._voter_var,
+            values=['(anonymous)'] + sorted(self._all_voters),
+            width=90, height=24,
+            font=ctk.CTkFont(size=10),
+            fg_color='#3b3b3b', button_color='#4a4a4a',
+            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5',
+            command=self._on_voter_changed)
+        self._pl_voter_dropdown.pack(side='right', padx=2)
+        # Restore saved voter name
+        if self._saved_voter:
+            self._voter_var.set(self._saved_voter)
+            self._pl_voter_dropdown.set(self._saved_voter)
+        else:
+            self._pl_voter_dropdown.set('(anonymous)')
+
+        self._btn_pl_thumbs_up = ctk.CTkButton(
+            play_log_header, text='\U0001f44d', width=32, height=24,
+            font=ctk.CTkFont(size=14), fg_color='#27ae60', hover_color='#2ecc71',
+            command=lambda: self._quick_vote(+1))
+        self._btn_pl_thumbs_up.pack(side='right', padx=(4, 2))
+        self._btn_pl_thumbs_up.bind('<Shift-Button-1>',
+            lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(+1)), 'break'))
+
         log_tree_frame = tk.Frame(play_log_panel, bg='#2b2b2b')
         log_tree_frame.pack(fill='both', expand=True, padx=4, pady=(0, 6))
         log_tree_frame.grid_rowconfigure(0, weight=1)
@@ -1589,6 +1629,7 @@ class MusicPlayer(ctk.CTk):
         self._play_log_tree.grid(row=0, column=0, sticky='nsew')
         self._play_log_tree.bind('<Double-1>', self._on_play_log_double_click)
         self._play_log_tree.bind('<Button-3>', self._on_play_log_right_click)
+        self._play_log_tree.bind('<<TreeviewSelect>>', lambda e: self._update_play_log_vote_bar())
 
         log_vsb = ttk.Scrollbar(log_tree_frame, orient='vertical', command=self._play_log_tree.yview)
         log_vsb.grid(row=0, column=1, sticky='ns')
@@ -1597,6 +1638,22 @@ class MusicPlayer(ctk.CTk):
         log_hsb = ttk.Scrollbar(log_tree_frame, orient='horizontal', command=self._play_log_tree.xview)
         log_hsb.grid(row=1, column=0, sticky='ew')
         self._play_log_tree.config(xscrollcommand=log_hsb.set)
+
+        # ── Inline vote bar (shows selected track + quick vote buttons) ──
+        self._vote_bar_frame = tk.Frame(play_log_panel, bg='#1a1a2e')
+        # Initially hidden — shown when a track is selected or playing
+        self._vote_bar_label = ctk.CTkLabel(
+            self._vote_bar_frame, text='No track selected',
+            font=ctk.CTkFont(size=11), text_color='#aaaaaa', anchor='w')
+        self._vote_bar_label.pack(side='left', fill='x', expand=True, padx=(8, 4), pady=2)
+        ctk.CTkButton(
+            self._vote_bar_frame, text='\U0001f44d', width=28, height=22,
+            font=ctk.CTkFont(size=12), fg_color='#27ae60', hover_color='#2ecc71',
+            command=lambda: self._quick_vote(+1)).pack(side='right', padx=(0, 4), pady=2)
+        ctk.CTkButton(
+            self._vote_bar_frame, text='\U0001f44e', width=28, height=22,
+            font=ctk.CTkFont(size=12), fg_color='#c0392b', hover_color='#e74c3c',
+            command=lambda: self._quick_vote(-1)).pack(side='right', padx=(0, 2), pady=2)
 
         # Add panels to the vertical PanedWindow (queue | play log)
         self._right_paned.add(queue_panel, minsize=100, stretch='always')
@@ -1862,6 +1919,9 @@ class MusicPlayer(ctk.CTk):
         # ── Tooltips for all buttons ──
         _add_tooltip(self.btn_mute, 'mute')
         _add_tooltip(self.btn_menu, 'menu')
+        _add_tooltip(self._btn_pl_thumbs_up, 'thumbs_up')
+        _add_tooltip(self._btn_pl_thumbs_down, 'thumbs_down')
+        _add_tooltip(self._pl_voter_dropdown, 'voter')
         _add_tooltip(self.btn_play, 'play')
         _add_tooltip(self.btn_stop, 'stop')
         _add_tooltip(self._btn_jump_to_playing, 'jump_to_playing')
