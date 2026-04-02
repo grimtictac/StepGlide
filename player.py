@@ -136,9 +136,6 @@ perf = PerfTracker()
 _DEFAULT_TOOLTIPS = {
     'mute': 'Mute / Unmute',
     'menu': 'Menu — Add Files / Folders',
-    'thumbs_up': 'Like (double-click for voter picker)',
-    'thumbs_down': 'Dislike (double-click for voter picker)',
-    'voter': 'Select who is voting',
     'play': 'Play / Pause',
     'stop': 'Stop',
     'play_now': 'Play selected track now',
@@ -280,6 +277,7 @@ class MusicPlayer(ctk.CTk):
 
         # Interface settings (toggleable behaviours)
         self._queue_btn_throb_enabled = True  # glow/throb ✚ when track selected
+        self._saved_voter = ''  # restored from XML config
 
         # Column visibility: which columns are shown in the track listing
         # (populated fully after _all_columns is set; XML config can override)
@@ -583,6 +581,10 @@ class MusicPlayer(ctk.CTk):
         if iface_el is not None:
             val = iface_el.get('queue_btn_throb', 'true')
             self._queue_btn_throb_enabled = val.lower() != 'false'
+            # Restore saved voter name
+            saved_voter = iface_el.get('voter', '')
+            if saved_voter:
+                self._saved_voter = saved_voter
         # Visible columns
         vis_el = root.find('visible_columns')
         if vis_el is not None:
@@ -634,8 +636,14 @@ class MusicPlayer(ctk.CTk):
             if text != default:
                 ET.SubElement(tooltips_el, 'tip', key=key, text=text)
         # Interface settings
+        voter_name = ''
+        if hasattr(self, '_voter_var'):
+            sel = self._voter_var.get()
+            if sel and sel != '(anonymous)':
+                voter_name = sel
         iface_el = ET.SubElement(root, 'interface',
-                                  queue_btn_throb=str(self._queue_btn_throb_enabled).lower())
+                                  queue_btn_throb=str(self._queue_btn_throb_enabled).lower(),
+                                  voter=voter_name)
         # Visible columns
         if self._visible_columns is not None:
             vis_el = ET.SubElement(root, 'visible_columns')
@@ -1126,20 +1134,71 @@ class MusicPlayer(ctk.CTk):
         self._update_rating_display()
         self._rebuild_liked_by_dropdown()
 
-    def _quick_vote(self, vote):
-        """Single-click vote using the voter dropdown value."""
-        if self.current_index is None:
-            messagebox.showinfo('No track', 'No track is currently playing.')
+    def _get_play_log_vote_target(self):
+        """Return (playlist_idx, title) from the selected play-log entry,
+        or fall back to the most-recently played (top) entry, or None."""
+        if hasattr(self, '_play_log_tree'):
+            sel = self._play_log_tree.selection()
+            if sel:
+                item = sel[0]
+                if item in self._play_log_track_map:
+                    track_id, file_path, title = self._play_log_track_map[item]
+                    playlist_idx = self._path_to_idx.get(file_path)
+                    if playlist_idx is not None:
+                        return playlist_idx, title
+            # Fall back to most-recent entry (first child)
+            children = self._play_log_tree.get_children()
+            if children:
+                for child in children:
+                    sub = self._play_log_tree.get_children(child)
+                    if sub:
+                        item = sub[0]
+                        if item in self._play_log_track_map:
+                            track_id, file_path, title = self._play_log_track_map[item]
+                            playlist_idx = self._path_to_idx.get(file_path)
+                            if playlist_idx is not None:
+                                return playlist_idx, title
+        return None
+
+    def _update_play_log_vote_bar(self):
+        """Update the inline vote bar label with the current vote target info."""
+        if not hasattr(self, '_vote_bar_label'):
             return
+        target = self._get_play_log_vote_target()
+        if target is None:
+            self._vote_bar_label.configure(text='No track selected')
+            self._vote_bar_frame.pack_forget()
+            return
+        playlist_idx, title = target
+        rating = self.playlist[playlist_idx].get('rating', 0)
+        if rating > 0:
+            rating_str = f' (+{rating})'
+        elif rating < 0:
+            rating_str = f' ({rating})'
+        else:
+            rating_str = ''
+        short = title[:50] + ('\u2026' if len(title) > 50 else '')
+        self._vote_bar_label.configure(text=f'\U0001f3b5  {short}{rating_str}')
+        self._vote_bar_frame.pack(fill='x', padx=4, pady=(0, 4))
+
+    def _quick_vote(self, vote):
+        """Vote using the voter dropdown value on the selected play-log track."""
+        target = self._get_play_log_vote_target()
+        if target is None:
+            messagebox.showinfo('No track', 'Select a track in the play log (or play a track).')
+            return
+        playlist_idx, title = target
         selected = self._voter_var.get()
         voter = '' if selected in ('', '(anonymous)') else selected
-        self._record_vote(self.current_index, vote, voter)
+        self._record_vote(playlist_idx, vote, voter)
 
     def _ask_voter_and_vote(self, vote):
         """Show voter picker, then record vote. vote is +1 or -1."""
-        if self.current_index is None:
-            messagebox.showinfo('No track', 'No track is currently playing.')
+        target = self._get_play_log_vote_target()
+        if target is None:
+            messagebox.showinfo('No track', 'Select a track in the play log (or play a track).')
             return
+        playlist_idx, title = target
 
         dialog = ctk.CTkToplevel(self)
         dialog.title('Who is voting?')
@@ -1171,7 +1230,7 @@ class MusicPlayer(ctk.CTk):
             selected = voter_var.get()
             voter = typed if typed else ('' if selected in ('', '(anonymous)') else selected)
             dialog.destroy()
-            self._record_vote(self.current_index, vote, voter)
+            self._record_vote(playlist_idx, vote, voter)
 
         btn_row = tk.Frame(dialog, bg='#242424')
         btn_row.pack(fill='x', padx=20, pady=(4, 10))
@@ -1185,17 +1244,8 @@ class MusicPlayer(ctk.CTk):
         name_entry.bind('<Return>', lambda e: submit())
 
     def _update_rating_display(self):
-        """Update the rating label in the play panel."""
-        if self.current_index is not None:
-            rating = self.playlist[self.current_index].get('rating', 0)
-            if rating > 0:
-                self._lbl_rating.configure(text=f'+{rating}', text_color='#5dff5d')
-            elif rating < 0:
-                self._lbl_rating.configure(text=str(rating), text_color='#ff5d5d')
-            else:
-                self._lbl_rating.configure(text='0', text_color='#888888')
-        else:
-            self._lbl_rating.configure(text='—', text_color='#888888')
+        """Update the inline vote bar in the play log panel (if visible)."""
+        self._update_play_log_vote_bar()
 
     # ── Build UI ─────────────────────────────────────────
 
@@ -1299,39 +1349,8 @@ class MusicPlayer(ctk.CTk):
                                        anchor='w')
         self._lbl_genre.pack(side='left', padx=(0, 8), pady=6)
 
-        self._lbl_rating = ctk.CTkLabel(top_bar, text='\u2014',
-                                         font=ctk.CTkFont(size=16, weight='bold'),
-                                         text_color='#888888', width=36)
-        self._lbl_rating.pack(side='left', padx=(4, 4), pady=4)
-
-        # ── Like / Dislike + Voter (right side) ──
-        self._btn_thumbs_up = ctk.CTkButton(
-            top_bar, text='\U0001f44d', width=40, height=30,
-            font=ctk.CTkFont(size=18), fg_color='#f1c40f', hover_color='#f39c12',
-            text_color='#000000',
-            command=lambda: self._quick_vote(+1))
-        self._btn_thumbs_up.pack(side='right', padx=(0, 8), pady=4)
-        self._btn_thumbs_up.bind('<Double-1>',
-            lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(+1)), 'break'))
-
+        # Voter variable (used by play-log voting bar)
         self._voter_var = tk.StringVar(value='')
-        self._voter_dropdown = ctk.CTkOptionMenu(
-            top_bar, variable=self._voter_var,
-            values=['(anonymous)'], width=100, height=26,
-            font=ctk.CTkFont(size=10),
-            fg_color='#3b3b3b', button_color='#4a4a4a',
-            dropdown_fg_color='#2b2b2b', dropdown_hover_color='#1f6aa5')
-        self._voter_dropdown.pack(side='right', padx=4, pady=4)
-        self._voter_dropdown.set('(anonymous)')
-
-        self._btn_thumbs_down = ctk.CTkButton(
-            top_bar, text='\U0001f44e', width=40, height=30,
-            font=ctk.CTkFont(size=18), fg_color='#f1c40f', hover_color='#f39c12',
-            text_color='#000000',
-            command=lambda: self._quick_vote(-1))
-        self._btn_thumbs_down.pack(side='right', padx=0, pady=4)
-        self._btn_thumbs_down.bind('<Double-1>',
-            lambda e: (e.widget.after(1, lambda: self._ask_voter_and_vote(-1)), 'break'))
 
         self.load_progress = ctk.CTkProgressBar(top_bar, mode='determinate', width=200)
         self.load_progress.set(0)
@@ -1843,9 +1862,6 @@ class MusicPlayer(ctk.CTk):
         # ── Tooltips for all buttons ──
         _add_tooltip(self.btn_mute, 'mute')
         _add_tooltip(self.btn_menu, 'menu')
-        _add_tooltip(self._btn_thumbs_up, 'thumbs_up')
-        _add_tooltip(self._btn_thumbs_down, 'thumbs_down')
-        _add_tooltip(self._voter_dropdown, 'voter')
         _add_tooltip(self.btn_play, 'play')
         _add_tooltip(self.btn_stop, 'stop')
         _add_tooltip(self._btn_jump_to_playing, 'jump_to_playing')
@@ -2468,9 +2484,9 @@ class MusicPlayer(ctk.CTk):
         if hasattr(self, '_liked_by_dropdown'):
             values = ['All'] + sorted(self._all_voters)
             self._liked_by_dropdown.configure(values=values)
-        # Also update the voter dropdown in the top bar
-        if hasattr(self, '_voter_dropdown'):
-            self._voter_dropdown.configure(values=['(anonymous)'] + sorted(self._all_voters))
+        # Also update the voter dropdown in the play-log voting bar
+        if hasattr(self, '_pl_voter_dropdown'):
+            self._pl_voter_dropdown.configure(values=['(anonymous)'] + sorted(self._all_voters))
 
     # ── Tag filter bar ───────────────────────────────────
 
