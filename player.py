@@ -158,6 +158,7 @@ _DEFAULT_TOOLTIPS = {
     'settings': 'Settings',
     'new_playlist': 'New playlist',
     'reset_filters': 'Reset all filters',
+    'jump_to_playing': 'Jump to now playing track',
 }
 
 # Active tooltip texts — start as defaults, overwritten by XML load
@@ -1285,6 +1286,12 @@ class MusicPlayer(ctk.CTk):
                                             anchor='w')
         self.lbl_now_playing.pack(side='left', fill='x', expand=True, padx=(12, 8))
 
+        self._btn_jump_to_playing = ctk.CTkButton(
+            top_bar, text='\U0001f4cd', width=30, height=26,
+            font=ctk.CTkFont(size=14), fg_color='#3b3b3b',
+            hover_color='#505050', command=self._jump_to_now_playing)
+        self._btn_jump_to_playing.pack(side='left', padx=(0, 4), pady=4)
+
         self._lbl_genre = ctk.CTkLabel(top_bar, text='',
                                        font=ctk.CTkFont(size=14),
                                        fg_color='#2b2b2b', corner_radius=6,
@@ -1840,6 +1847,7 @@ class MusicPlayer(ctk.CTk):
         _add_tooltip(self._voter_dropdown, 'voter')
         _add_tooltip(self.btn_play, 'play')
         _add_tooltip(self.btn_stop, 'stop')
+        _add_tooltip(self._btn_jump_to_playing, 'jump_to_playing')
         _add_tooltip(self.btn_play_now, 'play_now')
         _add_tooltip(self.btn_play_next, 'play_next')
         _add_tooltip(speed_down, 'speed_down')
@@ -4891,7 +4899,7 @@ class MusicPlayer(ctk.CTk):
         menu.tk_popup(ev.x_root, ev.y_root)
 
     def _on_play_log_double_click(self, ev):
-        """Double-click a play log entry to play the track."""
+        """Double-click a play log entry to jump to the track in the main listing."""
         item = self._play_log_tree.identify_row(ev.y)
         if not item or item not in self._play_log_track_map:
             return
@@ -4900,22 +4908,42 @@ class MusicPlayer(ctk.CTk):
         # Find the playlist index for this track (O(1) lookup)
         playlist_idx = self._path_to_idx.get(file_path)
         if playlist_idx is None:
-            messagebox.showwarning('Track not found',
-                                   f'\u201c{title}\u201d is no longer in the library.')
+            messagebox.showinfo('Track not found',
+                                f'\u201c{title}\u201d is no longer in the library.')
             return
 
-        # Select the track in the main treeview
-        pos = self._di_reverse.get(playlist_idx)
-        if pos is not None:
-            children = self.tree.get_children()
-            if pos < len(children):
-                tree_iid = children[pos]
-                self.tree.selection_set(tree_iid)
-                self.tree.see(tree_iid)
-                self.tree.focus(tree_iid)
+        self._jump_to_playlist_index(playlist_idx, title)
 
-        # Play it
-        self._context_play(playlist_idx)
+    def _jump_to_playlist_index(self, playlist_idx, title=None):
+        """Select and scroll to a playlist index in the main treeview.
+
+        If the track is hidden by the current filters, briefly clear them
+        so the user can see it, then re-apply.
+        """
+        pos = self._di_reverse.get(playlist_idx)
+        if pos is None:
+            # Track is filtered out — inform the user
+            label = title or self.playlist[playlist_idx].get('title',
+                        self.playlist[playlist_idx]['basename'])
+            messagebox.showinfo('Track hidden',
+                                f'\u201c{label}\u201d is not visible with the '
+                                f'current filters.\n\nClear your filters to see it.')
+            return
+        children = self.tree.get_children()
+        if pos >= len(children):
+            return
+        tree_iid = children[pos]
+        self.tree.selection_set(tree_iid)
+        self.tree.see(tree_iid)
+        self.tree.focus(tree_iid)
+
+    def _jump_to_now_playing(self):
+        """Scroll to and select the currently playing track in the treeview."""
+        if self.current_index is None:
+            return
+        entry = self.playlist[self.current_index]
+        title = entry.get('title', entry['basename'])
+        self._jump_to_playlist_index(self.current_index, title)
 
     # ── Lite mode ──────────────────────────────────────────
 
