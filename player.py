@@ -1569,6 +1569,7 @@ class MusicPlayer(ctk.CTk):
         self._play_log_tree.column('Genre', width=70, anchor='w')
         self._play_log_tree.grid(row=0, column=0, sticky='nsew')
         self._play_log_tree.bind('<Double-1>', self._on_play_log_double_click)
+        self._play_log_tree.bind('<Button-3>', self._on_play_log_right_click)
 
         log_vsb = ttk.Scrollbar(log_tree_frame, orient='vertical', command=self._play_log_tree.yview)
         log_vsb.grid(row=0, column=1, sticky='ns')
