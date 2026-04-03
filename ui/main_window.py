@@ -10,8 +10,8 @@ import vlc
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QSplitter,
-    QStatusBar, QVBoxLayout, QWidget,
+    QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QProgressBar,
+    QPushButton, QSplitter, QStatusBar, QVBoxLayout, QWidget,
 )
 
 from ui.theme import COLORS, DARK_THEME
@@ -169,8 +169,15 @@ class MainWindow(QMainWindow):
     def _build_menu_bar(self):
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu('&File')
-        file_menu.addAction(QAction('Add &Files...', self))
-        file_menu.addAction(QAction('Add F&older...', self))
+
+        add_files_action = QAction('Add &Files...', self)
+        add_files_action.triggered.connect(self._add_files)
+        file_menu.addAction(add_files_action)
+
+        add_folder_action = QAction('Add F&older...', self)
+        add_folder_action.triggered.connect(self._add_folder)
+        file_menu.addAction(add_folder_action)
+
         file_menu.addSeparator()
         quit_action = QAction('&Quit', self)
         quit_action.setShortcut(QKeySequence.Quit)
@@ -178,8 +185,20 @@ class MainWindow(QMainWindow):
         file_menu.addAction(quit_action)
 
         view_menu = menu_bar.addMenu('&View')
-        view_menu.addAction(QAction('Toggle &Sidebar', self))
-        view_menu.addAction(QAction('Toggle &Right Panel', self))
+        sidebar_action = QAction('Toggle &Sidebar', self)
+        sidebar_action.setShortcut('F1')
+        sidebar_action.triggered.connect(self._toggle_sidebar)
+        view_menu.addAction(sidebar_action)
+
+        right_action = QAction('Toggle &Right Panel', self)
+        right_action.setShortcut('F2')
+        right_action.triggered.connect(self._toggle_right_panel)
+        view_menu.addAction(right_action)
+
+        fullscreen_action = QAction('Toggle &Fullscreen', self)
+        fullscreen_action.setShortcut('F11')
+        fullscreen_action.triggered.connect(self._toggle_fullscreen)
+        view_menu.addAction(fullscreen_action)
 
     def _build_status_bar(self):
         self._status_bar = QStatusBar()
@@ -226,6 +245,126 @@ class MainWindow(QMainWindow):
             self._track_count_lbl.setText(f'{total} tracks')
         else:
             self._track_count_lbl.setText(f'{shown} of {total} tracks')
+
+    # ── Add files / folders ──────────────────────────────
+
+    def _rel_path(self, abs_path):
+        """Convert an absolute path to relative (using library_root)."""
+        if not self.config.library_root:
+            return abs_path
+        return os.path.relpath(abs_path, self.config.library_root)
+
+    def _abs_path(self, rel_path):
+        """Convert a relative path back to absolute."""
+        if not self.config.library_root:
+            return rel_path
+        if os.path.isabs(rel_path):
+            return rel_path
+        return os.path.join(self.config.library_root, rel_path)
+
+    def _add_path(self, abs_path):
+        """Add a single track by absolute path. Returns True if new."""
+        rel = self._rel_path(abs_path)
+        if rel in self._path_set:
+            return False
+
+        title = os.path.basename(abs_path)
+        genre, artist, album, comment, length = 'Unknown', '', '', '', None
+
+        try:
+            from mutagen import File as MutagenFile
+            tags = MutagenFile(abs_path, easy=True)
+            if tags is not None:
+                title = tags.get('title', [title])[0]
+                genre = tags.get('genre', [genre])[0]
+                artist = tags.get('artist', [''])[0] or ''
+                album = tags.get('album', [''])[0] or ''
+                comment = str(tags.get('comment', [''])[0] or '')
+            audio = MutagenFile(abs_path)
+            if audio is not None and audio.info is not None:
+                length = audio.info.length
+        except Exception:
+            pass
+
+        entry = {
+            'path': rel, 'title': title, 'basename': os.path.basename(abs_path),
+            'artist': artist, 'album': album, 'genre': genre, 'comment': comment,
+            'length': length, 'tags': [], 'rating': 0,
+            'liked_by': set(), 'disliked_by': set(),
+        }
+
+        idx = len(self.playlist)
+        entry['_playlist_idx'] = idx
+        entry['_abs_path'] = abs_path
+        self.playlist.append(entry)
+        self._path_set.add(rel)
+        self._path_to_idx[rel] = idx
+        self.genres.add(genre)
+
+        stats = self.db.ensure_track(rel, title, genre, comment, length, artist, album)
+        entry['play_count'] = stats[0]
+        entry['first_played'] = stats[1]
+        entry['last_played'] = stats[2]
+        entry['file_created'] = stats[3]
+        if stats[4] is not None:
+            entry['length'] = stats[4]
+        return True
+
+    def _add_files(self):
+        """File > Add Files... dialog."""
+        files, _ = QFileDialog.getOpenFileNames(
+            self, 'Select audio files', '',
+            'Audio Files (*.mp3 *.wav *.ogg *.flac);;All Files (*)')
+        if not files:
+            return
+        for f in files:
+            self._add_path(f)
+        self._track_model.set_tracks(self.playlist)
+        self._update_track_count()
+        self._lbl_now_playing.setText(f'{len(files)} file(s) added')
+
+    def _add_folder(self):
+        """File > Add Folder... dialog."""
+        folder = QFileDialog.getExistingDirectory(self, 'Select folder')
+        if not folder:
+            return
+        exts = ('.mp3', '.wav', '.ogg', '.flac')
+        self._lbl_now_playing.setText('Scanning folder\u2026')
+
+        audio_files = []
+        for root, _, filenames in os.walk(folder):
+            for name in filenames:
+                if name.lower().endswith(exts):
+                    audio_files.append(os.path.join(root, name))
+
+        total = len(audio_files)
+        if total == 0:
+            QMessageBox.information(self, 'No files',
+                                    'No supported audio files found in folder.')
+            self._lbl_now_playing.setText('Not Playing')
+            return
+
+        # Show progress in the status bar
+        progress = QProgressBar()
+        progress.setRange(0, total)
+        progress.setFixedWidth(200)
+        self._status_bar.addWidget(progress)
+
+        added = 0
+        from PySide6.QtWidgets import QApplication
+        for i, path in enumerate(audio_files, 1):
+            if self._add_path(path):
+                added += 1
+            progress.setValue(i)
+            if i % 25 == 0 or i == total:
+                QApplication.processEvents()
+
+        self._status_bar.removeWidget(progress)
+        progress.deleteLater()
+
+        self._track_model.set_tracks(self.playlist)
+        self._update_track_count()
+        self._lbl_now_playing.setText(f'Added {added} tracks')
 
     # ── Connect transport bar signals ───────────────────
 
