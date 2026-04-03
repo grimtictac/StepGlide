@@ -20,6 +20,7 @@ from ui.search_bar import SearchFilterBar
 from ui.eq_dialog import EqualizerDialog, apply_eq_for_track
 from ui.play_log_panel import PlayLogPanel
 from ui.queue_panel import QueuePanel
+from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
 from ui.track_table import ALL_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
@@ -153,6 +154,13 @@ class MainWindow(QMainWindow):
         self._btn_eq.setToolTip('Equalizer')
         self._btn_eq.clicked.connect(self._show_eq_dialog)
         np_layout.addWidget(self._btn_eq)
+
+        # Settings button
+        btn_settings = QPushButton('⚙')
+        btn_settings.setFixedSize(32, 28)
+        btn_settings.setToolTip('Settings')
+        btn_settings.clicked.connect(self._open_settings)
+        np_layout.addWidget(btn_settings)
 
         # Jump-to-playing button
         self.btn_jump = QPushButton('⎆')
@@ -1065,6 +1073,20 @@ class MainWindow(QMainWindow):
                 f'font-weight: bold; border-radius: 4px;')
         else:
             self._btn_eq.setStyleSheet('')
+
+    # ── Settings ─────────────────────────────────────────
+
+    def _open_settings(self):
+        """Open the settings dialog and apply changes on save."""
+        dlg = SettingsDialog(self, config=self.config, db=self.db, genres=self.genres)
+        if dlg.exec():
+            # Refresh UI elements that depend on config
+            self._sidebar.set_genre_data(
+                sorted(self.genres), self.config.genre_groups)
+            self._tag_bar.set_tags(self.config.all_tags, self.config.tag_rows)
+            if self.config.length_filter_durations:
+                opts = [label for label, lo, hi in self.config.length_filter_durations]
+                self._search_bar.set_length_options(opts)
 
     def _on_play_from_queue(self, playlist_idx):
         """Handle double-click on a queue item — play immediately."""
