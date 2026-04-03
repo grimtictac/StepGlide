@@ -3,6 +3,8 @@ Transport bar — play/pause, stop, scrub slider, time labels, volume,
 speed controls, and mute button.
 """
 
+import time
+
 from PySide6.QtCore import Qt, QEvent, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider,
@@ -25,16 +27,23 @@ class VolumeStrip(QWidget):
     Designed to be easy to grab — wide groove, large handle.
 
     Momentum fade: when the user scrolls the mouse wheel, the volume
-    continues to change at the same rate after they stop scrolling,
-    until they interact again (scroll opposite direction, click, or
-    volume hits a limit).
+    continues to change at the same rate after they stop scrolling.
+    The fade speed is proportional to how fast the user was scrolling:
+    fast flick → fast fade, slow scroll → slow fade.
+
+    The fade halts when: scrolling in the opposite direction, clicking
+    the slider handle, hitting 0 or 100, or toggling mute.
     """
 
     volume_changed = Signal(int)   # 0–100
     mute_toggled = Signal()
+    debug_log = Signal(str, str)   # (level, message) → route to debug panel
 
-    _FADE_INTERVAL_MS = 80   # how often the fade timer ticks
-    _FADE_STEP = 2           # volume units per tick (matches one scroll notch)
+    # Fade tuning constants
+    _FADE_STEP = 1             # volume units per tick (fine-grained)
+    _MIN_INTERVAL_MS = 20      # fastest fade (very fast flick)
+    _MAX_INTERVAL_MS = 200     # slowest fade (gentle scroll)
+    _VELOCITY_WINDOW_S = 0.4   # only count scroll events within this window
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,8 +52,10 @@ class VolumeStrip(QWidget):
         # Fade state
         self._fade_direction = 0   # -1 = fading down, +1 = fading up, 0 = idle
         self._fade_timer = QTimer(self)
-        self._fade_timer.setInterval(self._FADE_INTERVAL_MS)
         self._fade_timer.timeout.connect(self._fade_tick)
+
+        # Velocity measurement: timestamps of recent wheel events
+        self._wheel_times: list[float] = []
 
         self._build_ui()
 
@@ -128,7 +139,7 @@ class VolumeStrip(QWidget):
         self._handle_wheel(event)
 
     def _handle_wheel(self, event):
-        """Unified wheel handler with momentum fade."""
+        """Unified wheel handler with velocity-based momentum fade."""
         delta = event.angleDelta().y()
         if delta == 0:
             return
@@ -137,16 +148,53 @@ class VolumeStrip(QWidget):
 
         # If scrolling in the opposite direction of an active fade, stop it
         if self._fade_direction != 0 and direction != self._fade_direction:
+            self._log('DEBUG', f'Volume fade: reversed direction → stopping fade')
             self._stop_fade()
             return
 
-        # Apply the immediate scroll step
-        new_val = max(0, min(100, self.volume_slider.value() + direction * self._FADE_STEP))
+        # Apply the immediate scroll step (2 units per wheel notch)
+        step = 2
+        new_val = max(0, min(100, self.volume_slider.value() + direction * step))
         self.volume_slider.setValue(new_val)
 
-        # Start (or restart) the momentum fade in this direction
+        # Record this wheel event for velocity calculation
+        now = time.monotonic()
+        self._wheel_times.append(now)
+        # Prune old events outside the velocity window
+        cutoff = now - self._VELOCITY_WINDOW_S
+        self._wheel_times = [t for t in self._wheel_times if t >= cutoff]
+
+        # Calculate velocity: events per second within the window
+        n = len(self._wheel_times)
+        if n >= 2:
+            span = self._wheel_times[-1] - self._wheel_times[0]
+            velocity = (n - 1) / span if span > 0 else float(n)
+        else:
+            velocity = 1.0  # single event — treat as slowest
+
+        # Map velocity to timer interval:
+        # high velocity → short interval (fast fade)
+        # low velocity  → long interval (slow fade)
+        # Typical scroll velocities: ~3-5 evt/s (slow) up to ~30+ evt/s (fast flick)
+        t = max(0.0, min(1.0, (velocity - 3.0) / 27.0))  # normalise 3..30 → 0..1
+        interval_ms = int(
+            self._MAX_INTERVAL_MS
+            - t * (self._MAX_INTERVAL_MS - self._MIN_INTERVAL_MS)
+        )
+        interval_ms = max(self._MIN_INTERVAL_MS, min(self._MAX_INTERVAL_MS, interval_ms))
+
+        # Start (or restart) the momentum fade
         self._fade_direction = direction
+        self._fade_timer.setInterval(interval_ms)
         self._fade_timer.start()
+
+        dir_str = 'UP' if direction > 0 else 'DOWN'
+        self._log(
+            'DEBUG',
+            f'Volume scroll: {dir_str}  events={n}  '
+            f'velocity={velocity:.1f} evt/s  '
+            f'fade_interval={interval_ms}ms  step={self._FADE_STEP}'
+        )
 
         event.accept()
 
@@ -158,6 +206,7 @@ class VolumeStrip(QWidget):
 
         if new_val == current:
             # Hit a limit, stop fading
+            self._log('DEBUG', f'Volume fade: hit limit at {current}% → stopped')
             self._stop_fade()
             return
 
@@ -167,6 +216,11 @@ class VolumeStrip(QWidget):
         """Stop the momentum fade."""
         self._fade_timer.stop()
         self._fade_direction = 0
+        self._wheel_times.clear()
+
+    def _log(self, level, msg):
+        """Emit a debug_log signal for the main window to pick up."""
+        self.debug_log.emit(level, msg)
 
     def _on_mute_clicked(self):
         """Stop any active fade and emit the mute signal."""

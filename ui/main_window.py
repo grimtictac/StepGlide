@@ -255,6 +255,7 @@ class MainWindow(QMainWindow):
             f'border-left: 1px solid {COLORS["border"]};')
         self._volume_strip.volume_changed.connect(self._on_volume_changed)
         self._volume_strip.mute_toggled.connect(self._toggle_mute)
+        self._volume_strip.debug_log.connect(self._debug_log)
 
         # Add to main splitter
         self._main_splitter.addWidget(self._sidebar)
