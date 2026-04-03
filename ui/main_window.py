@@ -317,6 +317,19 @@ class MainWindow(QMainWindow):
         debug_action.triggered.connect(self._toggle_debug_panel)
         view_menu.addAction(debug_action)
 
+        view_menu.addSeparator()
+
+        # Track List submenu
+        track_list_menu = view_menu.addMenu('Track &List')
+
+        default_layout_action = QAction('&Default Layout', self)
+        default_layout_action.triggered.connect(self._reset_track_list_default)
+        track_list_menu.addAction(default_layout_action)
+
+        show_all_cols_action = QAction('Show &All Columns', self)
+        show_all_cols_action.triggered.connect(self._show_all_columns)
+        track_list_menu.addAction(show_all_cols_action)
+
         tools_menu = menu_bar.addMenu('&Tools')
 
         rq_action = QAction('Random &Queue Generator...', self)
@@ -1307,6 +1320,18 @@ class MainWindow(QMainWindow):
             self._debug_panel.hide()
         else:
             self._debug_panel.show()
+
+    def _reset_track_list_default(self):
+        """Reset columns to the default visible set and widths."""
+        self._track_table.set_visible_columns(list(DEFAULT_VISIBLE_COLUMNS))
+        for col, width in self._track_table._default_widths.items():
+            self._track_table.setColumnWidth(col, width)
+        self.statusBar().showMessage('Track list reset to default layout', 3000)
+
+    def _show_all_columns(self):
+        """Make all columns visible."""
+        self._track_table.set_visible_columns(list(ALL_COLUMNS))
+        self.statusBar().showMessage('All columns visible', 3000)
 
     def _debug_log(self, level, msg):
         """Write a message to the debug panel."""
