@@ -3,7 +3,7 @@ Transport bar — play/pause, stop, scrub slider, time labels, volume,
 speed controls, and mute button.
 """
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QEvent, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider,
     QSizePolicy, QVBoxLayout, QWidget,
@@ -109,12 +109,26 @@ class VolumeStrip(QWidget):
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
         # Stop fade if user grabs the handle
         self.volume_slider.sliderPressed.connect(self._stop_fade)
+        # Intercept wheel events on the slider so they go through our
+        # momentum handler instead of the slider's built-in wheel logic.
+        self.volume_slider.installEventFilter(self)
         layout.addWidget(self.volume_slider, stretch=1, alignment=Qt.AlignHCenter)
 
     # ── Wheel event with momentum fade ───────────────────
 
+    def eventFilter(self, obj, event):
+        """Catch wheel events on the slider and route them to our handler."""
+        if obj is self.volume_slider and event.type() == QEvent.Wheel:
+            self._handle_wheel(event)
+            return True  # consumed — don't let QSlider handle it
+        return super().eventFilter(obj, event)
+
     def wheelEvent(self, event):
-        """Intercept scroll wheel on the entire strip, not just the slider."""
+        """Intercept scroll wheel on the strip background (outside the slider)."""
+        self._handle_wheel(event)
+
+    def _handle_wheel(self, event):
+        """Unified wheel handler with momentum fade."""
         delta = event.angleDelta().y()
         if delta == 0:
             return
