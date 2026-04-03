@@ -8,7 +8,7 @@ import time
 import vlc
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QSplitter,
     QStatusBar, QVBoxLayout, QWidget,
@@ -74,6 +74,9 @@ class MainWindow(QMainWindow):
 
         # ── Load data ────────────────────────────────────
         self._load_tracks()
+
+        # ── Keyboard shortcuts ───────────────────────────
+        self._bind_shortcuts()
 
     def _build_ui(self):
         """Construct the main layout with splitters."""
@@ -528,6 +531,50 @@ class MainWindow(QMainWindow):
                 self._next_track()
             elif self.playlist:
                 self._stop()
+
+    # ── Keyboard shortcuts ─────────────────────────────
+
+    def _bind_shortcuts(self):
+        """Set up global keyboard shortcuts."""
+        def _sc(key, slot):
+            s = QShortcut(QKeySequence(key), self)
+            s.activated.connect(slot)
+            return s
+
+        _sc('Space',      self._play_pause)
+        _sc('Right',      self._next_track)
+        _sc('Left',       self._prev_track)
+        _sc('Escape',     self._stop)
+        _sc('Ctrl+F',     self._focus_search)
+        _sc('F1',         self._toggle_sidebar)
+        _sc('F2',         self._toggle_right_panel)
+        _sc('F11',        self._toggle_fullscreen)
+
+    def _focus_search(self):
+        """Focus the search box (once it exists)."""
+        # TODO: wire to search bar widget
+        pass
+
+    def _toggle_sidebar(self):
+        """Show/hide the left sidebar panel."""
+        if self._sidebar.isVisible():
+            self._sidebar.hide()
+        else:
+            self._sidebar.show()
+
+    def _toggle_right_panel(self):
+        """Show/hide the right queue/play-log panel."""
+        if self._right_panel.isVisible():
+            self._right_panel.hide()
+        else:
+            self._right_panel.show()
+
+    def _toggle_fullscreen(self):
+        """Toggle between fullscreen and normal window."""
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
 
     # ── Cleanup ──────────────────────────────────────────
 
