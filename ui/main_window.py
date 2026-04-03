@@ -10,8 +10,9 @@ import vlc
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QProgressBar,
-    QPushButton, QSplitter, QStatusBar, QVBoxLayout, QWidget,
+    QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu,
+    QMessageBox, QProgressBar, QPushButton, QSplitter, QStatusBar,
+    QVBoxLayout, QWidget,
 )
 
 from ui.theme import COLORS, DARK_THEME
@@ -52,6 +53,7 @@ class MainWindow(QMainWindow):
 
         # Play queue: list of playlist indices
         self._play_queue = []
+        self._selected_indices = []
 
         # Playback speed
         self._speed = 1.0
@@ -747,12 +749,184 @@ class MainWindow(QMainWindow):
 
     def _on_selection_changed(self, indices):
         """Handle track selection change."""
-        pass  # TODO: update preview/details
+        self._selected_indices = indices
+
+    def _get_selected_indices(self):
+        """Return list of currently selected playlist indices."""
+        indices = []
+        for index in self._track_table.selectionModel().selectedRows():
+            from PySide6.QtCore import Qt
+            pl_idx = index.data(Qt.UserRole)
+            if pl_idx is not None:
+                indices.append(pl_idx)
+        return indices
 
     def _on_context_menu(self, playlist_idx, pos):
-        """Handle right-click on a track."""
-        # TODO: full context menu
-        pass
+        """Show context menu on right-click in track table."""
+        selected = self._get_selected_indices()
+        if not selected:
+            selected = [playlist_idx]
+        entry = self.playlist[playlist_idx]
+        multi = len(selected) > 1
+        menu = QMenu(self)
+
+        # Play
+        if not multi:
+            menu.addAction('\u25b6  Play', lambda: self._play_index(playlist_idx))
+
+        # Add to queue
+        q_label = f'\U0001f4cb  Add {len(selected)} to Queue' if multi else '\U0001f4cb  Add to Queue'
+        menu.addAction(q_label,
+                       lambda idxs=selected: self._queue_panel.add_multiple(idxs))
+
+        menu.addSeparator()
+
+        # Edit actions (single selection only)
+        if not multi:
+            menu.addAction('\u270f  Edit Title\u2026',
+                           lambda: self._ctx_edit_title(playlist_idx))
+
+            # Genre submenu
+            genre_sub = menu.addMenu('\U0001f3b5  Genre')
+            current_genre = entry.get('genre', 'Unknown')
+            for genre in sorted(self.genres):
+                lbl = f'\u2713  {genre}' if genre == current_genre else f'     {genre}'
+                genre_sub.addAction(
+                    lbl, lambda g=genre: self._ctx_set_genre(playlist_idx, g))
+            genre_sub.addSeparator()
+            genre_sub.addAction('Other\u2026',
+                                lambda: self._ctx_edit_genre(playlist_idx))
+
+            menu.addAction('\u270f  Edit Comment\u2026',
+                           lambda: self._ctx_edit_comment(playlist_idx))
+
+            # Tags submenu
+            if self.config.all_tags:
+                tags_sub = menu.addMenu('\U0001f3f7  Tags')
+                track_tags = set(entry.get('tags', []))
+                for tag in sorted(self.config.all_tags):
+                    has = tag in track_tags
+                    lbl = f'\u2713  {tag.upper()}' if has else f'     {tag.upper()}'
+                    tags_sub.addAction(
+                        lbl, lambda t=tag, h=has: self._ctx_toggle_tag(
+                            playlist_idx, t, h))
+
+        # Playlist submenu
+        pl_names = self._sidebar.get_playlist_names()
+        if pl_names:
+            menu.addSeparator()
+            pl_sub = menu.addMenu('\U0001f4c1  Add to Playlist')
+            for pl_name in pl_names:
+                pl_sub.addAction(
+                    pl_name,
+                    lambda n=pl_name, idxs=selected: self._ctx_add_to_playlist(
+                        n, idxs))
+
+        # Remove from active playlist
+        active_pl = self._sidebar.get_active_playlist_name()
+        if active_pl:
+            n = len(selected)
+            lbl = (f'\U0001f5d1  Remove {n} from "{active_pl}"' if multi
+                   else f'\U0001f5d1  Remove from "{active_pl}"')
+            menu.addAction(
+                lbl, lambda idxs=selected: self._ctx_remove_from_playlist(idxs))
+
+        menu.addSeparator()
+        n = len(selected)
+        r_lbl = f'\U0001f5d1  Remove {n} from Library' if multi else '\U0001f5d1  Remove from Library'
+        menu.addAction(r_lbl,
+                       lambda idxs=selected: self._ctx_remove_tracks(idxs))
+
+        menu.exec(pos)
+
+    # ── Context menu actions ─────────────────────────────
+
+    def _ctx_edit_title(self, idx):
+        entry = self.playlist[idx]
+        current = entry.get('title', entry.get('basename', ''))
+        new_val, ok = QInputDialog.getText(
+            self, 'Edit Title', 'Title:', text=current)
+        if ok and new_val.strip():
+            entry['title'] = new_val.strip()
+            self.db.update_track_field(entry['path'], 'title', new_val.strip())
+            self._track_model.update_row(idx)
+
+    def _ctx_set_genre(self, idx, genre):
+        entry = self.playlist[idx]
+        entry['genre'] = genre
+        self.genres.add(genre)
+        self.db.update_track_field(entry['path'], 'genre', genre)
+        self._track_model.update_row(idx)
+        self._sidebar.set_genre_data(self.genres, self.config.genre_groups)
+
+    def _ctx_edit_genre(self, idx):
+        entry = self.playlist[idx]
+        current = entry.get('genre', 'Unknown')
+        new_val, ok = QInputDialog.getText(
+            self, 'Change Genre', 'Genre:', text=current)
+        if ok and new_val.strip():
+            self._ctx_set_genre(idx, new_val.strip())
+
+    def _ctx_edit_comment(self, idx):
+        entry = self.playlist[idx]
+        current = entry.get('comment', '')
+        new_val, ok = QInputDialog.getText(
+            self, 'Edit Comment', 'Comment:', text=current)
+        if ok:
+            entry['comment'] = new_val.strip()
+            self.db.update_track_field(entry['path'], 'comment', new_val.strip())
+            self._track_model.update_row(idx)
+
+    def _ctx_toggle_tag(self, idx, tag, currently_has):
+        entry = self.playlist[idx]
+        if currently_has:
+            self.db.remove_tag(entry['path'], tag)
+            if tag in entry.get('tags', []):
+                entry['tags'].remove(tag)
+        else:
+            self.db.add_tag(entry['path'], tag)
+            entry.setdefault('tags', []).append(tag)
+        self._track_model.update_row(idx)
+
+    def _ctx_add_to_playlist(self, pl_name, indices):
+        paths = [self.playlist[i]['path'] for i in indices]
+        self._sidebar.add_tracks_to_playlist(pl_name, paths)
+
+    def _ctx_remove_from_playlist(self, indices):
+        paths = {self.playlist[i]['path'] for i in indices}
+        self._sidebar.remove_tracks_from_active_playlist(paths)
+        self._update_track_count()
+
+    def _ctx_remove_tracks(self, indices):
+        n = len(indices)
+        msg = (f'Remove {n} tracks from the library?\n\n(Files will not be deleted.)'
+               if n > 1 else
+               f'Remove "{self.playlist[indices[0]].get("title", "?")}" from the library?\n\n'
+               '(File will not be deleted.)')
+        reply = QMessageBox.question(
+            self, 'Remove Track', msg,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        # Remove in reverse order to keep indices valid
+        for idx in sorted(indices, reverse=True):
+            entry = self.playlist[idx]
+            path = entry['path']
+            if self.current_index == idx:
+                self._stop()
+                self.current_index = None
+            elif self.current_index is not None and self.current_index > idx:
+                self.current_index -= 1
+            self.db.delete_track(path)
+            self.playlist.pop(idx)
+            self._path_set.discard(path)
+            self._path_to_idx.pop(path, None)
+        # Rebuild path→idx mapping
+        self._path_to_idx = {e['path']: i for i, e in enumerate(self.playlist)}
+        for i, e in enumerate(self.playlist):
+            e['_playlist_idx'] = i
+        self._track_model.set_tracks(self.playlist)
+        self._update_track_count()
 
     def _on_play_from_queue(self, playlist_idx):
         """Handle double-click on a queue item — play immediately."""
