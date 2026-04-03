@@ -3,7 +3,7 @@ Transport bar — play/pause, stop, scrub slider, time labels, volume,
 speed controls, and mute button.
 """
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider,
     QSizePolicy, QVBoxLayout, QWidget,
@@ -23,14 +23,29 @@ class VolumeStrip(QWidget):
     """
     A tall, vertical volume slider with mute button and percentage label.
     Designed to be easy to grab — wide groove, large handle.
+
+    Momentum fade: when the user scrolls the mouse wheel, the volume
+    continues to change at the same rate after they stop scrolling,
+    until they interact again (scroll opposite direction, click, or
+    volume hits a limit).
     """
 
     volume_changed = Signal(int)   # 0–100
     mute_toggled = Signal()
 
+    _FADE_INTERVAL_MS = 80   # how often the fade timer ticks
+    _FADE_STEP = 2           # volume units per tick (matches one scroll notch)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedWidth(52)
+
+        # Fade state
+        self._fade_direction = 0   # -1 = fading down, +1 = fading up, 0 = idle
+        self._fade_timer = QTimer(self)
+        self._fade_timer.setInterval(self._FADE_INTERVAL_MS)
+        self._fade_timer.timeout.connect(self._fade_tick)
+
         self._build_ui()
 
     def _build_ui(self):
@@ -47,7 +62,7 @@ class VolumeStrip(QWidget):
         self.btn_mute.setFixedSize(40, 36)
         self.btn_mute.setIconSize(self.btn_mute.size() * 0.6)
         self.btn_mute.setToolTip('Mute / Unmute')
-        self.btn_mute.clicked.connect(self.mute_toggled)
+        self.btn_mute.clicked.connect(self._on_mute_clicked)
         layout.addWidget(self.btn_mute, alignment=Qt.AlignHCenter)
 
         # Percentage label
@@ -92,7 +107,57 @@ class VolumeStrip(QWidget):
             }}
         ''')
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
+        # Stop fade if user grabs the handle
+        self.volume_slider.sliderPressed.connect(self._stop_fade)
         layout.addWidget(self.volume_slider, stretch=1, alignment=Qt.AlignHCenter)
+
+    # ── Wheel event with momentum fade ───────────────────
+
+    def wheelEvent(self, event):
+        """Intercept scroll wheel on the entire strip, not just the slider."""
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
+
+        direction = 1 if delta > 0 else -1
+
+        # If scrolling in the opposite direction of an active fade, stop it
+        if self._fade_direction != 0 and direction != self._fade_direction:
+            self._stop_fade()
+            return
+
+        # Apply the immediate scroll step
+        new_val = max(0, min(100, self.volume_slider.value() + direction * self._FADE_STEP))
+        self.volume_slider.setValue(new_val)
+
+        # Start (or restart) the momentum fade in this direction
+        self._fade_direction = direction
+        self._fade_timer.start()
+
+        event.accept()
+
+    def _fade_tick(self):
+        """Called by the timer — continue changing volume in the fade direction."""
+        current = self.volume_slider.value()
+        new_val = current + self._fade_direction * self._FADE_STEP
+        new_val = max(0, min(100, new_val))
+
+        if new_val == current:
+            # Hit a limit, stop fading
+            self._stop_fade()
+            return
+
+        self.volume_slider.setValue(new_val)
+
+    def _stop_fade(self):
+        """Stop the momentum fade."""
+        self._fade_timer.stop()
+        self._fade_direction = 0
+
+    def _on_mute_clicked(self):
+        """Stop any active fade and emit the mute signal."""
+        self._stop_fade()
+        self.mute_toggled.emit()
 
     def _on_volume_changed(self, value):
         self.lbl_vol_pct.setText(f'{value}%')
@@ -105,6 +170,7 @@ class VolumeStrip(QWidget):
 
     def set_volume(self, vol):
         """Set volume slider (0–100) without emitting signal."""
+        self._stop_fade()
         self.volume_slider.blockSignals(True)
         self.volume_slider.setValue(vol)
         self.volume_slider.blockSignals(False)
