@@ -9,7 +9,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+import qtawesome as qta
 from ui.theme import COLORS
+
+_ICON_SIZE = 18  # default icon pixel size for transport buttons
 
 
 class TransportBar(QWidget):
@@ -50,32 +53,42 @@ class TransportBar(QWidget):
         row1.setSpacing(4)
 
         # Prev
-        self.btn_prev = QPushButton('⏮')
-        self.btn_prev.setFixedSize(36, 32)
+        self.btn_prev = QPushButton()
+        self.btn_prev.setIcon(qta.icon('mdi6.skip-previous', color=COLORS['fg']))
+        self.btn_prev.setFixedSize(40, 34)
+        self.btn_prev.setIconSize(self.btn_prev.size() * 0.6)
         self.btn_prev.setToolTip('Previous track')
         self.btn_prev.clicked.connect(self.prev_clicked)
         row1.addWidget(self.btn_prev)
 
         # Play / Pause
-        self.btn_play = QPushButton('▶')
-        self.btn_play.setFixedSize(44, 32)
+        self.btn_play = QPushButton()
+        self._icon_play = qta.icon('mdi6.play', color='white')
+        self._icon_pause = qta.icon('mdi6.pause', color='white')
+        self.btn_play.setIcon(self._icon_play)
+        self.btn_play.setFixedSize(48, 34)
+        self.btn_play.setIconSize(self.btn_play.size() * 0.65)
         self.btn_play.setToolTip('Play / Pause')
         self.btn_play.setStyleSheet(
-            f'QPushButton {{ background-color: {COLORS["accent"]}; font-size: 16px; }}'
+            f'QPushButton {{ background-color: {COLORS["accent"]}; border-radius: 4px; }}'
             f'QPushButton:hover {{ background-color: {COLORS["accent_hover"]}; }}')
         self.btn_play.clicked.connect(self.play_pause_clicked)
         row1.addWidget(self.btn_play)
 
         # Next
-        self.btn_next = QPushButton('⏭')
-        self.btn_next.setFixedSize(36, 32)
+        self.btn_next = QPushButton()
+        self.btn_next.setIcon(qta.icon('mdi6.skip-next', color=COLORS['fg']))
+        self.btn_next.setFixedSize(40, 34)
+        self.btn_next.setIconSize(self.btn_next.size() * 0.6)
         self.btn_next.setToolTip('Next track')
         self.btn_next.clicked.connect(self.next_clicked)
         row1.addWidget(self.btn_next)
 
         # Stop
-        self.btn_stop = QPushButton('⏹')
-        self.btn_stop.setFixedSize(36, 32)
+        self.btn_stop = QPushButton()
+        self.btn_stop.setIcon(qta.icon('mdi6.stop', color=COLORS['fg']))
+        self.btn_stop.setFixedSize(40, 34)
+        self.btn_stop.setIconSize(self.btn_stop.size() * 0.6)
         self.btn_stop.setToolTip('Stop')
         self.btn_stop.clicked.connect(self.stop_clicked)
         row1.addWidget(self.btn_stop)
@@ -113,8 +126,12 @@ class TransportBar(QWidget):
         row2.setSpacing(6)
 
         # Mute button
-        self.btn_mute = QPushButton('🔊')
-        self.btn_mute.setFixedSize(32, 26)
+        self._icon_vol_high = qta.icon('mdi6.volume-high', color=COLORS['fg'])
+        self._icon_vol_off = qta.icon('mdi6.volume-off', color=COLORS['red_text'])
+        self.btn_mute = QPushButton()
+        self.btn_mute.setIcon(self._icon_vol_high)
+        self.btn_mute.setFixedSize(34, 28)
+        self.btn_mute.setIconSize(self.btn_mute.size() * 0.65)
         self.btn_mute.setToolTip('Mute / Unmute')
         self.btn_mute.clicked.connect(self.mute_toggled)
         row2.addWidget(self.btn_mute)
@@ -144,8 +161,10 @@ class TransportBar(QWidget):
         speed_layout.setContentsMargins(4, 0, 4, 0)
         speed_layout.setSpacing(2)
 
-        self.btn_speed_down = QPushButton('◀')
-        self.btn_speed_down.setFixedSize(26, 24)
+        self.btn_speed_down = QPushButton()
+        self.btn_speed_down.setIcon(qta.icon('mdi6.minus', color=COLORS['fg']))
+        self.btn_speed_down.setFixedSize(28, 26)
+        self.btn_speed_down.setIconSize(self.btn_speed_down.size() * 0.6)
         self.btn_speed_down.setToolTip('Decrease speed')
         self.btn_speed_down.clicked.connect(self.speed_down_clicked)
         speed_layout.addWidget(self.btn_speed_down)
@@ -156,14 +175,17 @@ class TransportBar(QWidget):
         self.lbl_speed.setStyleSheet('font-weight: bold; font-size: 11px;')
         speed_layout.addWidget(self.lbl_speed)
 
-        self.btn_speed_up = QPushButton('▶')
-        self.btn_speed_up.setFixedSize(26, 24)
+        self.btn_speed_up = QPushButton()
+        self.btn_speed_up.setIcon(qta.icon('mdi6.plus', color=COLORS['fg']))
+        self.btn_speed_up.setFixedSize(28, 26)
+        self.btn_speed_up.setIconSize(self.btn_speed_up.size() * 0.6)
         self.btn_speed_up.setToolTip('Increase speed')
         self.btn_speed_up.clicked.connect(self.speed_up_clicked)
         speed_layout.addWidget(self.btn_speed_up)
 
         self.btn_speed_reset = QPushButton('1×')
-        self.btn_speed_reset.setFixedSize(30, 24)
+        self.btn_speed_reset.setFixedSize(32, 26)
+        self.btn_speed_reset.setStyleSheet('font-size: 11px; font-weight: bold;')
         self.btn_speed_reset.setToolTip('Reset speed to 1×')
         self.btn_speed_reset.clicked.connect(self.speed_reset_clicked)
         speed_layout.addWidget(self.btn_speed_reset)
@@ -219,14 +241,14 @@ class TransportBar(QWidget):
     def set_playing_state(self, playing):
         """Update the play button appearance."""
         if playing:
-            self.btn_play.setText('⏸')
+            self.btn_play.setIcon(self._icon_pause)
             self.btn_play.setStyleSheet(
-                f'QPushButton {{ background-color: {COLORS["green"]}; font-size: 16px; }}'
+                f'QPushButton {{ background-color: {COLORS["green"]}; border-radius: 4px; }}'
                 f'QPushButton:hover {{ background-color: {COLORS["green_hover"]}; }}')
         else:
-            self.btn_play.setText('▶')
+            self.btn_play.setIcon(self._icon_play)
             self.btn_play.setStyleSheet(
-                f'QPushButton {{ background-color: {COLORS["accent"]}; font-size: 16px; }}'
+                f'QPushButton {{ background-color: {COLORS["accent"]}; border-radius: 4px; }}'
                 f'QPushButton:hover {{ background-color: {COLORS["accent_hover"]}; }}')
 
     def set_speed_label(self, speed):
@@ -243,7 +265,7 @@ class TransportBar(QWidget):
             self.lbl_speed.setStyleSheet('font-weight: bold; font-size: 11px;')
 
     def set_mute_icon(self, muted):
-        self.btn_mute.setText('🔇' if muted else '🔊')
+        self.btn_mute.setIcon(self._icon_vol_off if muted else self._icon_vol_high)
 
     def set_volume(self, vol):
         """Set volume slider (0–100) without emitting signal."""

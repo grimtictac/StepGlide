@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
 
 from ui.theme import COLORS
 
+import qtawesome as qta
+
 
 class SidebarWidget(QWidget):
     """Left sidebar containing a genre list and a playlist list."""
@@ -58,8 +60,10 @@ class SidebarWidget(QWidget):
         pl_header_row.addWidget(pl_label)
         pl_header_row.addStretch()
 
-        btn_new_pl = QPushButton('+')
-        btn_new_pl.setFixedSize(24, 24)
+        btn_new_pl = QPushButton()
+        btn_new_pl.setIcon(qta.icon('mdi6.plus', color=COLORS['fg']))
+        btn_new_pl.setFixedSize(28, 28)
+        btn_new_pl.setIconSize(btn_new_pl.size() * 0.6)
         btn_new_pl.setToolTip('New playlist')
         btn_new_pl.clicked.connect(self._create_playlist)
         pl_header_row.addWidget(btn_new_pl)

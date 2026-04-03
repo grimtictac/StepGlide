@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
 from core.config import DEFAULT_TOOLTIPS
 from ui.theme import COLORS
 
+import qtawesome as qta
+
 
 class SettingsDialog(QDialog):
     """Tabbed settings dialog matching the five original tabs."""
@@ -164,12 +166,16 @@ class SettingsDialog(QDialog):
             lbl.setStyleSheet('font-size: 13px; font-weight: bold;')
             hdr.addWidget(lbl)
             hdr.addStretch()
-            btn_rename = QPushButton('✏')
-            btn_rename.setFixedSize(28, 24)
+            btn_rename = QPushButton()
+            btn_rename.setIcon(qta.icon('mdi6.pencil', color=COLORS['fg']))
+            btn_rename.setFixedSize(30, 26)
+            btn_rename.setIconSize(btn_rename.size() * 0.55)
             btn_rename.clicked.connect(lambda _, g=gname: self._rename_genre_group(g))
             hdr.addWidget(btn_rename)
-            btn_del = QPushButton('🗑')
-            btn_del.setFixedSize(28, 24)
+            btn_del = QPushButton()
+            btn_del.setIcon(qta.icon('mdi6.delete', color=COLORS['red_text']))
+            btn_del.setFixedSize(30, 26)
+            btn_del.setIconSize(btn_del.size() * 0.55)
             btn_del.clicked.connect(lambda _, g=gname: self._delete_genre_group(g))
             hdr.addWidget(btn_del)
             gl.addLayout(hdr)
@@ -270,12 +276,16 @@ class SettingsDialog(QDialog):
             rl.setContentsMargins(10, 6, 6, 6)
             rl.addWidget(QLabel(tag.upper()))
             rl.addStretch()
-            btn_rename = QPushButton('✏')
-            btn_rename.setFixedSize(28, 24)
+            btn_rename = QPushButton()
+            btn_rename.setIcon(qta.icon('mdi6.pencil', color=COLORS['fg']))
+            btn_rename.setFixedSize(30, 26)
+            btn_rename.setIconSize(btn_rename.size() * 0.55)
             btn_rename.clicked.connect(lambda _, t=tag: self._rename_tag(t))
             rl.addWidget(btn_rename)
-            btn_del = QPushButton('🗑')
-            btn_del.setFixedSize(28, 24)
+            btn_del = QPushButton()
+            btn_del.setIcon(qta.icon('mdi6.delete', color=COLORS['red_text']))
+            btn_del.setFixedSize(30, 26)
+            btn_del.setIconSize(btn_del.size() * 0.55)
             btn_del.clicked.connect(lambda _, t=tag: self._delete_tag(t))
             rl.addWidget(btn_del)
             self._tags_layout.addWidget(row)
@@ -371,8 +381,10 @@ class SettingsDialog(QDialog):
             hi_edit.setPlaceholderText('min')
             rl.addWidget(hi_edit)
 
-            btn_del = QPushButton('🗑')
-            btn_del.setFixedSize(28, 24)
+            btn_del = QPushButton()
+            btn_del.setIcon(qta.icon('mdi6.delete', color=COLORS['red_text']))
+            btn_del.setFixedSize(30, 26)
+            btn_del.setIconSize(btn_del.size() * 0.55)
             btn_del.clicked.connect(lambda _, idx=i: self._delete_duration(idx))
             rl.addWidget(btn_del)
 

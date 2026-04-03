@@ -7,6 +7,7 @@ import time
 
 import vlc
 
+import qtawesome as qta
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
@@ -135,15 +136,27 @@ class MainWindow(QMainWindow):
             'font-size: 13px; font-weight: bold; padding: 0 6px;')
         np_layout.addWidget(self._lbl_rating)
 
-        btn_like = QPushButton('\U0001f44d')
-        btn_like.setFixedSize(32, 28)
+        btn_like = QPushButton()
+        btn_like.setIcon(qta.icon('mdi6.thumb-up', color=COLORS['green_text']))
+        btn_like.setFixedSize(40, 32)
+        btn_like.setIconSize(btn_like.size() * 0.55)
         btn_like.setToolTip('Like this track')
+        btn_like.setStyleSheet(
+            'QPushButton { background-color: #1a3a1a;'
+            '  border: 1px solid #27ae60; border-radius: 4px; }'
+            'QPushButton:hover { background-color: #27ae60; }')
         btn_like.clicked.connect(lambda: self._vote(+1))
         np_layout.addWidget(btn_like)
 
-        btn_dislike = QPushButton('\U0001f44e')
-        btn_dislike.setFixedSize(32, 28)
+        btn_dislike = QPushButton()
+        btn_dislike.setIcon(qta.icon('mdi6.thumb-down', color=COLORS['red_text']))
+        btn_dislike.setFixedSize(40, 32)
+        btn_dislike.setIconSize(btn_dislike.size() * 0.55)
         btn_dislike.setToolTip('Dislike this track')
+        btn_dislike.setStyleSheet(
+            'QPushButton { background-color: #3a1a1a;'
+            '  border: 1px solid #c0392b; border-radius: 4px; }'
+            'QPushButton:hover { background-color: #c0392b; }')
         btn_dislike.clicked.connect(lambda: self._vote(-1))
         np_layout.addWidget(btn_dislike)
 
@@ -155,22 +168,30 @@ class MainWindow(QMainWindow):
         np_layout.addWidget(self._voter_combo)
 
         # EQ button
-        self._btn_eq = QPushButton('EQ')
-        self._btn_eq.setFixedSize(36, 28)
+        self._btn_eq = QPushButton()
+        self._icon_eq_off = qta.icon('mdi6.equalizer', color=COLORS['fg'])
+        self._icon_eq_on = qta.icon('mdi6.equalizer', color=COLORS['green_text'])
+        self._btn_eq.setIcon(self._icon_eq_off)
+        self._btn_eq.setFixedSize(40, 32)
+        self._btn_eq.setIconSize(self._btn_eq.size() * 0.55)
         self._btn_eq.setToolTip('Equalizer')
         self._btn_eq.clicked.connect(self._show_eq_dialog)
         np_layout.addWidget(self._btn_eq)
 
         # Settings button
-        btn_settings = QPushButton('⚙')
-        btn_settings.setFixedSize(32, 28)
+        btn_settings = QPushButton()
+        btn_settings.setIcon(qta.icon('mdi6.cog', color=COLORS['fg']))
+        btn_settings.setFixedSize(40, 32)
+        btn_settings.setIconSize(btn_settings.size() * 0.55)
         btn_settings.setToolTip('Settings')
         btn_settings.clicked.connect(self._open_settings)
         np_layout.addWidget(btn_settings)
 
         # Jump-to-playing button
-        self.btn_jump = QPushButton('⎆')
-        self.btn_jump.setFixedSize(32, 28)
+        self.btn_jump = QPushButton()
+        self.btn_jump.setIcon(qta.icon('mdi6.crosshairs-gps', color=COLORS['fg']))
+        self.btn_jump.setFixedSize(40, 32)
+        self.btn_jump.setIconSize(self.btn_jump.size() * 0.55)
         self.btn_jump.setToolTip('Jump to now playing track')
         self.btn_jump.clicked.connect(self._jump_to_playing)
         np_layout.addWidget(self.btn_jump)
@@ -1118,10 +1139,13 @@ class MainWindow(QMainWindow):
             else:
                 has_eq = False
         if has_eq:
+            self._btn_eq.setIcon(self._icon_eq_on)
             self._btn_eq.setStyleSheet(
-                f'background-color: #1a3d1a; color: #4caf50; '
-                f'font-weight: bold; border-radius: 4px;')
+                'QPushButton { background-color: #1a3d1a;'
+                '  border: 1px solid #4caf50; border-radius: 4px; }'
+                'QPushButton:hover { background-color: #2a5a2a; }')
         else:
+            self._btn_eq.setIcon(self._icon_eq_off)
             self._btn_eq.setStyleSheet('')
 
     # ── Settings ─────────────────────────────────────────

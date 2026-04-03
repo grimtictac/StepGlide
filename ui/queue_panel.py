@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+import qtawesome as qta
 from ui.theme import COLORS
 
 
@@ -67,28 +68,36 @@ class QueuePanel(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(2)
 
-        btn_up = QPushButton('▲')
-        btn_up.setFixedSize(28, 24)
+        btn_up = QPushButton()
+        btn_up.setIcon(qta.icon('mdi6.arrow-up', color=COLORS['fg']))
+        btn_up.setFixedSize(32, 28)
+        btn_up.setIconSize(btn_up.size() * 0.55)
         btn_up.setToolTip('Move up')
         btn_up.clicked.connect(self._move_up)
         btn_row.addWidget(btn_up)
 
-        btn_down = QPushButton('▼')
-        btn_down.setFixedSize(28, 24)
+        btn_down = QPushButton()
+        btn_down.setIcon(qta.icon('mdi6.arrow-down', color=COLORS['fg']))
+        btn_down.setFixedSize(32, 28)
+        btn_down.setIconSize(btn_down.size() * 0.55)
         btn_down.setToolTip('Move down')
         btn_down.clicked.connect(self._move_down)
         btn_row.addWidget(btn_down)
 
-        btn_top = QPushButton('⤒')
-        btn_top.setFixedSize(28, 24)
+        btn_top = QPushButton()
+        btn_top.setIcon(qta.icon('mdi6.arrow-collapse-up', color=COLORS['fg']))
+        btn_top.setFixedSize(32, 28)
+        btn_top.setIconSize(btn_top.size() * 0.55)
         btn_top.setToolTip('Move to top')
         btn_top.clicked.connect(self._move_to_top)
         btn_row.addWidget(btn_top)
 
         btn_row.addStretch()
 
-        btn_remove = QPushButton('✕')
-        btn_remove.setFixedSize(28, 24)
+        btn_remove = QPushButton()
+        btn_remove.setIcon(qta.icon('mdi6.close', color=COLORS['red_text']))
+        btn_remove.setFixedSize(32, 28)
+        btn_remove.setIconSize(btn_remove.size() * 0.55)
         btn_remove.setToolTip('Remove selected')
         btn_remove.clicked.connect(self._remove_selected)
         btn_row.addWidget(btn_remove)

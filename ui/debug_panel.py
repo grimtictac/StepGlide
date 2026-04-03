@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 
+import qtawesome as qta
+
 
 _LOG_COLORS = {
     'INFO':  '#4caf50',
@@ -40,20 +42,27 @@ class DebugPanel(QWidget):
         header = QHBoxLayout()
         header.setContentsMargins(6, 4, 6, 2)
 
-        lbl = QLabel('⚙  Debug Log')
-        lbl.setStyleSheet('font-size: 11px; font-weight: bold; color: #888;')
+        lbl = QLabel()
+        lbl.setPixmap(qta.icon('mdi6.bug', color='#888').pixmap(14, 14))
         header.addWidget(lbl)
+        lbl2 = QLabel('Debug Log')
+        lbl2.setStyleSheet('font-size: 11px; font-weight: bold; color: #888;')
+        header.addWidget(lbl2)
         header.addStretch()
 
-        btn_clear = QPushButton('Clear')
-        btn_clear.setFixedHeight(20)
-        btn_clear.setStyleSheet('font-size: 9px; padding: 0 8px;')
+        btn_clear = QPushButton()
+        btn_clear.setIcon(qta.icon('mdi6.eraser', color='#aaa'))
+        btn_clear.setFixedSize(24, 22)
+        btn_clear.setIconSize(btn_clear.size() * 0.65)
+        btn_clear.setToolTip('Clear log')
         btn_clear.clicked.connect(self.clear)
         header.addWidget(btn_clear)
 
-        btn_hide = QPushButton('✕  Hide')
-        btn_hide.setFixedHeight(20)
-        btn_hide.setStyleSheet('font-size: 9px; padding: 0 8px;')
+        btn_hide = QPushButton()
+        btn_hide.setIcon(qta.icon('mdi6.close', color='#aaa'))
+        btn_hide.setFixedSize(24, 22)
+        btn_hide.setIconSize(btn_hide.size() * 0.65)
+        btn_hide.setToolTip('Hide debug panel')
         btn_hide.clicked.connect(self.hide)
         header.addWidget(btn_hide)
 
