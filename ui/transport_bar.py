@@ -26,31 +26,35 @@ class VolumeStrip(QWidget):
     A tall, vertical volume slider with mute button and percentage label.
     Designed to be easy to grab — wide groove, large handle.
 
-    Momentum fade: when the user scrolls the mouse wheel, the volume
-    continues to change at the same rate after they stop scrolling.
-    The fade speed is proportional to how fast the user was scrolling:
-    fast flick → fast fade, slow scroll → slow fade.
+    Momentum fade: when the user scrolls the mouse wheel the volume begins
+    fading to 0 (scroll down) or 100 (scroll up) at a speed proportional
+    to scroll velocity.  Scrolling again *in the same direction* during an
+    active fade **adds** speed — it never slows down or stops.  The fade
+    always runs to the limit (0 or 100).
 
-    The fade halts when: scrolling in the opposite direction, clicking
-    the slider handle, hitting 0 or 100, or toggling mute.
+    The fade halts ONLY when: scrolling in the **opposite** direction,
+    clicking the slider handle, or toggling mute.
     """
 
     volume_changed = Signal(int)   # 0–100
     mute_toggled = Signal()
     debug_log = Signal(str, str)   # (level, message) → route to debug panel
 
-    # Fade tuning constants
-    _FADE_STEP = 1             # volume units per tick (fine-grained)
-    _MIN_INTERVAL_MS = 20      # fastest fade (very fast flick)
-    _MAX_INTERVAL_MS = 200     # slowest fade (gentle scroll)
-    _VELOCITY_WINDOW_S = 0.4   # only count scroll events within this window
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedWidth(52)
 
-        # Fade state
+        # ── Tunable parameters (driven by FadeTuningPanel) ──
+        self._fade_step = 1           # volume units per tick
+        self._min_interval_ms = 20    # fastest allowed fade tick (cap)
+        self._max_interval_ms = 200   # slowest fade tick (single gentle scroll)
+        self._velocity_window_s = 0.4 # sliding window for measuring scroll speed
+        self._vel_low = 3.0           # scroll evt/s that maps to slowest fade
+        self._vel_high = 30.0         # scroll evt/s that maps to fastest fade
+
+        # ── Fade state ──
         self._fade_direction = 0   # -1 = fading down, +1 = fading up, 0 = idle
+        self._current_interval_ms = self._max_interval_ms
         self._fade_timer = QTimer(self)
         self._fade_timer.timeout.connect(self._fade_tick)
 
@@ -138,18 +142,41 @@ class VolumeStrip(QWidget):
         """Intercept scroll wheel on the strip background (outside the slider)."""
         self._handle_wheel(event)
 
+    def _velocity_to_interval(self, velocity):
+        """Map scroll velocity (evt/s) → timer interval (ms).
+
+        Higher velocity → shorter interval (faster fade).
+        Returns a value clamped to [_min_interval_ms, _max_interval_ms].
+        """
+        rng = self._vel_high - self._vel_low
+        if rng <= 0:
+            rng = 1.0
+        t = max(0.0, min(1.0, (velocity - self._vel_low) / rng))
+        interval = int(self._max_interval_ms
+                       - t * (self._max_interval_ms - self._min_interval_ms))
+        return max(self._min_interval_ms, min(self._max_interval_ms, interval))
+
     def _handle_wheel(self, event):
-        """Unified wheel handler with velocity-based momentum fade."""
+        """Unified wheel handler with velocity-based momentum fade.
+
+        Rules:
+        - Scrolling starts a fade toward 0 or 100.
+        - Scrolling in the same direction during an active fade can only
+          speed it up (interval decreases), never slow it down.
+        - Scrolling in the opposite direction stops the active fade.
+        - A fade always runs to 0 or 100 once started.
+        """
         delta = event.angleDelta().y()
         if delta == 0:
             return
 
         direction = 1 if delta > 0 else -1
 
-        # If scrolling in the opposite direction of an active fade, stop it
+        # Opposite direction → stop current fade
         if self._fade_direction != 0 and direction != self._fade_direction:
-            self._log('DEBUG', f'Volume fade: reversed direction → stopping fade')
+            self._log('DEBUG', 'Volume fade: reversed direction → stopping fade')
             self._stop_fade()
+            event.accept()
             return
 
         # Apply the immediate scroll step (2 units per wheel notch)
@@ -157,55 +184,64 @@ class VolumeStrip(QWidget):
         new_val = max(0, min(100, self.volume_slider.value() + direction * step))
         self.volume_slider.setValue(new_val)
 
-        # Record this wheel event for velocity calculation
+        # Record this wheel event for velocity measurement
         now = time.monotonic()
         self._wheel_times.append(now)
-        # Prune old events outside the velocity window
-        cutoff = now - self._VELOCITY_WINDOW_S
+        cutoff = now - self._velocity_window_s
         self._wheel_times = [t for t in self._wheel_times if t >= cutoff]
 
-        # Calculate velocity: events per second within the window
+        # Calculate velocity
         n = len(self._wheel_times)
         if n >= 2:
             span = self._wheel_times[-1] - self._wheel_times[0]
             velocity = (n - 1) / span if span > 0 else float(n)
         else:
-            velocity = 1.0  # single event — treat as slowest
+            velocity = self._vel_low  # single event → slowest
 
-        # Map velocity to timer interval:
-        # high velocity → short interval (fast fade)
-        # low velocity  → long interval (slow fade)
-        # Typical scroll velocities: ~3-5 evt/s (slow) up to ~30+ evt/s (fast flick)
-        t = max(0.0, min(1.0, (velocity - 3.0) / 27.0))  # normalise 3..30 → 0..1
-        interval_ms = int(
-            self._MAX_INTERVAL_MS
-            - t * (self._MAX_INTERVAL_MS - self._MIN_INTERVAL_MS)
-        )
-        interval_ms = max(self._MIN_INTERVAL_MS, min(self._MAX_INTERVAL_MS, interval_ms))
+        new_interval = self._velocity_to_interval(velocity)
 
-        # Start (or restart) the momentum fade
+        # If a fade is already active, only allow speeding up (lower interval)
+        if self._fade_direction != 0:
+            old_interval = self._current_interval_ms
+            if new_interval >= old_interval:
+                # New scroll is same speed or slower — keep existing speed,
+                # but still restart the timer to avoid a stale tick gap.
+                self._log(
+                    'DEBUG',
+                    f'Volume scroll (boost ignored): vel={velocity:.1f} evt/s  '
+                    f'new_interval={new_interval}ms >= current={old_interval}ms'
+                )
+                event.accept()
+                return
+            self._log(
+                'DEBUG',
+                f'Volume scroll (speed up): vel={velocity:.1f} evt/s  '
+                f'interval {old_interval}ms → {new_interval}ms'
+            )
+        else:
+            self._log(
+                'DEBUG',
+                f'Volume scroll (new fade): '
+                f'{"UP" if direction > 0 else "DOWN"}  events={n}  '
+                f'vel={velocity:.1f} evt/s  interval={new_interval}ms  '
+                f'step={self._fade_step}'
+            )
+
+        # Start / speed-up the fade
         self._fade_direction = direction
-        self._fade_timer.setInterval(interval_ms)
+        self._current_interval_ms = new_interval
+        self._fade_timer.setInterval(new_interval)
         self._fade_timer.start()
-
-        dir_str = 'UP' if direction > 0 else 'DOWN'
-        self._log(
-            'DEBUG',
-            f'Volume scroll: {dir_str}  events={n}  '
-            f'velocity={velocity:.1f} evt/s  '
-            f'fade_interval={interval_ms}ms  step={self._FADE_STEP}'
-        )
 
         event.accept()
 
     def _fade_tick(self):
-        """Called by the timer — continue changing volume in the fade direction."""
+        """Called by the timer — move volume one step toward the limit."""
         current = self.volume_slider.value()
-        new_val = current + self._fade_direction * self._FADE_STEP
+        new_val = current + self._fade_direction * self._fade_step
         new_val = max(0, min(100, new_val))
 
         if new_val == current:
-            # Hit a limit, stop fading
             self._log('DEBUG', f'Volume fade: hit limit at {current}% → stopped')
             self._stop_fade()
             return
@@ -216,6 +252,7 @@ class VolumeStrip(QWidget):
         """Stop the momentum fade."""
         self._fade_timer.stop()
         self._fade_direction = 0
+        self._current_interval_ms = self._max_interval_ms
         self._wheel_times.clear()
 
     def _log(self, level, msg):
@@ -243,6 +280,120 @@ class VolumeStrip(QWidget):
         self.volume_slider.setValue(vol)
         self.volume_slider.blockSignals(False)
         self.lbl_vol_pct.setText(f'{vol}%')
+
+    # ── Tuning setters (called by FadeTuningPanel) ───────
+
+    def set_fade_step(self, v):
+        self._fade_step = v
+
+    def set_min_interval(self, v):
+        self._min_interval_ms = v
+
+    def set_max_interval(self, v):
+        self._max_interval_ms = v
+
+    def set_velocity_window(self, v):
+        self._velocity_window_s = v / 1000.0  # panel sends ms, store as seconds
+
+    def set_vel_low(self, v):
+        self._vel_low = v
+
+    def set_vel_high(self, v):
+        self._vel_high = v
+
+
+# ═════════════════════════════════════════════════════════
+# Fade tuning panel — dev knobs for the momentum fade
+# ═════════════════════════════════════════════════════════
+
+class FadeTuningPanel(QWidget):
+    """
+    Raw dev controls for tweaking the momentum-fade parameters.
+    Each row: label — slider — live value readout.
+    Sits below the VolumeStrip; will move to Settings later.
+    """
+
+    _LABEL_CSS = f'color:{COLORS["fg_dim"]};font-size:9px;'
+    _VALUE_CSS = f'color:{COLORS["accent"]};font-size:9px;font-weight:bold;'
+
+    def __init__(self, volume_strip: VolumeStrip, parent=None):
+        super().__init__(parent)
+        self._vs = volume_strip
+        self._build_ui()
+
+    # helper: one tuning row  →  (slider, value_label)
+    def _row(self, layout, label_text, min_val, max_val, default, suffix,
+             callback, *, float_scale=0):
+        """Add a labelled slider row.  *float_scale*: if >0, the slider
+        works in integer units of 1/*float_scale* (e.g. 10 → 0.1 steps)."""
+        lbl = QLabel(label_text)
+        lbl.setStyleSheet(self._LABEL_CSS)
+        layout.addWidget(lbl)
+
+        row = QHBoxLayout()
+        row.setSpacing(4)
+
+        sl = QSlider(Qt.Horizontal)
+        sl.setRange(min_val, max_val)
+        sl.setValue(default)
+        sl.setFixedHeight(16)
+        row.addWidget(sl, stretch=1)
+
+        val_lbl = QLabel()
+        val_lbl.setStyleSheet(self._VALUE_CSS)
+        val_lbl.setFixedWidth(48)
+        val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row.addWidget(val_lbl)
+
+        def _on_change(v):
+            if float_scale:
+                real = v / float_scale
+                val_lbl.setText(f'{real:.{len(str(float_scale))-1}f}{suffix}')
+                callback(real)
+            else:
+                val_lbl.setText(f'{v}{suffix}')
+                callback(v)
+
+        sl.valueChanged.connect(_on_change)
+        _on_change(default)  # set initial text
+        layout.addLayout(row)
+        return sl, val_lbl
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(2, 4, 2, 4)
+        layout.setSpacing(2)
+
+        title = QLabel('Fade Tuning')
+        title.setStyleSheet(
+            f'color:{COLORS["fg_muted"]};font-size:9px;font-weight:bold;')
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(f'color:{COLORS["border"]};')
+        layout.addWidget(sep)
+
+        self._row(layout, 'step (vol/tick)', 1, 10, 1, '',
+                  self._vs.set_fade_step)
+
+        self._row(layout, 'min interval (cap)', 5, 100, 20, 'ms',
+                  self._vs.set_min_interval)
+
+        self._row(layout, 'max interval', 50, 500, 200, 'ms',
+                  self._vs.set_max_interval)
+
+        self._row(layout, 'vel window', 100, 2000, 400, 'ms',
+                  self._vs.set_velocity_window)
+
+        self._row(layout, 'vel low', 1, 30, 3, ' e/s',
+                  self._vs.set_vel_low)
+
+        self._row(layout, 'vel high', 5, 80, 30, ' e/s',
+                  self._vs.set_vel_high)
+
+        layout.addStretch()
 
 
 class TransportBar(QWidget):

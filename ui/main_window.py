@@ -27,7 +27,7 @@ from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
 from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
-from ui.transport_bar import TransportBar, VolumeStrip
+from ui.transport_bar import FadeTuningPanel, TransportBar, VolumeStrip
 
 
 class MainWindow(QMainWindow):
@@ -248,21 +248,30 @@ class MainWindow(QMainWindow):
 
         self._right_splitter.setSizes([350, 250])
 
-        # Volume strip — far right edge
+        # Volume strip + fade tuning — far right edge
         self._volume_strip = VolumeStrip(self)
-        self._volume_strip.setStyleSheet(
-            f'background-color: {COLORS["bg_dark"]}; '
-            f'border-left: 1px solid {COLORS["border"]};')
         self._volume_strip.volume_changed.connect(self._on_volume_changed)
         self._volume_strip.mute_toggled.connect(self._toggle_mute)
         self._volume_strip.debug_log.connect(self._debug_log)
+
+        self._fade_tuning = FadeTuningPanel(self._volume_strip, self)
+
+        vol_container = QWidget()
+        vol_container.setStyleSheet(
+            f'background-color: {COLORS["bg_dark"]}; '
+            f'border-left: 1px solid {COLORS["border"]};')
+        vcl = QVBoxLayout(vol_container)
+        vcl.setContentsMargins(0, 0, 0, 0)
+        vcl.setSpacing(0)
+        vcl.addWidget(self._volume_strip, stretch=1)
+        vcl.addWidget(self._fade_tuning, stretch=0)
 
         # Add to main splitter
         self._main_splitter.addWidget(self._sidebar)
         self._main_splitter.addWidget(self._center)
         self._main_splitter.addWidget(self._right_splitter)
-        self._main_splitter.addWidget(self._volume_strip)
-        self._main_splitter.setSizes([120, 900, 280, 52])
+        self._main_splitter.addWidget(vol_container)
+        self._main_splitter.setSizes([120, 900, 280, 160])
         self._main_splitter.setStretchFactor(0, 0)
         self._main_splitter.setStretchFactor(1, 1)
         self._main_splitter.setStretchFactor(2, 0)
