@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from ui.theme import COLORS, DARK_THEME
 from ui.search_bar import SearchFilterBar
+from ui.debug_panel import DebugPanel
 from ui.eq_dialog import EqualizerDialog, apply_eq_for_track
 from ui.misc_dialogs import AuditLogDialog, RandomQueueDialog
 from ui.play_log_panel import PlayLogPanel
@@ -206,6 +207,10 @@ class MainWindow(QMainWindow):
 
         center_layout.addWidget(self._track_table, stretch=1)
 
+        # Debug panel (hidden by default, toggled with F10)
+        self._debug_panel = DebugPanel(self)
+        center_layout.addWidget(self._debug_panel)
+
         # Right panel: queue + play log in vertical splitter
         self._right_splitter = QSplitter(Qt.Vertical)
 
@@ -284,6 +289,13 @@ class MainWindow(QMainWindow):
         lite_action.triggered.connect(self._toggle_lite_mode)
         view_menu.addAction(lite_action)
 
+        view_menu.addSeparator()
+
+        debug_action = QAction('&Debug Log', self)
+        debug_action.setShortcut('F10')
+        debug_action.triggered.connect(self._toggle_debug_panel)
+        view_menu.addAction(debug_action)
+
         tools_menu = menu_bar.addMenu('&Tools')
 
         rq_action = QAction('Random &Queue Generator...', self)
@@ -310,6 +322,7 @@ class MainWindow(QMainWindow):
     def _load_tracks(self):
         """Load all tracks from DB and populate the table model."""
         tracks, voters, genres = self.db.load_all_tracks()
+        self._debug_log('INFO', f'Loaded {len(tracks)} tracks from database')
         self.all_voters = voters
         self.genres = genres
 
@@ -689,6 +702,7 @@ class MainWindow(QMainWindow):
             return
         try:
             self.vlc_player.play()
+            self._debug_log('INFO', f'Playing #{index}: {self.playlist[index].get("title", "?")}')
             self.is_playing = True
             self.is_paused = False
             self._last_action = 'playing'
@@ -1209,6 +1223,7 @@ class MainWindow(QMainWindow):
         _sc('F3',         self._toggle_tag_bar)
         _sc('F4',         self._toggle_search_bar)
         _sc('Ctrl+L',     self._toggle_lite_mode)
+        _sc('F10',        self._toggle_debug_panel)
         _sc('F11',        self._toggle_fullscreen)
 
     def _focus_search(self):
@@ -1261,6 +1276,17 @@ class MainWindow(QMainWindow):
             self.showNormal()
         else:
             self.showFullScreen()
+
+    def _toggle_debug_panel(self):
+        """Show/hide the debug log panel."""
+        if self._debug_panel.isVisible():
+            self._debug_panel.hide()
+        else:
+            self._debug_panel.show()
+
+    def _debug_log(self, level, msg):
+        """Write a message to the debug panel."""
+        self._debug_panel.log(level, msg)
 
     # ── Drag-and-drop ─────────────────────────────────
 
