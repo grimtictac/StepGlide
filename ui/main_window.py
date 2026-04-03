@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from ui.theme import COLORS, DARK_THEME
 from ui.search_bar import SearchFilterBar
+from ui.eq_dialog import EqualizerDialog, apply_eq_for_track
 from ui.play_log_panel import PlayLogPanel
 from ui.queue_panel import QueuePanel
 from ui.sidebar import SidebarWidget
@@ -145,6 +146,13 @@ class MainWindow(QMainWindow):
         self._voter_combo.setToolTip('Voter name')
         self._voter_combo.lineEdit().setPlaceholderText('anonymous')
         np_layout.addWidget(self._voter_combo)
+
+        # EQ button
+        self._btn_eq = QPushButton('EQ')
+        self._btn_eq.setFixedSize(36, 28)
+        self._btn_eq.setToolTip('Equalizer')
+        self._btn_eq.clicked.connect(self._show_eq_dialog)
+        np_layout.addWidget(self._btn_eq)
 
         # Jump-to-playing button
         self.btn_jump = QPushButton('⎆')
@@ -645,6 +653,7 @@ class MainWindow(QMainWindow):
             self._record_play_immediate()
             self._transport.set_playing_state(True)
             self._update_now_playing()
+            self._apply_eq_for_current()
         except Exception as e:
             QMessageBox.critical(self, 'Playback error', str(e))
 
@@ -1014,6 +1023,48 @@ class MainWindow(QMainWindow):
         idx = self._voter_combo.findText(current)
         if idx >= 0:
             self._voter_combo.setCurrentIndex(idx)
+
+    # ── Equalizer ────────────────────────────────────────
+
+    def _show_eq_dialog(self):
+        """Open the per-track equalizer dialog."""
+        path = None
+        title = None
+        if self.current_index is not None:
+            entry = self.playlist[self.current_index]
+            path = entry.get('path')
+            title = entry.get('title', entry.get('basename', ''))
+        dlg = EqualizerDialog(
+            self, db=self.db, vlc_player=self.vlc_player,
+            track_path=path, track_title=title)
+        dlg.exec()
+        self._update_eq_button()
+
+    def _apply_eq_for_current(self):
+        """Load and apply saved EQ for the current track."""
+        path = None
+        if self.current_index is not None:
+            path = self.playlist[self.current_index].get('path')
+        has_eq = apply_eq_for_track(self.db, self.vlc_player, path)
+        self._update_eq_button(has_eq)
+
+    def _update_eq_button(self, has_eq=None):
+        """Style the EQ button green when a custom EQ is active."""
+        if has_eq is None:
+            # Check DB
+            if self.current_index is not None:
+                path = self.playlist[self.current_index].get('path')
+                tid = self.db.get_track_id(path) if path else None
+                row = self.db.load_track_eq(tid) if tid else None
+                has_eq = row is not None
+            else:
+                has_eq = False
+        if has_eq:
+            self._btn_eq.setStyleSheet(
+                f'background-color: #1a3d1a; color: #4caf50; '
+                f'font-weight: bold; border-radius: 4px;')
+        else:
+            self._btn_eq.setStyleSheet('')
 
     def _on_play_from_queue(self, playlist_idx):
         """Handle double-click on a queue item — play immediately."""
