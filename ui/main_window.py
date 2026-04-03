@@ -27,7 +27,7 @@ from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
 from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
-from ui.transport_bar import TransportBar
+from ui.transport_bar import TransportBar, VolumeStrip
 
 
 class MainWindow(QMainWindow):
@@ -248,14 +248,24 @@ class MainWindow(QMainWindow):
 
         self._right_splitter.setSizes([350, 250])
 
+        # Volume strip — far right edge
+        self._volume_strip = VolumeStrip(self)
+        self._volume_strip.setStyleSheet(
+            f'background-color: {COLORS["bg_dark"]}; '
+            f'border-left: 1px solid {COLORS["border"]};')
+        self._volume_strip.volume_changed.connect(self._on_volume_changed)
+        self._volume_strip.mute_toggled.connect(self._toggle_mute)
+
         # Add to main splitter
         self._main_splitter.addWidget(self._sidebar)
         self._main_splitter.addWidget(self._center)
         self._main_splitter.addWidget(self._right_splitter)
-        self._main_splitter.setSizes([120, 900, 280])
+        self._main_splitter.addWidget(self._volume_strip)
+        self._main_splitter.setSizes([120, 900, 280, 52])
         self._main_splitter.setStretchFactor(0, 0)
         self._main_splitter.setStretchFactor(1, 1)
         self._main_splitter.setStretchFactor(2, 0)
+        self._main_splitter.setStretchFactor(3, 0)
 
     def _build_menu_bar(self):
         menu_bar = self.menuBar()
@@ -547,8 +557,6 @@ class MainWindow(QMainWindow):
         t.next_clicked.connect(self._next_track)
         t.prev_clicked.connect(self._prev_track)
         t.scrub_released.connect(self._on_scrub_released)
-        t.volume_changed.connect(self._on_volume_changed)
-        t.mute_toggled.connect(self._toggle_mute)
         t.speed_up_clicked.connect(self._speed_up)
         t.speed_down_clicked.connect(self._speed_down)
         t.speed_reset_clicked.connect(self._speed_reset)
@@ -825,20 +833,20 @@ class MainWindow(QMainWindow):
         self._vlc_mp().audio_set_volume(volume)
         if volume > 0:
             self._muted = False
-            self._transport.set_mute_icon(False)
+            self._volume_strip.set_mute_icon(False)
 
     def _toggle_mute(self):
         if self._muted:
-            self._transport.set_volume(self._pre_mute_vol)
+            self._volume_strip.set_volume(self._pre_mute_vol)
             self._vlc_mp().audio_set_volume(self._pre_mute_vol)
             self._muted = False
-            self._transport.set_mute_icon(False)
+            self._volume_strip.set_mute_icon(False)
         else:
-            self._pre_mute_vol = self._transport.volume_slider.value()
-            self._transport.set_volume(0)
+            self._pre_mute_vol = self._volume_strip.volume_slider.value()
+            self._volume_strip.set_volume(0)
             self._vlc_mp().audio_set_volume(0)
             self._muted = True
-            self._transport.set_mute_icon(True)
+            self._volume_strip.set_mute_icon(True)
 
     def _speed_up(self):
         self._speed = min(round(self._speed + 0.1, 1), 3.0)

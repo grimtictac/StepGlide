@@ -6,13 +6,109 @@ speed controls, and mute button.
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider,
-    QVBoxLayout, QWidget,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
 
 import qtawesome as qta
 from ui.theme import COLORS
 
 _ICON_SIZE = 18  # default icon pixel size for transport buttons
+
+
+# ═════════════════════════════════════════════════════════
+# Vertical volume strip — sits on the far-right of the window
+# ═════════════════════════════════════════════════════════
+
+class VolumeStrip(QWidget):
+    """
+    A tall, vertical volume slider with mute button and percentage label.
+    Designed to be easy to grab — wide groove, large handle.
+    """
+
+    volume_changed = Signal(int)   # 0–100
+    mute_toggled = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(52)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 8, 4, 8)
+        layout.setSpacing(4)
+        layout.setAlignment(Qt.AlignHCenter)
+
+        # Mute button at top
+        self._icon_vol_high = qta.icon('mdi6.volume-high', color=COLORS['fg'])
+        self._icon_vol_off = qta.icon('mdi6.volume-off', color=COLORS['red_text'])
+        self.btn_mute = QPushButton()
+        self.btn_mute.setIcon(self._icon_vol_high)
+        self.btn_mute.setFixedSize(40, 36)
+        self.btn_mute.setIconSize(self.btn_mute.size() * 0.6)
+        self.btn_mute.setToolTip('Mute / Unmute')
+        self.btn_mute.clicked.connect(self.mute_toggled)
+        layout.addWidget(self.btn_mute, alignment=Qt.AlignHCenter)
+
+        # Percentage label
+        self.lbl_vol_pct = QLabel('80%')
+        self.lbl_vol_pct.setAlignment(Qt.AlignCenter)
+        self.lbl_vol_pct.setStyleSheet(
+            f'color: {COLORS["fg_dim"]}; font-size: 10px; font-weight: bold;')
+        layout.addWidget(self.lbl_vol_pct, alignment=Qt.AlignHCenter)
+
+        # Vertical slider — stretches to fill height
+        self.volume_slider = QSlider(Qt.Vertical)
+        self.volume_slider.setRange(0, 100)
+        self.volume_slider.setValue(80)
+        self.volume_slider.setToolTip('Volume')
+        self.volume_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self.volume_slider.setFixedWidth(36)
+        self.volume_slider.setStyleSheet(f'''
+            QSlider::groove:vertical {{
+                background: {COLORS["bg_light"]};
+                width: 14px;
+                border-radius: 7px;
+            }}
+            QSlider::handle:vertical {{
+                background: {COLORS["accent"]};
+                border: 2px solid {COLORS["fg_dim"]};
+                height: 24px;
+                width: 28px;
+                margin: 0 -7px;
+                border-radius: 6px;
+            }}
+            QSlider::handle:vertical:hover {{
+                background: {COLORS["accent_hover"]};
+                border: 2px solid {COLORS["fg"]};
+            }}
+            QSlider::sub-page:vertical {{
+                background: {COLORS["bg_light"]};
+                border-radius: 7px;
+            }}
+            QSlider::add-page:vertical {{
+                background: {COLORS["accent"]};
+                border-radius: 7px;
+            }}
+        ''')
+        self.volume_slider.valueChanged.connect(self._on_volume_changed)
+        layout.addWidget(self.volume_slider, stretch=1, alignment=Qt.AlignHCenter)
+
+    def _on_volume_changed(self, value):
+        self.lbl_vol_pct.setText(f'{value}%')
+        self.volume_changed.emit(value)
+
+    # ── Public API ───────────────────────────────────────
+
+    def set_mute_icon(self, muted):
+        self.btn_mute.setIcon(self._icon_vol_off if muted else self._icon_vol_high)
+
+    def set_volume(self, vol):
+        """Set volume slider (0–100) without emitting signal."""
+        self.volume_slider.blockSignals(True)
+        self.volume_slider.setValue(vol)
+        self.volume_slider.blockSignals(False)
+        self.lbl_vol_pct.setText(f'{vol}%')
 
 
 class TransportBar(QWidget):
@@ -29,8 +125,6 @@ class TransportBar(QWidget):
     prev_clicked = Signal()
     scrub_moved = Signal(float)          # 0.0–1.0 position while dragging
     scrub_released = Signal(float)       # 0.0–1.0 final position on release
-    volume_changed = Signal(int)         # 0–100
-    mute_toggled = Signal()
     speed_up_clicked = Signal()
     speed_down_clicked = Signal()
     speed_reset_clicked = Signal()
@@ -121,37 +215,9 @@ class TransportBar(QWidget):
 
         outer.addLayout(row1)
 
-        # ── Row 2: volume + speed ────────────────────────
+        # ── Row 2: speed controls ────────────────────────
         row2 = QHBoxLayout()
         row2.setSpacing(6)
-
-        # Mute button
-        self._icon_vol_high = qta.icon('mdi6.volume-high', color=COLORS['fg'])
-        self._icon_vol_off = qta.icon('mdi6.volume-off', color=COLORS['red_text'])
-        self.btn_mute = QPushButton()
-        self.btn_mute.setIcon(self._icon_vol_high)
-        self.btn_mute.setFixedSize(34, 28)
-        self.btn_mute.setIconSize(self.btn_mute.size() * 0.65)
-        self.btn_mute.setToolTip('Mute / Unmute')
-        self.btn_mute.clicked.connect(self.mute_toggled)
-        row2.addWidget(self.btn_mute)
-
-        # Volume slider
-        self.volume_slider = QSlider(Qt.Horizontal)
-        self.volume_slider.setRange(0, 100)
-        self.volume_slider.setValue(80)
-        self.volume_slider.setFixedWidth(100)
-        self.volume_slider.setToolTip('Volume')
-        self.volume_slider.valueChanged.connect(self._on_volume_changed)
-        row2.addWidget(self.volume_slider)
-
-        # Volume percentage label
-        self.lbl_vol_pct = QLabel('80%')
-        self.lbl_vol_pct.setFixedWidth(36)
-        self.lbl_vol_pct.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 10px;')
-        row2.addWidget(self.lbl_vol_pct)
-
-        row2.addSpacing(16)
 
         # ── Speed controls ───────────────────────────────
         # Speed frame (highlighted when ≠ 1.0)
@@ -217,10 +283,6 @@ class TransportBar(QWidget):
         pos = self.scrub_slider.value() / 10000.0
         self.scrub_released.emit(pos)
 
-    def _on_volume_changed(self, value):
-        self.lbl_vol_pct.setText(f'{value}%')
-        self.volume_changed.emit(value)
-
     # ── Public API for MainWindow ────────────────────────
 
     @property
@@ -263,16 +325,6 @@ class TransportBar(QWidget):
         else:
             self._speed_frame.setStyleSheet('')
             self.lbl_speed.setStyleSheet('font-weight: bold; font-size: 11px;')
-
-    def set_mute_icon(self, muted):
-        self.btn_mute.setIcon(self._icon_vol_off if muted else self._icon_vol_high)
-
-    def set_volume(self, vol):
-        """Set volume slider (0–100) without emitting signal."""
-        self.volume_slider.blockSignals(True)
-        self.volume_slider.setValue(vol)
-        self.volume_slider.blockSignals(False)
-        self.lbl_vol_pct.setText(f'{vol}%')
 
     def reset_display(self):
         """Reset scrub + time to zero (e.g. on stop)."""
