@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.theme import COLORS, DARK_THEME
+from ui.search_bar import SearchFilterBar
 from ui.track_table import ALL_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
 from ui.transport_bar import TransportBar
 
@@ -134,6 +135,11 @@ class MainWindow(QMainWindow):
         self._connect_transport()
         center_layout.addWidget(self._transport)
 
+        # Search / filter bar
+        self._search_bar = SearchFilterBar(self)
+        self._connect_search_bar()
+        center_layout.addWidget(self._search_bar)
+
         # Track table
         self._track_model = TrackTableModel(self)
         self._filter_proxy = TrackFilterProxy(self)
@@ -237,6 +243,12 @@ class MainWindow(QMainWindow):
 
         self._update_track_count()
         self._lbl_now_playing.setText(f'{len(self.playlist)} tracks loaded')
+
+        # Populate search bar dropdowns
+        self._search_bar.set_voters(self.all_voters)
+        if hasattr(self.config, 'length_filter_durations') and self.config.length_filter_durations:
+            opts = [label for label, lo, hi in self.config.length_filter_durations]
+            self._search_bar.set_length_options(opts)
 
     def _update_track_count(self):
         total = len(self.playlist)
@@ -381,6 +393,53 @@ class MainWindow(QMainWindow):
         t.speed_down_clicked.connect(self._speed_down)
         t.speed_reset_clicked.connect(self._speed_reset)
         t.auto_reset_speed_changed.connect(self._on_auto_reset_speed)
+
+    # ── Connect search / filter bar ─────────────────────
+
+    def _connect_search_bar(self):
+        sb = self._search_bar
+        sb.search_changed.connect(self._on_search_changed)
+        sb.rating_changed.connect(self._on_rating_filter)
+        sb.liked_by_changed.connect(self._on_liked_by_filter)
+        sb.first_played_changed.connect(
+            lambda v: self._on_date_filter('first_played', v))
+        sb.last_played_changed.connect(
+            lambda v: self._on_date_filter('last_played', v))
+        sb.file_created_changed.connect(
+            lambda v: self._on_date_filter('file_created', v))
+        sb.length_changed.connect(self._on_length_filter)
+        sb.filters_reset.connect(self._on_filters_reset)
+
+    def _on_search_changed(self, tokens):
+        self._filter_proxy.set_search_tokens(tokens)
+        self._update_track_count()
+
+    def _on_rating_filter(self, threshold):
+        self._filter_proxy.set_rating_filter(threshold)
+        self._update_track_count()
+
+    def _on_liked_by_filter(self, voter):
+        self._filter_proxy.set_liked_by_filter(voter)
+        self._update_track_count()
+
+    def _on_date_filter(self, which, value):
+        self._filter_proxy.set_date_filter(which, value)
+        self._update_track_count()
+
+    def _on_length_filter(self, label, lo, hi):
+        if label == 'All':
+            self._filter_proxy.set_length_filter('All', None, None)
+        else:
+            # Look up (lo, hi) from config by label
+            for cfg_label, cfg_lo, cfg_hi in self.config.length_filter_durations:
+                if cfg_label == label:
+                    self._filter_proxy.set_length_filter(label, cfg_lo, cfg_hi)
+                    break
+        self._update_track_count()
+
+    def _on_filters_reset(self):
+        self._filter_proxy.clear_all_filters()
+        self._update_track_count()
 
     # ── VLC helpers ──────────────────────────────────────
 
@@ -690,9 +749,8 @@ class MainWindow(QMainWindow):
         _sc('F11',        self._toggle_fullscreen)
 
     def _focus_search(self):
-        """Focus the search box (once it exists)."""
-        # TODO: wire to search bar widget
-        pass
+        """Focus the search box."""
+        self._search_bar.focus_search()
 
     def _toggle_sidebar(self):
         """Show/hide the left sidebar panel."""
