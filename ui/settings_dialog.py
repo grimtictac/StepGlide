@@ -152,7 +152,7 @@ class SettingsDialog(QDialog):
 
         for gname, members in self._working_groups.items():
             group_widget = QWidget()
-            group_widget.setStyleSheet(f'background-color: {COLORS["bg_medium"]};'
+            group_widget.setStyleSheet(f'background-color: {COLORS["bg_mid"]};'
                                        f'border-radius: 4px; padding: 4px;')
             gl = QVBoxLayout(group_widget)
             gl.setContentsMargins(8, 6, 8, 6)
@@ -265,7 +265,7 @@ class SettingsDialog(QDialog):
 
         for tag in sorted(self._working_tags):
             row = QWidget()
-            row.setStyleSheet(f'background-color: {COLORS["bg_medium"]}; border-radius: 4px;')
+            row.setStyleSheet(f'background-color: {COLORS["bg_mid"]}; border-radius: 4px;')
             rl = QHBoxLayout(row)
             rl.setContentsMargins(10, 6, 6, 6)
             rl.addWidget(QLabel(tag.upper()))
@@ -350,7 +350,7 @@ class SettingsDialog(QDialog):
 
         for i, dur in enumerate(self._working_durations):
             row = QWidget()
-            row.setStyleSheet(f'background-color: {COLORS["bg_medium"]}; border-radius: 4px;')
+            row.setStyleSheet(f'background-color: {COLORS["bg_mid"]}; border-radius: 4px;')
             rl = QHBoxLayout(row)
             rl.setContentsMargins(8, 4, 4, 4)
 
@@ -440,7 +440,7 @@ class SettingsDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_reset = QPushButton('Reset All to Defaults')
         btn_reset.setStyleSheet(
-            f'background-color: {COLORS["error"]}; color: white; padding: 4px 10px;')
+            f'background-color: {COLORS["red"]}; color: white; padding: 4px 10px;')
         btn_reset.clicked.connect(self._reset_tooltips)
         btn_row.addWidget(btn_reset)
         btn_row.addStretch()
@@ -460,7 +460,7 @@ class SettingsDialog(QDialog):
 
         for key in sorted(DEFAULT_TOOLTIPS.keys()):
             row = QWidget()
-            row.setStyleSheet(f'background-color: {COLORS["bg_medium"]}; border-radius: 4px;')
+            row.setStyleSheet(f'background-color: {COLORS["bg_mid"]}; border-radius: 4px;')
             rl = QHBoxLayout(row)
             rl.setContentsMargins(8, 4, 4, 4)
 
@@ -500,7 +500,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(self._subtext('Toggle visual cues and animation effects.'))
 
         row = QWidget()
-        row.setStyleSheet(f'background-color: {COLORS["bg_medium"]}; border-radius: 4px;')
+        row.setStyleSheet(f'background-color: {COLORS["bg_mid"]}; border-radius: 4px;')
         rl = QHBoxLayout(row)
         rl.setContentsMargins(10, 10, 10, 10)
         rl.addWidget(QLabel('Queue button glow/throb on track selection'))

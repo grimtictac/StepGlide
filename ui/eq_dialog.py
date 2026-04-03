@@ -129,7 +129,7 @@ class EqualizerDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_reset = QPushButton('Reset')
         btn_reset.setStyleSheet(
-            f'background-color: {COLORS["error"]}; color: white; padding: 6px 14px;')
+            f'background-color: {COLORS["red"]}; color: white; padding: 6px 14px;')
         btn_reset.clicked.connect(self._on_reset)
         btn_row.addWidget(btn_reset)
 
