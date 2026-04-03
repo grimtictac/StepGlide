@@ -246,13 +246,13 @@ class MainWindow(QMainWindow):
         self._play_log.jump_to_track.connect(self._jump_to_track_index)
         self._right_splitter.addWidget(self._play_log)
 
-        self._right_splitter.setSizes([300, 300])
+        self._right_splitter.setSizes([350, 250])
 
         # Add to main splitter
         self._main_splitter.addWidget(self._sidebar)
         self._main_splitter.addWidget(self._center)
         self._main_splitter.addWidget(self._right_splitter)
-        self._main_splitter.setSizes([170, 900, 240])
+        self._main_splitter.setSizes([120, 900, 280])
         self._main_splitter.setStretchFactor(0, 0)
         self._main_splitter.setStretchFactor(1, 1)
         self._main_splitter.setStretchFactor(2, 0)
