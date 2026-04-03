@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from ui.theme import COLORS, DARK_THEME
 from ui.search_bar import SearchFilterBar
 from ui.eq_dialog import EqualizerDialog, apply_eq_for_track
+from ui.misc_dialogs import AuditLogDialog, RandomQueueDialog
 from ui.play_log_panel import PlayLogPanel
 from ui.queue_panel import QueuePanel
 from ui.settings_dialog import SettingsDialog
@@ -259,6 +260,18 @@ class MainWindow(QMainWindow):
         fullscreen_action.setShortcut('F11')
         fullscreen_action.triggered.connect(self._toggle_fullscreen)
         view_menu.addAction(fullscreen_action)
+
+        tools_menu = menu_bar.addMenu('&Tools')
+
+        rq_action = QAction('Random &Queue Generator...', self)
+        rq_action.triggered.connect(self._random_queue_dialog)
+        tools_menu.addAction(rq_action)
+
+        tools_menu.addSeparator()
+
+        audit_action = QAction('&Audit Log...', self)
+        audit_action.triggered.connect(self._show_audit_log)
+        tools_menu.addAction(audit_action)
 
     def _build_status_bar(self):
         self._status_bar = QStatusBar()
@@ -1087,6 +1100,20 @@ class MainWindow(QMainWindow):
             if self.config.length_filter_durations:
                 opts = [label for label, lo, hi in self.config.length_filter_durations]
                 self._search_bar.set_length_options(opts)
+
+    # ── Misc dialogs ────────────────────────────────────
+
+    def _random_queue_dialog(self):
+        """Open the random queue generator and apply result to queue panel."""
+        dlg = RandomQueueDialog(
+            self, playlist=self.playlist, genres=self.genres,
+            all_tags=self.config.all_tags)
+        if dlg.exec() and dlg.result_indices:
+            self._queue_panel.set_queue(dlg.result_indices)
+
+    def _show_audit_log(self):
+        """Show the audit log viewer."""
+        AuditLogDialog(self, db=self.db).exec()
 
     def _on_play_from_queue(self, playlist_idx):
         """Handle double-click on a queue item — play immediately."""
