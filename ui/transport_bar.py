@@ -7,14 +7,52 @@ import time
 
 from PySide6.QtCore import Qt, QEvent, QTimer, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton,
+    QSlider, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 import qtawesome as qta
 from ui.theme import COLORS
 
 _ICON_SIZE = 18  # default icon pixel size for transport buttons
+
+# Shared stylesheet for the fade gauges
+_GAUGE_HEIGHT = 12
+_SPEED_BAR_CSS = '''
+    QProgressBar {{
+        background: {bg};
+        border: 1px solid {border};
+        border-radius: 3px;
+        text-align: center;
+        font-size: 8px;
+        color: {fg};
+    }}
+    QProgressBar::chunk {{
+        border-radius: 2px;
+        background: qlineargradient(
+            x1:0, y1:0, x2:1, y2:0,
+            stop:0 {green}, stop:0.5 {yellow}, stop:1 {red});
+    }}
+'''.format(bg=COLORS['bg'], border=COLORS['border'], fg=COLORS['fg_dim'],
+           green=COLORS['green'], yellow=COLORS['yellow'], red=COLORS['red'])
+
+_BOOST_BAR_CSS = '''
+    QProgressBar {{
+        background: {bg};
+        border: 1px solid {border};
+        border-radius: 3px;
+        text-align: center;
+        font-size: 8px;
+        color: {fg};
+    }}
+    QProgressBar::chunk {{
+        border-radius: 2px;
+        background: qlineargradient(
+            x1:0, y1:0, x2:1, y2:0,
+            stop:0 {cyan}, stop:1 {accent});
+    }}
+'''.format(bg=COLORS['bg'], border=COLORS['border'], fg=COLORS['fg_dim'],
+           cyan=COLORS['cyan'], accent=COLORS['accent'])
 
 
 # ═════════════════════════════════════════════════════════
@@ -39,6 +77,8 @@ class VolumeStrip(QWidget):
     volume_changed = Signal(int)   # 0–100
     mute_toggled = Signal()
     debug_log = Signal(str, str)   # (level, message) → route to debug panel
+    # (velocity_evt_s, current_interval_ms, initial_interval_ms, is_fading)
+    fade_state_changed = Signal(float, int, int, bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -55,6 +95,8 @@ class VolumeStrip(QWidget):
         # ── Fade state ──
         self._fade_direction = 0   # -1 = fading down, +1 = fading up, 0 = idle
         self._current_interval_ms = self._max_interval_ms
+        self._initial_interval_ms = self._max_interval_ms  # interval at fade start
+        self._last_velocity = 0.0
         self._fade_timer = QTimer(self)
         self._fade_timer.timeout.connect(self._fade_tick)
 
@@ -199,6 +241,7 @@ class VolumeStrip(QWidget):
             velocity = self._vel_low  # single event → slowest
 
         new_interval = self._velocity_to_interval(velocity)
+        self._last_velocity = velocity
 
         # If a fade is already active, only allow speeding up (lower interval)
         if self._fade_direction != 0:
@@ -211,6 +254,7 @@ class VolumeStrip(QWidget):
                     f'Volume scroll (boost ignored): vel={velocity:.1f} evt/s  '
                     f'new_interval={new_interval}ms >= current={old_interval}ms'
                 )
+                self._emit_fade_state()
                 event.accept()
                 return
             self._log(
@@ -219,6 +263,8 @@ class VolumeStrip(QWidget):
                 f'interval {old_interval}ms → {new_interval}ms'
             )
         else:
+            # New fade — record the starting interval
+            self._initial_interval_ms = new_interval
             self._log(
                 'DEBUG',
                 f'Volume scroll (new fade): '
@@ -233,6 +279,7 @@ class VolumeStrip(QWidget):
         self._fade_timer.setInterval(new_interval)
         self._fade_timer.start()
 
+        self._emit_fade_state()
         event.accept()
 
     def _fade_tick(self):
@@ -247,13 +294,26 @@ class VolumeStrip(QWidget):
             return
 
         self.volume_slider.setValue(new_val)
+        self._emit_fade_state()
 
     def _stop_fade(self):
         """Stop the momentum fade."""
         self._fade_timer.stop()
         self._fade_direction = 0
         self._current_interval_ms = self._max_interval_ms
+        self._initial_interval_ms = self._max_interval_ms
+        self._last_velocity = 0.0
         self._wheel_times.clear()
+        self._emit_fade_state()
+
+    def _emit_fade_state(self):
+        """Broadcast current fade metrics for the tuning panel gauges."""
+        self.fade_state_changed.emit(
+            self._last_velocity,
+            self._current_interval_ms,
+            self._initial_interval_ms,
+            self._fade_direction != 0,
+        )
 
     def _log(self, level, msg):
         """Emit a debug_log signal for the main window to pick up."""
@@ -320,6 +380,8 @@ class FadeTuningPanel(QWidget):
         super().__init__(parent)
         self._vs = volume_strip
         self._build_ui()
+        # Connect the real-time fade state signal
+        self._vs.fade_state_changed.connect(self._on_fade_state)
 
     # helper: one tuning row  →  (slider, value_label)
     def _row(self, layout, label_text, min_val, max_val, default, suffix,
@@ -375,6 +437,72 @@ class FadeTuningPanel(QWidget):
         sep.setStyleSheet(f'color:{COLORS["border"]};')
         layout.addWidget(sep)
 
+        # ── Real-time gauges ─────────────────────────────
+
+        gauge_title = QLabel('Live')
+        gauge_title.setStyleSheet(
+            f'color:{COLORS["fg_muted"]};font-size:8px;font-weight:bold;')
+        gauge_title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(gauge_title)
+
+        # Speed gauge: shows current fade speed (interval mapped to 0–100)
+        lbl_spd = QLabel('speed')
+        lbl_spd.setStyleSheet(self._LABEL_CSS)
+        layout.addWidget(lbl_spd)
+
+        spd_row = QHBoxLayout()
+        spd_row.setSpacing(4)
+        self._speed_bar = QProgressBar()
+        self._speed_bar.setRange(0, 100)
+        self._speed_bar.setValue(0)
+        self._speed_bar.setFixedHeight(_GAUGE_HEIGHT)
+        self._speed_bar.setStyleSheet(_SPEED_BAR_CSS)
+        self._speed_bar.setFormat('')  # we show value in the label
+        spd_row.addWidget(self._speed_bar, stretch=1)
+        self._speed_lbl = QLabel('idle')
+        self._speed_lbl.setStyleSheet(self._VALUE_CSS)
+        self._speed_lbl.setFixedWidth(52)
+        self._speed_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        spd_row.addWidget(self._speed_lbl)
+        layout.addLayout(spd_row)
+
+        # Boost gauge: shows how much the interval was reduced from initial
+        lbl_boost = QLabel('boost')
+        lbl_boost.setStyleSheet(self._LABEL_CSS)
+        layout.addWidget(lbl_boost)
+
+        boost_row = QHBoxLayout()
+        boost_row.setSpacing(4)
+        self._boost_bar = QProgressBar()
+        self._boost_bar.setRange(0, 100)
+        self._boost_bar.setValue(0)
+        self._boost_bar.setFixedHeight(_GAUGE_HEIGHT)
+        self._boost_bar.setStyleSheet(_BOOST_BAR_CSS)
+        self._boost_bar.setFormat('')
+        boost_row.addWidget(self._boost_bar, stretch=1)
+        self._boost_lbl = QLabel('—')
+        self._boost_lbl.setStyleSheet(self._VALUE_CSS)
+        self._boost_lbl.setFixedWidth(52)
+        self._boost_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        boost_row.addWidget(self._boost_lbl)
+        layout.addLayout(boost_row)
+
+        # Velocity readout
+        lbl_vel = QLabel('velocity')
+        lbl_vel.setStyleSheet(self._LABEL_CSS)
+        layout.addWidget(lbl_vel)
+        self._vel_lbl = QLabel('0.0 e/s')
+        self._vel_lbl.setStyleSheet(self._VALUE_CSS)
+        self._vel_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self._vel_lbl)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setStyleSheet(f'color:{COLORS["border"]};')
+        layout.addWidget(sep2)
+
+        # ── Tuning sliders ───────────────────────────────
+
         self._row(layout, 'step (vol/tick)', 1, 10, 1, '',
                   self._vs.set_fade_step)
 
@@ -394,6 +522,46 @@ class FadeTuningPanel(QWidget):
                   self._vs.set_vel_high)
 
         layout.addStretch()
+
+    # ── Gauge updates ────────────────────────────────────
+
+    def _on_fade_state(self, velocity, current_ms, initial_ms, is_fading):
+        """Update the real-time gauges from VolumeStrip.fade_state_changed."""
+        min_iv = self._vs._min_interval_ms
+        max_iv = self._vs._max_interval_ms
+
+        if is_fading:
+            # Speed: map current_ms from [max_iv .. min_iv] → [0 .. 100]
+            rng = max_iv - min_iv
+            if rng > 0:
+                speed_pct = int(100 * (max_iv - current_ms) / rng)
+            else:
+                speed_pct = 100
+            speed_pct = max(0, min(100, speed_pct))
+            self._speed_bar.setValue(speed_pct)
+            self._speed_lbl.setText(f'{current_ms}ms')
+
+            # Boost: how much interval was reduced from initial
+            if initial_ms > min_iv:
+                reduction = initial_ms - current_ms
+                max_possible = initial_ms - min_iv
+                boost_pct = int(100 * reduction / max_possible) if max_possible > 0 else 0
+            else:
+                boost_pct = 0
+            boost_pct = max(0, min(100, boost_pct))
+            self._boost_bar.setValue(boost_pct)
+            if initial_ms != current_ms:
+                self._boost_lbl.setText(f'-{initial_ms - current_ms}ms')
+            else:
+                self._boost_lbl.setText('—')
+
+            self._vel_lbl.setText(f'{velocity:.1f} e/s')
+        else:
+            self._speed_bar.setValue(0)
+            self._speed_lbl.setText('idle')
+            self._boost_bar.setValue(0)
+            self._boost_lbl.setText('—')
+            self._vel_lbl.setText('0.0 e/s')
 
 
 class TransportBar(QWidget):
