@@ -5,7 +5,7 @@ Debug log panel — collapsible panel that shows timestamped log messages.
 from datetime import datetime
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QTextCharFormat
+from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
@@ -111,7 +111,7 @@ class DebugPanel(QWidget):
         color = _LOG_COLORS.get(level, '#dce4ee')
         fmt.setForeground(QColor(color))
         cursor = self._text.textCursor()
-        cursor.movePosition(cursor.End)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         cursor.insertText(line + '\n', fmt)
         self._text.setTextCursor(cursor)
         self._text.ensureCursorVisible()
