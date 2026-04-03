@@ -10,8 +10,8 @@ import vlc
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMenu,
-    QMessageBox, QProgressBar, QPushButton, QSplitter, QStatusBar,
+    QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
+    QMenu, QMessageBox, QProgressBar, QPushButton, QSplitter, QStatusBar,
     QVBoxLayout, QWidget,
 )
 
@@ -120,6 +120,31 @@ class MainWindow(QMainWindow):
             f'color: {COLORS["cyan"]}; font-size: 11px; padding: 2px 6px;')
         np_layout.addWidget(self._lbl_genre)
         np_layout.addStretch()
+
+        # Rating display + vote buttons + voter selector
+        self._lbl_rating = QLabel('')
+        self._lbl_rating.setStyleSheet(
+            'font-size: 13px; font-weight: bold; padding: 0 6px;')
+        np_layout.addWidget(self._lbl_rating)
+
+        btn_like = QPushButton('\U0001f44d')
+        btn_like.setFixedSize(32, 28)
+        btn_like.setToolTip('Like this track')
+        btn_like.clicked.connect(lambda: self._vote(+1))
+        np_layout.addWidget(btn_like)
+
+        btn_dislike = QPushButton('\U0001f44e')
+        btn_dislike.setFixedSize(32, 28)
+        btn_dislike.setToolTip('Dislike this track')
+        btn_dislike.clicked.connect(lambda: self._vote(-1))
+        np_layout.addWidget(btn_dislike)
+
+        self._voter_combo = QComboBox()
+        self._voter_combo.setEditable(True)
+        self._voter_combo.setFixedWidth(110)
+        self._voter_combo.setToolTip('Voter name')
+        self._voter_combo.lineEdit().setPlaceholderText('anonymous')
+        np_layout.addWidget(self._voter_combo)
 
         # Jump-to-playing button
         self.btn_jump = QPushButton('⎆')
@@ -259,6 +284,7 @@ class MainWindow(QMainWindow):
 
         # Populate search bar dropdowns
         self._search_bar.set_voters(self.all_voters)
+        self._refresh_voter_combo()
         if hasattr(self.config, 'length_filter_durations') and self.config.length_filter_durations:
             opts = [label for label, lo, hi in self.config.length_filter_durations]
             self._search_bar.set_length_options(opts)
@@ -555,6 +581,7 @@ class MainWindow(QMainWindow):
         else:
             self._lbl_now_playing.setText('Not Playing')
             self._lbl_genre.setText('')
+        self._update_rating_display()
 
     def _record_play_immediate(self):
         """Record the play for the current track and update the table row."""
@@ -927,6 +954,66 @@ class MainWindow(QMainWindow):
             e['_playlist_idx'] = i
         self._track_model.set_tracks(self.playlist)
         self._update_track_count()
+
+    # ── Voting ───────────────────────────────────────────
+
+    def _vote(self, vote):
+        """Record a +1 (like) or -1 (dislike) vote for the current track."""
+        if self.current_index is None:
+            QMessageBox.information(self, 'No Track', 'No track is currently playing.')
+            return
+        entry = self.playlist[self.current_index]
+        voter = self._voter_combo.currentText().strip()
+
+        success, msg = self.db.record_vote(entry['path'], vote, voter)
+        if not success:
+            QMessageBox.information(self, 'Already Voted', msg)
+            return
+
+        # Update in-memory state
+        entry['rating'] = entry.get('rating', 0) + vote
+        if voter:
+            self.all_voters.add(voter)
+            if vote > 0:
+                entry.setdefault('liked_by', set()).add(voter)
+            else:
+                entry.setdefault('disliked_by', set()).add(voter)
+
+        self._track_model.update_row(self.current_index)
+        self._update_rating_display()
+        self._refresh_voter_combo()
+        self._search_bar.set_voters(self.all_voters)
+
+    def _update_rating_display(self):
+        """Update the rating label in the now-playing bar."""
+        if self.current_index is None:
+            self._lbl_rating.setText('')
+            return
+        rating = self.playlist[self.current_index].get('rating', 0)
+        if rating > 0:
+            self._lbl_rating.setText(f'+{rating}')
+            self._lbl_rating.setStyleSheet(
+                'font-size: 13px; font-weight: bold; color: #4caf50; padding: 0 6px;')
+        elif rating < 0:
+            self._lbl_rating.setText(str(rating))
+            self._lbl_rating.setStyleSheet(
+                'font-size: 13px; font-weight: bold; color: #f44336; padding: 0 6px;')
+        else:
+            self._lbl_rating.setText('0')
+            self._lbl_rating.setStyleSheet(
+                'font-size: 13px; font-weight: bold; color: #888888; padding: 0 6px;')
+
+    def _refresh_voter_combo(self):
+        """Rebuild the voter dropdown with current voter names."""
+        current = self._voter_combo.currentText()
+        self._voter_combo.clear()
+        self._voter_combo.addItem('')  # anonymous
+        for name in sorted(self.all_voters):
+            self._voter_combo.addItem(name)
+        # Restore selection
+        idx = self._voter_combo.findText(current)
+        if idx >= 0:
+            self._voter_combo.setCurrentIndex(idx)
 
     def _on_play_from_queue(self, playlist_idx):
         """Handle double-click on a queue item — play immediately."""
