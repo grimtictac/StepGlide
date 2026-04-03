@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 from ui.theme import COLORS, DARK_THEME
 from ui.search_bar import SearchFilterBar
 from ui.sidebar import SidebarWidget
+from ui.tag_bar import TagBar
 from ui.track_table import ALL_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
 from ui.transport_bar import TransportBar
 
@@ -136,6 +137,11 @@ class MainWindow(QMainWindow):
         self._connect_search_bar()
         center_layout.addWidget(self._search_bar)
 
+        # Tag filter bar
+        self._tag_bar = TagBar(self)
+        self._tag_bar.tags_changed.connect(self._on_tags_changed)
+        center_layout.addWidget(self._tag_bar)
+
         # Track table
         self._track_model = TrackTableModel(self)
         self._filter_proxy = TrackFilterProxy(self)
@@ -249,6 +255,10 @@ class MainWindow(QMainWindow):
         # Populate sidebar
         self._sidebar.set_genre_data(self.genres, self.config.genre_groups)
         self._sidebar.set_playlist_data(self.config.playlists)
+
+        # Populate tag bar
+        if self.config.all_tags:
+            self._tag_bar.set_tags(self.config.all_tags, self.config.tag_rows)
 
     def _update_track_count(self):
         total = len(self.playlist)
@@ -465,6 +475,13 @@ class MainWindow(QMainWindow):
         """A playlist was created/renamed/deleted — persist to config."""
         self.config.playlists = self._sidebar._playlists
         self.config.save()
+
+    # ── Tag bar handler ──────────────────────────────────
+
+    def _on_tags_changed(self, active_tags):
+        """Handle tag toggle — active_tags is a set (empty = show all)."""
+        self._filter_proxy.set_tag_filter(active_tags)
+        self._update_track_count()
 
     # ── VLC helpers ──────────────────────────────────────
 
