@@ -89,6 +89,9 @@ class MainWindow(QMainWindow):
         # ── Keyboard shortcuts ───────────────────────────
         self._bind_shortcuts()
 
+        # ── Accept drag-and-drop from file manager ───────
+        self.setAcceptDrops(True)
+
     def _build_ui(self):
         """Construct the main layout with splitters."""
         central = QWidget()
@@ -1258,6 +1261,41 @@ class MainWindow(QMainWindow):
             self.showNormal()
         else:
             self.showFullScreen()
+
+    # ── Drag-and-drop ─────────────────────────────────
+
+    _AUDIO_EXTS = ('.mp3', '.wav', '.ogg', '.flac')
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dropEvent(self, event):
+        """Handle files/folders dropped from a file manager."""
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        added = 0
+        for url in urls:
+            path = url.toLocalFile()
+            if not path:
+                continue
+            if os.path.isdir(path):
+                for root_dir, _, filenames in os.walk(path):
+                    for name in filenames:
+                        if name.lower().endswith(self._AUDIO_EXTS):
+                            if self._add_path(os.path.join(root_dir, name)):
+                                added += 1
+            elif os.path.isfile(path) and path.lower().endswith(self._AUDIO_EXTS):
+                if self._add_path(path):
+                    added += 1
+        if added:
+            self._track_model.set_tracks(self.playlist)
+            self._update_track_count()
+            self._lbl_now_playing.setText(f'Dropped {added} track(s)')
+        event.acceptProposedAction()
 
     # ── Cleanup ──────────────────────────────────────────
 
