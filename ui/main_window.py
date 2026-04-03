@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from ui.theme import COLORS, DARK_THEME
 from ui.search_bar import SearchFilterBar
+from ui.queue_panel import QueuePanel
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
 from ui.track_table import ALL_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
@@ -156,19 +157,14 @@ class MainWindow(QMainWindow):
 
         center_layout.addWidget(self._track_table, stretch=1)
 
-        # Right panel: queue + play log (vertical splitter)
-        self._right_panel = QWidget()
-        right_layout = QVBoxLayout(self._right_panel)
-        right_layout.setContentsMargins(4, 4, 4, 4)
-        right_label = QLabel('Queue / Play Log')
-        right_label.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-weight: bold;')
-        right_layout.addWidget(right_label)
-        right_layout.addStretch()
+        # Right panel: queue
+        self._queue_panel = QueuePanel()
+        self._queue_panel.play_from_queue.connect(self._on_play_from_queue)
 
         # Add to main splitter
         self._main_splitter.addWidget(self._sidebar)
         self._main_splitter.addWidget(self._center)
-        self._main_splitter.addWidget(self._right_panel)
+        self._main_splitter.addWidget(self._queue_panel)
         self._main_splitter.setSizes([170, 900, 240])
         self._main_splitter.setStretchFactor(0, 0)
         self._main_splitter.setStretchFactor(1, 1)
@@ -259,6 +255,15 @@ class MainWindow(QMainWindow):
         # Populate tag bar
         if self.config.all_tags:
             self._tag_bar.set_tags(self.config.all_tags, self.config.tag_rows)
+
+        # Set up queue panel and restore persisted queue
+        self._queue_panel.set_playlist(self.playlist)
+        saved_paths = self.db.load_queue()
+        if saved_paths:
+            restored = [self._path_to_idx[p] for p in saved_paths
+                        if p in self._path_to_idx]
+            if restored:
+                self._queue_panel.set_queue(restored)
 
     def _update_track_count(self):
         total = len(self.playlist)
@@ -613,12 +618,12 @@ class MainWindow(QMainWindow):
             self._speed_reset()
 
         # Check play queue first
-        if self._play_queue:
-            nxt = self._play_queue.pop(0)
-        elif self.current_index is not None:
-            nxt = (self.current_index + 1) % len(self.playlist)
-        else:
-            nxt = 0
+        nxt = self._queue_panel.pop_next()
+        if nxt is None:
+            if self.current_index is not None:
+                nxt = (self.current_index + 1) % len(self.playlist)
+            else:
+                nxt = 0
 
         if not self._load(nxt):
             self._last_action = 'stopped'
@@ -730,6 +735,12 @@ class MainWindow(QMainWindow):
         # TODO: full context menu
         pass
 
+    def _on_play_from_queue(self, playlist_idx):
+        """Handle double-click on a queue item — play immediately."""
+        if self._auto_reset_speed and abs(self._speed - 1.0) > 0.05:
+            self._speed_reset()
+        self._play_index(playlist_idx)
+
     # ── Poll timer ───────────────────────────────────────
 
     def _poll(self):
@@ -802,11 +813,11 @@ class MainWindow(QMainWindow):
             self._sidebar.show()
 
     def _toggle_right_panel(self):
-        """Show/hide the right queue/play-log panel."""
-        if self._right_panel.isVisible():
-            self._right_panel.hide()
+        """Show/hide the right queue panel."""
+        if self._queue_panel.isVisible():
+            self._queue_panel.hide()
         else:
-            self._right_panel.show()
+            self._queue_panel.show()
 
     def _toggle_fullscreen(self):
         """Toggle between fullscreen and normal window."""
@@ -822,4 +833,6 @@ class MainWindow(QMainWindow):
         self.vlc_player.stop()
         self.config.visible_columns = self._track_table.get_visible_columns()
         self.config.save()
+        # Persist queue
+        self.db.save_queue(self._queue_panel.queue_paths())
         super().closeEvent(event)
