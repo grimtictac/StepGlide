@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from ui.theme import COLORS, DARK_THEME
 from ui.search_bar import SearchFilterBar
+from ui.play_log_panel import PlayLogPanel
 from ui.queue_panel import QueuePanel
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
@@ -157,14 +158,26 @@ class MainWindow(QMainWindow):
 
         center_layout.addWidget(self._track_table, stretch=1)
 
-        # Right panel: queue
+        # Right panel: queue + play log in vertical splitter
+        self._right_splitter = QSplitter(Qt.Vertical)
+
         self._queue_panel = QueuePanel()
         self._queue_panel.play_from_queue.connect(self._on_play_from_queue)
+        self._right_splitter.addWidget(self._queue_panel)
+
+        self._play_log = PlayLogPanel()
+        self._play_log.play_requested.connect(self._on_play_from_queue)
+        self._play_log.add_to_queue_requested.connect(
+            lambda idx: self._queue_panel.add(idx))
+        self._play_log.jump_to_track.connect(self._jump_to_track_index)
+        self._right_splitter.addWidget(self._play_log)
+
+        self._right_splitter.setSizes([300, 300])
 
         # Add to main splitter
         self._main_splitter.addWidget(self._sidebar)
         self._main_splitter.addWidget(self._center)
-        self._main_splitter.addWidget(self._queue_panel)
+        self._main_splitter.addWidget(self._right_splitter)
         self._main_splitter.setSizes([170, 900, 240])
         self._main_splitter.setStretchFactor(0, 0)
         self._main_splitter.setStretchFactor(1, 1)
@@ -264,6 +277,11 @@ class MainWindow(QMainWindow):
                         if p in self._path_to_idx]
             if restored:
                 self._queue_panel.set_queue(restored)
+
+        # Load play log
+        self._play_log.set_path_map(self._path_to_idx)
+        self._play_log.set_db(self.db)
+        self._play_log.load(self.db)
 
     def _update_track_count(self):
         total = len(self.playlist)
@@ -548,6 +566,7 @@ class MainWindow(QMainWindow):
             entry['first_played'] = stats[1]
             entry['last_played'] = stats[2]
         self._track_model.update_row(self.current_index)
+        self._play_log.refresh()
 
     # ── Playback controls ────────────────────────────────
 
@@ -741,6 +760,10 @@ class MainWindow(QMainWindow):
             self._speed_reset()
         self._play_index(playlist_idx)
 
+    def _jump_to_track_index(self, playlist_idx):
+        """Scroll and select a track in the main table by playlist index."""
+        self._track_table.jump_to_playlist_index(playlist_idx)
+
     # ── Poll timer ───────────────────────────────────────
 
     def _poll(self):
@@ -813,11 +836,11 @@ class MainWindow(QMainWindow):
             self._sidebar.show()
 
     def _toggle_right_panel(self):
-        """Show/hide the right queue panel."""
-        if self._queue_panel.isVisible():
-            self._queue_panel.hide()
+        """Show/hide the right queue/play-log panel."""
+        if self._right_splitter.isVisible():
+            self._right_splitter.hide()
         else:
-            self._queue_panel.show()
+            self._right_splitter.show()
 
     def _toggle_fullscreen(self):
         """Toggle between fullscreen and normal window."""
