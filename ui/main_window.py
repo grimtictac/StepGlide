@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
         # Play queue: list of playlist indices
         self._play_queue = []
         self._selected_indices = []
+        self._lite_mode = False
 
         # Playback speed
         self._speed = 1.0
@@ -260,6 +261,25 @@ class MainWindow(QMainWindow):
         fullscreen_action.setShortcut('F11')
         fullscreen_action.triggered.connect(self._toggle_fullscreen)
         view_menu.addAction(fullscreen_action)
+
+        view_menu.addSeparator()
+
+        tagbar_action = QAction('Toggle &Tag Bar', self)
+        tagbar_action.setShortcut('F3')
+        tagbar_action.triggered.connect(self._toggle_tag_bar)
+        view_menu.addAction(tagbar_action)
+
+        searchbar_action = QAction('Toggle S&earch Bar', self)
+        searchbar_action.setShortcut('F4')
+        searchbar_action.triggered.connect(self._toggle_search_bar)
+        view_menu.addAction(searchbar_action)
+
+        view_menu.addSeparator()
+
+        lite_action = QAction('&Lite Mode', self)
+        lite_action.setShortcut('Ctrl+L')
+        lite_action.triggered.connect(self._toggle_lite_mode)
+        view_menu.addAction(lite_action)
 
         tools_menu = menu_bar.addMenu('&Tools')
 
@@ -1183,6 +1203,9 @@ class MainWindow(QMainWindow):
         _sc('Ctrl+F',     self._focus_search)
         _sc('F1',         self._toggle_sidebar)
         _sc('F2',         self._toggle_right_panel)
+        _sc('F3',         self._toggle_tag_bar)
+        _sc('F4',         self._toggle_search_bar)
+        _sc('Ctrl+L',     self._toggle_lite_mode)
         _sc('F11',        self._toggle_fullscreen)
 
     def _focus_search(self):
@@ -1202,6 +1225,32 @@ class MainWindow(QMainWindow):
             self._right_splitter.hide()
         else:
             self._right_splitter.show()
+
+    def _toggle_tag_bar(self):
+        """Show/hide the tag filter bar."""
+        if self._tag_bar.isVisible():
+            self._tag_bar.hide()
+        else:
+            self._tag_bar.show()
+
+    def _toggle_search_bar(self):
+        """Show/hide the search/filter bar."""
+        if self._search_bar.isVisible():
+            self._search_bar.hide()
+        else:
+            self._search_bar.show()
+
+    def _toggle_lite_mode(self):
+        """Toggle lite mode — hides sidebar, search bar, and tag bar."""
+        self._lite_mode = not self._lite_mode
+        if self._lite_mode:
+            self._sidebar.hide()
+            self._search_bar.hide()
+            self._tag_bar.hide()
+        else:
+            self._sidebar.show()
+            self._search_bar.show()
+            self._tag_bar.show()
 
     def _toggle_fullscreen(self):
         """Toggle between fullscreen and normal window."""
