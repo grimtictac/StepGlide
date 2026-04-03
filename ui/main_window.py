@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from ui.theme import COLORS, DARK_THEME
 from ui.search_bar import SearchFilterBar
+from ui.sidebar import SidebarWidget
 from ui.track_table import ALL_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
 from ui.transport_bar import TransportBar
 
@@ -91,14 +92,9 @@ class MainWindow(QMainWindow):
         self._main_splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(self._main_splitter)
 
-        # Left sidebar placeholder
-        self._sidebar = QWidget()
-        sidebar_layout = QVBoxLayout(self._sidebar)
-        sidebar_layout.setContentsMargins(4, 4, 4, 4)
-        sidebar_label = QLabel('Genres / Playlists')
-        sidebar_label.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-weight: bold;')
-        sidebar_layout.addWidget(sidebar_label)
-        sidebar_layout.addStretch()
+        # Left sidebar: genre list + playlists
+        self._sidebar = SidebarWidget()
+        self._connect_sidebar()
 
         # Center: now-playing + transport + track table
         self._center = QWidget()
@@ -249,6 +245,10 @@ class MainWindow(QMainWindow):
         if hasattr(self.config, 'length_filter_durations') and self.config.length_filter_durations:
             opts = [label for label, lo, hi in self.config.length_filter_durations]
             self._search_bar.set_length_options(opts)
+
+        # Populate sidebar
+        self._sidebar.set_genre_data(self.genres, self.config.genre_groups)
+        self._sidebar.set_playlist_data(self.config.playlists)
 
     def _update_track_count(self):
         total = len(self.playlist)
@@ -410,6 +410,14 @@ class MainWindow(QMainWindow):
         sb.length_changed.connect(self._on_length_filter)
         sb.filters_reset.connect(self._on_filters_reset)
 
+    # ── Connect sidebar ─────────────────────────────────
+
+    def _connect_sidebar(self):
+        sb = self._sidebar
+        sb.genre_selected.connect(self._on_genre_selected)
+        sb.playlist_selected.connect(self._on_playlist_selected)
+        sb.playlist_changed.connect(self._on_playlist_changed)
+
     def _on_search_changed(self, tokens):
         self._filter_proxy.set_search_tokens(tokens)
         self._update_track_count()
@@ -440,6 +448,23 @@ class MainWindow(QMainWindow):
     def _on_filters_reset(self):
         self._filter_proxy.clear_all_filters()
         self._update_track_count()
+
+    # ── Sidebar handlers ─────────────────────────────────
+
+    def _on_genre_selected(self, genres):
+        """genres is a set of genre strings, or None for All."""
+        self._filter_proxy.set_genre_filter(genres)
+        self._update_track_count()
+
+    def _on_playlist_selected(self, paths):
+        """paths is a set of file paths, or None for All Tracks."""
+        self._filter_proxy.set_playlist_filter(paths)
+        self._update_track_count()
+
+    def _on_playlist_changed(self):
+        """A playlist was created/renamed/deleted — persist to config."""
+        self.config.playlists = self._sidebar._playlists
+        self.config.save()
 
     # ── VLC helpers ──────────────────────────────────────
 
