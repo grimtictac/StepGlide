@@ -26,6 +26,12 @@ ALL_COLUMNS = (
     'Path', 'Relative Path',
 )
 
+# Default visible columns (matches the standard layout)
+DEFAULT_VISIBLE_COLUMNS = (
+    'Genre', 'Title', 'Length', 'Liked By', 'Rating',
+    'Plays', 'Last Played', 'Tags', 'Comment',
+)
+
 # Map column index → key function for extracting display data from an entry dict
 def _col_value(entry, col_idx):
     """Return the display string for a column."""
@@ -398,21 +404,21 @@ class TrackTableView(QTableView):
         self.horizontalHeader().customContextMenuRequested.connect(
             self._on_header_context_menu)
 
-        # Default column widths
+        # Default column widths (tuned for the standard layout)
         self._default_widths = {
-            0: 250,   # Title
+            0: 280,   # Title (stretch fills remaining)
             1: 150,   # Artist
             2: 150,   # Album
-            3: 100,   # Genre
-            4: 60,    # Length
-            5: 50,    # Rating
-            6: 150,   # Comment
-            7: 120,   # Tags
-            8: 100,   # Liked By
-            9: 100,   # Disliked By
+            3: 120,   # Genre
+            4: 55,    # Length
+            5: 55,    # Rating
+            6: 160,   # Comment
+            7: 180,   # Tags
+            8: 80,    # Liked By
+            9: 80,    # Disliked By
             10: 45,   # Plays
             11: 90,   # First Played
-            12: 90,   # Last Played
+            12: 80,   # Last Played
             13: 90,   # File Created
             14: 250,  # Path
             15: 200,  # Relative Path
@@ -423,6 +429,8 @@ class TrackTableView(QTableView):
         # Apply default column widths
         for col, width in self._default_widths.items():
             self.setColumnWidth(col, width)
+        # Apply default column visibility
+        self.set_visible_columns(list(DEFAULT_VISIBLE_COLUMNS))
         # Connect selection
         sel_model = self.selectionModel()
         if sel_model:

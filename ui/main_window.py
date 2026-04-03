@@ -26,7 +26,7 @@ from ui.queue_panel import QueuePanel
 from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
-from ui.track_table import ALL_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
+from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
 from ui.transport_bar import TransportBar
 
 
