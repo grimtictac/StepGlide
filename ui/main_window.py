@@ -27,7 +27,7 @@ from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
 from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
-from ui.transport_bar import TransportBar, VolumeStrip
+from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
 
 
 class MainWindow(QMainWindow):
@@ -257,6 +257,9 @@ class MainWindow(QMainWindow):
             lambda: self._open_settings(tab='Volume'))
         self._volume_strip.apply_config(self.config)
 
+        self._volume_panel = VolumePanel(self._volume_strip, self)
+        self._volume_panel.pull_fader.debug_log.connect(self._debug_log)
+
         vol_container = QWidget()
         vol_container.setStyleSheet(
             f'background-color: {COLORS["bg_dark"]}; '
@@ -264,7 +267,7 @@ class MainWindow(QMainWindow):
         vcl = QVBoxLayout(vol_container)
         vcl.setContentsMargins(0, 0, 0, 0)
         vcl.setSpacing(0)
-        vcl.addWidget(self._volume_strip, stretch=1)
+        vcl.addWidget(self._volume_panel, stretch=1)
 
         # Add to main splitter
         self._main_splitter.addWidget(self._sidebar)

@@ -7,8 +7,8 @@ import time
 
 from PySide6.QtCore import Qt, QEvent, QTimer, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton,
-    QSlider, QSizePolicy, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar,
+    QPushButton, QSlider, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 import qtawesome as qta
@@ -140,6 +140,7 @@ class VolumeStrip(QWidget):
 
         # Velocity measurement: timestamps of recent wheel events
         self._wheel_times: list[float] = []
+        self._scroll_fade_enabled = True  # disabled when in pull-fader mode
 
         self._build_ui()
 
@@ -348,6 +349,10 @@ class VolumeStrip(QWidget):
 
         Scrolling opposite direction stops the fade entirely.
         """
+        if not self._scroll_fade_enabled:
+            event.accept()
+            return
+
         delta = event.angleDelta().y()
         if delta == 0:
             return
@@ -581,6 +586,322 @@ class VolumeStrip(QWidget):
         self.set_vel_low(config.fade_vel_low)
         self.set_vel_high(config.fade_vel_high)
         self.set_tick_threshold(config.fade_tick_threshold)
+
+
+# ═════════════════════════════════════════════════════════
+# Pull-fader — grab-and-release fade controller
+# ═════════════════════════════════════════════════════════
+
+_PULL_FADER_CSS = '''
+    QSlider::groove:vertical {{
+        background: qlineargradient(
+            x1:0, y1:0, x2:0, y2:1,
+            stop:0 {bg_light}, stop:1 {red});
+        width: 12px;
+        border-radius: 6px;
+    }}
+    QSlider::handle:vertical {{
+        background: {fg};
+        border: 2px solid {accent};
+        height: 20px;
+        width: 24px;
+        margin: 0 -6px;
+        border-radius: 5px;
+    }}
+    QSlider::handle:vertical:hover {{
+        background: {accent};
+        border: 2px solid {fg};
+    }}
+    QSlider::handle:vertical:pressed {{
+        background: {red};
+        border: 2px solid {fg};
+    }}
+    QSlider::sub-page:vertical {{
+        background: {bg_light};
+        border-radius: 6px;
+    }}
+    QSlider::add-page:vertical {{
+        background: qlineargradient(
+            x1:0, y1:0, x2:0, y2:1,
+            stop:0 {yellow}, stop:1 {red});
+        border-radius: 6px;
+    }}
+'''.format(
+    bg_light=COLORS['bg_light'], red=COLORS['red'], fg=COLORS['fg'],
+    accent=COLORS['accent'], yellow=COLORS['yellow'],
+)
+
+
+class PullFader(QWidget):
+    """
+    Grab-and-release fade controller.
+
+    A vertical slider whose handle rests at the top (100).  The user grabs
+    it and pulls downward.  On release, the handle snaps back to 100 and
+    the VolumeStrip volume begins fading toward 0 at a speed proportional
+    to how far down the handle was pulled.
+
+    Pull distance mapping:
+      - Small pull (< 10%) → slow fade   (interval near max_interval)
+      - Full pull  (100%)  → fastest fade (interval near min_interval)
+    """
+
+    debug_log = Signal(str, str)
+
+    def __init__(self, volume_strip: 'VolumeStrip', parent=None):
+        super().__init__(parent)
+        self._vs = volume_strip
+        self.setFixedWidth(50)
+
+        self._fade_timer = QTimer(self)
+        self._fade_timer.timeout.connect(self._fade_tick)
+        self._fade_active = False
+
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 8, 4, 8)
+        layout.setSpacing(4)
+        layout.setAlignment(Qt.AlignHCenter)
+
+        # Label
+        title = QLabel('PULL')
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            f'color:{COLORS["fg_dim"]};font-size:8px;font-weight:bold;')
+        layout.addWidget(title)
+
+        # Pull slider — 100 at top (resting), 0 at bottom (max pull)
+        self._slider = QSlider(Qt.Vertical)
+        self._slider.setRange(0, 100)
+        self._slider.setValue(100)
+        self._slider.setFixedWidth(36)
+        self._slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self._slider.setStyleSheet(_PULL_FADER_CSS)
+        self._slider.setToolTip(
+            'Pull down and release to fade volume.\n'
+            'Further pull = faster fade.')
+        self._slider.sliderPressed.connect(self._on_pressed)
+        self._slider.sliderReleased.connect(self._on_released)
+        layout.addWidget(self._slider, stretch=1, alignment=Qt.AlignHCenter)
+
+        # Speed readout
+        self._lbl_speed = QLabel('—')
+        self._lbl_speed.setAlignment(Qt.AlignCenter)
+        self._lbl_speed.setStyleSheet(
+            f'color:{COLORS["fg_dim"]};font-size:8px;')
+        layout.addWidget(self._lbl_speed)
+
+        # Pull-distance indicator bar
+        self._pull_bar = QProgressBar()
+        self._pull_bar.setOrientation(Qt.Horizontal)
+        self._pull_bar.setRange(0, 100)
+        self._pull_bar.setValue(0)
+        self._pull_bar.setFixedHeight(6)
+        self._pull_bar.setTextVisible(False)
+        self._pull_bar.setStyleSheet(f'''
+            QProgressBar {{
+                background: {COLORS["bg"]};
+                border: 1px solid {COLORS["border"]};
+                border-radius: 3px;
+            }}
+            QProgressBar::chunk {{
+                border-radius: 2px;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {COLORS["yellow"]}, stop:1 {COLORS["red"]});
+            }}
+        ''')
+        layout.addWidget(self._pull_bar)
+
+    def _on_pressed(self):
+        """User grabbed the handle — stop any active fade."""
+        if self._fade_active:
+            self._stop_fade()
+
+    def _on_released(self):
+        """User released the handle — read pull distance, snap back, start fade."""
+        pull_value = self._slider.value()  # 100 = top (no pull), 0 = max pull
+        pull_pct = 100 - pull_value        # 0 = no pull, 100 = max pull
+
+        # Snap handle back to top
+        self._slider.blockSignals(True)
+        self._slider.setValue(100)
+        self._slider.blockSignals(False)
+
+        if pull_pct < 5:
+            # Negligible pull — ignore
+            self._pull_bar.setValue(0)
+            self._lbl_speed.setText('—')
+            return
+
+        # Map pull_pct to timer interval
+        # pull_pct=5  → max_interval (slowest)
+        # pull_pct=100 → min_interval (fastest)
+        vs = self._vs
+        min_iv = vs._min_interval_ms
+        max_iv = vs._max_interval_ms
+        t = max(0.0, min(1.0, (pull_pct - 5) / 95.0))
+        interval = int(max_iv - t * (max_iv - min_iv))
+        interval = max(min_iv, min(max_iv, interval))
+
+        # Show the pull distance
+        self._pull_bar.setValue(pull_pct)
+        speed_vps = vs._fade_step * 1000.0 / interval
+        self._lbl_speed.setText(f'{speed_vps:.0f}v/s')
+
+        self.debug_log.emit(
+            'DEBUG',
+            f'Pull-fader: pull={pull_pct}%  interval={interval}ms  '
+            f'speed={speed_vps:.1f} v/s')
+
+        # Stop the scroll-wheel fade if one was active
+        vs._stop_fade()
+
+        # Start our own fade-down timer
+        self._fade_active = True
+        self._fade_timer.setInterval(interval)
+        self._fade_timer.start()
+
+    def _fade_tick(self):
+        """Move volume down one step."""
+        vs = self._vs
+        current = vs.volume_slider.value()
+        new_val = current - vs._fade_step
+        if new_val <= 0:
+            vs.volume_slider.setValue(0)
+            self.debug_log.emit('DEBUG', 'Pull-fader: hit 0% → stopped')
+            self._stop_fade()
+            return
+        vs.volume_slider.setValue(new_val)
+
+    def _stop_fade(self):
+        """Stop the pull-fader fade."""
+        self._fade_timer.stop()
+        self._fade_active = False
+        self._pull_bar.setValue(0)
+        self._lbl_speed.setText('—')
+
+    def stop(self):
+        """Public: stop any active pull-fade (called when switching modes)."""
+        self._stop_fade()
+        self._slider.blockSignals(True)
+        self._slider.setValue(100)
+        self._slider.blockSignals(False)
+
+
+# ═════════════════════════════════════════════════════════
+# Volume panel — tabbed container: VolumeStrip + mode switch
+# ═════════════════════════════════════════════════════════
+
+class VolumePanel(QWidget):
+    """
+    Wraps VolumeStrip and the two fade controllers (scroll-wheel gauges
+    are built into VolumeStrip; PullFader is a separate widget).
+
+    Layout:
+      [mode tabs]  [volume strip]  [active fade controller]
+           │                              │
+      narrow vertical              PullFader (mode 1)
+      button column                or nothing (mode 0 — gauges are in VolumeStrip)
+    """
+
+    def __init__(self, volume_strip: VolumeStrip, parent=None):
+        super().__init__(parent)
+        self._vs = volume_strip
+        self._pull_fader = PullFader(volume_strip, self)
+        self._pull_fader.debug_log.connect(volume_strip.debug_log)
+
+        self._build_ui()
+        self._set_mode(0)  # start in scroll-wheel mode
+
+    def _build_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # ── Mode tabs (vertical button column) ──
+        tab_col = QVBoxLayout()
+        tab_col.setSpacing(0)
+        tab_col.setContentsMargins(0, 0, 0, 0)
+
+        self._btn_group = QButtonGroup(self)
+        self._btn_group.setExclusive(True)
+
+        btn_scroll = QPushButton()
+        btn_scroll.setIcon(qta.icon('mdi6.mouse', color=COLORS['fg']))
+        btn_scroll.setFixedSize(24, 32)
+        btn_scroll.setIconSize(btn_scroll.size() * 0.65)
+        btn_scroll.setCheckable(True)
+        btn_scroll.setChecked(True)
+        btn_scroll.setToolTip('Scroll-wheel fade')
+        btn_scroll.setStyleSheet(self._tab_btn_css())
+        self._btn_group.addButton(btn_scroll, 0)
+        tab_col.addWidget(btn_scroll)
+
+        btn_pull = QPushButton()
+        btn_pull.setIcon(qta.icon('mdi6.arrow-down-bold', color=COLORS['fg']))
+        btn_pull.setFixedSize(24, 32)
+        btn_pull.setIconSize(btn_pull.size() * 0.65)
+        btn_pull.setCheckable(True)
+        btn_pull.setToolTip('Pull-fader')
+        btn_pull.setStyleSheet(self._tab_btn_css())
+        self._btn_group.addButton(btn_pull, 1)
+        tab_col.addWidget(btn_pull)
+
+        tab_col.addStretch()
+        layout.addLayout(tab_col)
+
+        # ── Volume strip (always visible) ──
+        layout.addWidget(self._vs, stretch=1)
+
+        # ── Fade controller stack (right side) ──
+        # Mode 0: nothing extra (scroll-wheel gauges are inside VolumeStrip)
+        # Mode 1: PullFader
+        self._fade_stack = QStackedWidget()
+        self._fade_stack.addWidget(QWidget())        # 0: empty placeholder
+        self._fade_stack.addWidget(self._pull_fader)  # 1: pull fader
+        layout.addWidget(self._fade_stack)
+
+        self._btn_group.idClicked.connect(self._set_mode)
+
+    def _set_mode(self, mode_id):
+        """Switch between fade modes."""
+        # Stop any active fades
+        self._vs._stop_fade()
+        self._pull_fader.stop()
+
+        self._fade_stack.setCurrentIndex(mode_id)
+
+        # Show/hide the scroll-wheel gauge bars based on mode
+        show_gauges = (mode_id == 0)
+        for bar in (self._vs._speed_bar_up, self._vs._speed_bar_dn,
+                    self._vs._boost_bar_up, self._vs._boost_bar_dn):
+            bar.setVisible(show_gauges)
+        self._vs._speed_lbl.setVisible(show_gauges)
+        self._vs._boost_lbl.setVisible(show_gauges)
+
+        # Enable/disable scroll-wheel handling on VolumeStrip
+        self._vs._scroll_fade_enabled = show_gauges
+
+    @staticmethod
+    def _tab_btn_css():
+        return (
+            f'QPushButton {{ border: none; border-radius: 3px; '
+            f'background: transparent; }}'
+            f'QPushButton:checked {{ background: {COLORS["bg_mid"]}; '
+            f'border: 1px solid {COLORS["border"]}; }}'
+            f'QPushButton:hover {{ background: {COLORS["bg_light"]}; }}'
+        )
+
+    @property
+    def volume_strip(self):
+        return self._vs
+
+    @property
+    def pull_fader(self):
+        return self._pull_fader
 
 
 # ═════════════════════════════════════════════════════════
