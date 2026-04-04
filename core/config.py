@@ -70,6 +70,12 @@ class AppConfig:
         self.fade_vel_high = 30.0
         self.fade_tick_threshold = 120
 
+        # Pull-fader tuning defaults
+        self.pull_fade_step = 1
+        self.pull_min_interval = 20      # fastest (full pull)
+        self.pull_max_interval = 200     # slowest (tiny pull)
+        self.pull_dead_zone = 5          # pull% below this is ignored
+
     def load(self):
         """Load settings from XML config file. Returns True if file existed."""
         if not os.path.exists(self.config_path):
@@ -167,6 +173,22 @@ class AppConfig:
                     except (ValueError, TypeError):
                         pass
 
+        # Pull-fader tuning
+        pull_el = root.find('pull_fader')
+        if pull_el is not None:
+            for attr, field, conv in [
+                ('step', 'pull_fade_step', int),
+                ('min_interval', 'pull_min_interval', int),
+                ('max_interval', 'pull_max_interval', int),
+                ('dead_zone', 'pull_dead_zone', int),
+            ]:
+                val = pull_el.get(attr)
+                if val is not None:
+                    try:
+                        setattr(self, field, conv(val))
+                    except (ValueError, TypeError):
+                        pass
+
         return True
 
     def save(self, voter_name=''):
@@ -238,6 +260,13 @@ class AppConfig:
                       vel_low=str(self.fade_vel_low),
                       vel_high=str(self.fade_vel_high),
                       tick_threshold=str(self.fade_tick_threshold))
+
+        # Pull-fader tuning
+        ET.SubElement(root, 'pull_fader',
+                      step=str(self.pull_fade_step),
+                      min_interval=str(self.pull_min_interval),
+                      max_interval=str(self.pull_max_interval),
+                      dead_zone=str(self.pull_dead_zone))
 
         ET.indent(root)
         tree = ET.ElementTree(root)

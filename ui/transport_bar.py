@@ -594,9 +594,7 @@ class VolumeStrip(QWidget):
 
 _PULL_FADER_CSS = '''
     QSlider::groove:vertical {{
-        background: qlineargradient(
-            x1:0, y1:0, x2:0, y2:1,
-            stop:0 {bg_light}, stop:1 {red});
+        background: {bg_light};
         width: 12px;
         border-radius: 6px;
     }}
@@ -617,13 +615,13 @@ _PULL_FADER_CSS = '''
         border: 2px solid {fg};
     }}
     QSlider::sub-page:vertical {{
-        background: {bg_light};
-        border-radius: 6px;
-    }}
-    QSlider::add-page:vertical {{
         background: qlineargradient(
             x1:0, y1:0, x2:0, y2:1,
             stop:0 {yellow}, stop:1 {red});
+        border-radius: 6px;
+    }}
+    QSlider::add-page:vertical {{
+        background: {bg_light};
         border-radius: 6px;
     }}
 '''.format(
@@ -652,6 +650,12 @@ class PullFader(QWidget):
         super().__init__(parent)
         self._vs = volume_strip
         self.setFixedWidth(50)
+
+        # Pull-fader own tunable parameters (independent of scroll-fade)
+        self._min_interval_ms = 20    # fastest fade (full pull)
+        self._max_interval_ms = 200   # slowest fade (tiny pull)
+        self._fade_step = 1           # volume units per tick
+        self._dead_zone_pct = 5       # pull < this% is ignored
 
         self._fade_timer = QTimer(self)
         self._fade_timer.timeout.connect(self._fade_tick)
@@ -732,25 +736,26 @@ class PullFader(QWidget):
         self._slider.setValue(100)
         self._slider.blockSignals(False)
 
-        if pull_pct < 5:
+        dz = self._dead_zone_pct
+        if pull_pct < dz:
             # Negligible pull — ignore
             self._pull_bar.setValue(0)
             self._lbl_speed.setText('—')
             return
 
-        # Map pull_pct to timer interval
-        # pull_pct=5  → max_interval (slowest)
-        # pull_pct=100 → min_interval (fastest)
-        vs = self._vs
-        min_iv = vs._min_interval_ms
-        max_iv = vs._max_interval_ms
-        t = max(0.0, min(1.0, (pull_pct - 5) / 95.0))
+        # Map pull_pct to timer interval using own parameters
+        # pull_pct=dead_zone → max_interval (slowest)
+        # pull_pct=100       → min_interval (fastest)
+        min_iv = self._min_interval_ms
+        max_iv = self._max_interval_ms
+        usable = 100 - dz
+        t = max(0.0, min(1.0, (pull_pct - dz) / usable)) if usable > 0 else 1.0
         interval = int(max_iv - t * (max_iv - min_iv))
         interval = max(min_iv, min(max_iv, interval))
 
         # Show the pull distance
         self._pull_bar.setValue(pull_pct)
-        speed_vps = vs._fade_step * 1000.0 / interval
+        speed_vps = self._fade_step * 1000.0 / interval
         self._lbl_speed.setText(f'{speed_vps:.0f}v/s')
 
         self.debug_log.emit(
@@ -759,10 +764,11 @@ class PullFader(QWidget):
             f'speed={speed_vps:.1f} v/s')
 
         # Stop the scroll-wheel fade if one was active
+        vs = self._vs
         vs._stop_fade()
 
         # Drive the VolumeStrip gauge bars so speed indicators are visible
-        max_speed = vs._fade_step * 1000.0 / vs._min_interval_ms
+        max_speed = self._fade_step * 1000.0 / self._min_interval_ms
         self._pull_speed_vps = speed_vps
         self._pull_max_speed = max_speed
         self._update_vs_gauges()
@@ -776,7 +782,7 @@ class PullFader(QWidget):
         """Move volume down one step."""
         vs = self._vs
         current = vs.volume_slider.value()
-        new_val = current - vs._fade_step
+        new_val = current - self._fade_step
         if new_val <= 0:
             vs.volume_slider.setValue(0)
             self.debug_log.emit('DEBUG', 'Pull-fader: hit 0% → stopped')
@@ -830,6 +836,27 @@ class PullFader(QWidget):
         self._slider.blockSignals(True)
         self._slider.setValue(100)
         self._slider.blockSignals(False)
+
+    # ── Tuning setters (called by settings dialog) ──
+
+    def set_min_interval(self, v):
+        self._min_interval_ms = v
+
+    def set_max_interval(self, v):
+        self._max_interval_ms = v
+
+    def set_fade_step(self, v):
+        self._fade_step = v
+
+    def set_dead_zone(self, v):
+        self._dead_zone_pct = v
+
+    def apply_config(self, config):
+        """Apply pull-fader settings from an AppConfig instance."""
+        self.set_fade_step(config.pull_fade_step)
+        self.set_min_interval(config.pull_min_interval)
+        self.set_max_interval(config.pull_max_interval)
+        self.set_dead_zone(config.pull_dead_zone)
 
 
 # ═════════════════════════════════════════════════════════

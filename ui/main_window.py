@@ -259,6 +259,7 @@ class MainWindow(QMainWindow):
 
         self._volume_panel = VolumePanel(self._volume_strip, self)
         self._volume_panel.pull_fader.debug_log.connect(self._debug_log)
+        self._volume_panel.pull_fader.apply_config(self.config)
 
         vol_container = QWidget()
         vol_container.setStyleSheet(
@@ -1201,6 +1202,7 @@ class MainWindow(QMainWindow):
                 self._search_bar.set_length_options(opts)
             # Apply saved fade settings
             self._volume_strip.apply_config(self.config)
+            self._volume_panel.pull_fader.apply_config(self.config)
 
     # ── Misc dialogs ────────────────────────────────────
 

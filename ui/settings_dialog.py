@@ -51,6 +51,12 @@ class SettingsDialog(QDialog):
         self._wk_fade_vel_high = config.fade_vel_high
         self._wk_fade_tick_threshold = config.fade_tick_threshold
 
+        # Pull-fader working copies
+        self._wk_pull_step = config.pull_fade_step
+        self._wk_pull_min_interval = config.pull_min_interval
+        self._wk_pull_max_interval = config.pull_max_interval
+        self._wk_pull_dead_zone = config.pull_dead_zone
+
         self._build_ui()
 
     # ── Layout ───────────────────────────────────────────
@@ -640,6 +646,42 @@ class SettingsDialog(QDialog):
         self._adv_group.setVisible(False)
         layout.addWidget(self._adv_group)
 
+        # ── Pull Fader section ───────────────────────────
+        pull_group = QGroupBox('Pull Fader')
+        pull_group.setStyleSheet(
+            f'QGroupBox {{ font-weight: bold; color: {COLORS["fg"]}; '
+            f'border: 1px solid {COLORS["border"]}; border-radius: 4px; '
+            f'margin-top: 8px; padding-top: 14px; }}'
+            f'QGroupBox::title {{ subcontrol-origin: margin; left: 10px; }}')
+        pl = QVBoxLayout(pull_group)
+        pl.setSpacing(6)
+
+        self._sl_pull_speed, _ = self._volume_slider_row(
+            pl, 'Fade speed',
+            'How fast the fade runs at full pull. Higher = faster.',
+            1, 100, self._friendly_pull_speed(), '%')
+        self._sl_pull_speed.valueChanged.connect(self._on_friendly_pull_speed)
+
+        self._sl_pull_range, _ = self._volume_slider_row(
+            pl, 'Speed range',
+            'Difference between a tiny pull and a full pull. Higher = wider range.',
+            1, 100, self._friendly_pull_range(), '%')
+        self._sl_pull_range.valueChanged.connect(self._on_friendly_pull_range)
+
+        self._sl_pull_step, _ = self._volume_slider_row(
+            pl, 'Step size',
+            'Volume units per fade tick. Higher = coarser steps.',
+            1, 10, self._wk_pull_step, '')
+        self._sl_pull_step.valueChanged.connect(self._on_pull_step)
+
+        self._sl_pull_dz, _ = self._volume_slider_row(
+            pl, 'Dead zone',
+            'Minimum pull distance (%) before a fade starts.',
+            0, 30, self._wk_pull_dead_zone, '%')
+        self._sl_pull_dz.valueChanged.connect(self._on_pull_dead_zone)
+
+        layout.addWidget(pull_group)
+
         layout.addStretch()
         return page
 
@@ -791,6 +833,57 @@ class SettingsDialog(QDialog):
         vs.set_vel_high(self._wk_fade_vel_high)
         vs.set_tick_threshold(self._wk_fade_tick_threshold)
 
+    # ── Pull-fader friendly conversions ──────────────────
+
+    def _friendly_pull_speed(self):
+        """pull min_interval → friendly %.  100ms=1%, 5ms=100%."""
+        v = self._wk_pull_min_interval
+        return max(1, min(100, int(100 * (100 - v) / (100 - 5))))
+
+    def _friendly_pull_range(self):
+        """pull max_interval → friendly %.  500ms=1%, 50ms=100%."""
+        v = self._wk_pull_max_interval
+        return max(1, min(100, int(100 * (500 - v) / (500 - 50))))
+
+    def _on_friendly_pull_speed(self, pct):
+        """Friendly pull speed → min_interval."""
+        val = int(100 - pct * (100 - 5) / 100)
+        val = max(5, min(100, val))
+        self._wk_pull_min_interval = val
+        self._apply_pull_live()
+
+    def _on_friendly_pull_range(self, pct):
+        """Friendly pull range → max_interval."""
+        val = int(500 - pct * (500 - 50) / 100)
+        val = max(50, min(500, val))
+        self._wk_pull_max_interval = val
+        self._apply_pull_live()
+
+    def _on_pull_step(self, v):
+        self._wk_pull_step = v
+        self._apply_pull_live()
+
+    def _on_pull_dead_zone(self, v):
+        self._wk_pull_dead_zone = v
+        self._apply_pull_live()
+
+    def _apply_pull_live(self):
+        """Push current pull-fader values to the PullFader in real-time."""
+        vs = self._volume_strip
+        if vs is None:
+            return
+        # Access PullFader via the VolumePanel parent
+        panel = vs.parent()
+        if panel is None:
+            return
+        pf = getattr(panel, '_pull_fader', None)
+        if pf is None:
+            return
+        pf.set_fade_step(self._wk_pull_step)
+        pf.set_min_interval(self._wk_pull_min_interval)
+        pf.set_max_interval(self._wk_pull_max_interval)
+        pf.set_dead_zone(self._wk_pull_dead_zone)
+
     # ── Helpers ──────────────────────────────────────────
 
     @staticmethod
@@ -880,6 +973,12 @@ class SettingsDialog(QDialog):
         c.fade_vel_low = self._wk_fade_vel_low
         c.fade_vel_high = self._wk_fade_vel_high
         c.fade_tick_threshold = self._wk_fade_tick_threshold
+
+        # Pull-fader
+        c.pull_fade_step = self._wk_pull_step
+        c.pull_min_interval = self._wk_pull_min_interval
+        c.pull_max_interval = self._wk_pull_max_interval
+        c.pull_dead_zone = self._wk_pull_dead_zone
 
         c.save()
         self.accept()
