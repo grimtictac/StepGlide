@@ -74,6 +74,9 @@ class AppConfig:
         self.main_audio_device = ''      # '' = system default
         self.preview_audio_device = ''   # '' = system default
 
+        # Waveform scrub bar
+        self.waveform_enabled = True     # False = plain slider fallback
+
         # Pull-fader tuning defaults
         self.pull_fade_step = 1
         self.pull_min_interval = 20      # fastest (full pull)
@@ -202,6 +205,9 @@ class AppConfig:
             pd = audio_el.find('preview_device')
             if pd is not None and pd.text:
                 self.preview_audio_device = pd.text
+            wf = audio_el.find('waveform_enabled')
+            if wf is not None and wf.text:
+                self.waveform_enabled = wf.text.lower() != 'false'
 
         return True
 
@@ -288,6 +294,8 @@ class AppConfig:
         md.text = self.main_audio_device or ''
         pd = ET.SubElement(audio_el, 'preview_device')
         pd.text = self.preview_audio_device or ''
+        wf = ET.SubElement(audio_el, 'waveform_enabled')
+        wf.text = str(self.waveform_enabled).lower()
 
         ET.indent(root)
         tree = ET.ElementTree(root)

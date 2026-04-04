@@ -214,6 +214,8 @@ class MainWindow(QMainWindow):
         # Transport bar
         self._transport = TransportBar(self)
         self._transport.setStyleSheet(f'background-color: {COLORS["bg_dark"]};')
+        if not self.config.waveform_enabled:
+            self._transport.swap_scrub_mode(False)
         self._connect_transport()
         center_layout.addWidget(self._transport)
 
@@ -353,6 +355,14 @@ class MainWindow(QMainWindow):
         debug_action.setShortcut('F10')
         debug_action.triggered.connect(self._toggle_debug_panel)
         view_menu.addAction(debug_action)
+
+        view_menu.addSeparator()
+
+        self._waveform_action = QAction('&Waveform Scrub Bar', self)
+        self._waveform_action.setCheckable(True)
+        self._waveform_action.setChecked(self.config.waveform_enabled)
+        self._waveform_action.triggered.connect(self._toggle_waveform_scrub)
+        view_menu.addAction(self._waveform_action)
 
         view_menu.addSeparator()
 
@@ -1375,6 +1385,19 @@ class MainWindow(QMainWindow):
         else:
             self._debug_panel.show()
 
+    def _toggle_waveform_scrub(self, checked):
+        """Switch between waveform moodbar and plain slider."""
+        self.config.waveform_enabled = checked
+        self._transport.swap_scrub_mode(checked)
+        if checked:
+            # Kick off waveform generation for the current track
+            if self.current_index is not None:
+                self._start_waveform(self.current_index)
+        else:
+            self._cancel_waveform()
+        self.statusBar().showMessage(
+            'Waveform scrub bar ' + ('enabled' if checked else 'disabled'), 3000)
+
     def _reset_track_list_default(self):
         """Reset columns to the default visible set and widths."""
         self._track_table.set_visible_columns(list(DEFAULT_VISIBLE_COLUMNS))
@@ -1487,8 +1510,11 @@ class MainWindow(QMainWindow):
         """Kick off waveform generation for the given track.
 
         Checks the DB cache first; spawns a background worker on miss.
-        Cancels any in-flight worker.
+        Cancels any in-flight worker.  Skipped when waveform is disabled.
         """
+        if not self.config.waveform_enabled:
+            return
+
         # Cancel previous worker
         if self._waveform_worker is not None:
             self._waveform_worker.cancel()

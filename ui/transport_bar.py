@@ -1308,6 +1308,7 @@ class TransportBar(QWidget):
 
         # ── Row 1: transport buttons + scrub + time ──────
         row1 = QHBoxLayout()
+        self._row1 = row1          # keep reference for swap_scrub_mode
         row1.setSpacing(4)
 
         # Prev
@@ -1445,16 +1446,77 @@ class TransportBar(QWidget):
         self._user_scrubbing = False
         self.scrub_released.emit(pos)
 
+    def _on_scrub_moved_tick(self, value):
+        """TickSlider emits int 0–10000; convert to float 0.0–1.0."""
+        self.scrub_moved.emit(value / 10000.0)
+
+    def _on_scrub_released_tick(self):
+        """TickSlider sliderReleased has no argument; read value."""
+        self._user_scrubbing = False
+        self.scrub_released.emit(self.scrub_slider.value() / 10000.0)
+
     # ── Public API for MainWindow ────────────────────────
 
     @property
+    def is_waveform_mode(self):
+        return isinstance(self.scrub_slider, WaveformScrubBar)
+
+    @property
     def is_user_scrubbing(self):
-        return self._user_scrubbing or self.scrub_slider.is_scrubbing
+        if isinstance(self.scrub_slider, WaveformScrubBar):
+            return self._user_scrubbing or self.scrub_slider.is_scrubbing
+        return self._user_scrubbing
 
     def set_scrub_position(self, pos):
         """Set the scrub slider position (0.0–1.0) without emitting signals."""
         if not self._user_scrubbing:
-            self.scrub_slider.set_position(pos)
+            if isinstance(self.scrub_slider, WaveformScrubBar):
+                self.scrub_slider.set_position(pos)
+            else:
+                self.scrub_slider.blockSignals(True)
+                self.scrub_slider.setValue(int(pos * 10000))
+                self.scrub_slider.blockSignals(False)
+
+    def swap_scrub_mode(self, use_waveform: bool):
+        """Swap between WaveformScrubBar and plain TickSlider."""
+        want_wf = use_waveform
+        have_wf = isinstance(self.scrub_slider, WaveformScrubBar)
+        if want_wf == have_wf:
+            return  # already in the right mode
+
+        row1 = self._row1
+        idx = row1.indexOf(self.scrub_slider)
+        stretch = row1.stretch(idx)
+
+        # Disconnect and remove old widget
+        old = self.scrub_slider
+        old.hide()
+        row1.removeWidget(old)
+        old.setParent(None)
+        old.deleteLater()
+
+        # Create new widget
+        if want_wf:
+            self.scrub_slider = WaveformScrubBar()
+            self.scrub_slider.setToolTip('Seek')
+            self.scrub_slider.scrub_pressed.connect(self._on_scrub_pressed)
+            self.scrub_slider.scrub_moved.connect(self._on_scrub_moved_wf)
+            self.scrub_slider.scrub_released.connect(self._on_scrub_released_wf)
+        else:
+            self.scrub_slider = TickSlider(Qt.Horizontal)
+            self.scrub_slider.setRange(0, 10000)
+            self.scrub_slider.setValue(0)
+            self.scrub_slider.setToolTip('Seek')
+            self.scrub_slider.setStyleSheet(
+                f'QSlider::groove:horizontal {{ height: 6px; background: {COLORS["bg_light"]}; border-radius: 3px; }}'
+                f'QSlider::handle:horizontal {{ width: 12px; margin: -4px 0; background: {COLORS["accent"]}; border-radius: 6px; }}'
+                f'QSlider::sub-page:horizontal {{ background: {COLORS["accent"]}; border-radius: 3px; }}'
+            )
+            self.scrub_slider.sliderPressed.connect(self._on_scrub_pressed)
+            self.scrub_slider.sliderMoved.connect(self._on_scrub_moved_tick)
+            self.scrub_slider.sliderReleased.connect(self._on_scrub_released_tick)
+
+        row1.insertWidget(idx, self.scrub_slider, stretch)
 
     def set_time_labels(self, current_ms, total_ms):
         self.lbl_time_cur.setText(self._fmt(current_ms))
@@ -1488,7 +1550,10 @@ class TransportBar(QWidget):
 
     def reset_display(self):
         """Reset scrub + time to zero (e.g. on stop)."""
-        self.scrub_slider.clear()
+        if isinstance(self.scrub_slider, WaveformScrubBar):
+            self.scrub_slider.clear()
+        else:
+            self.scrub_slider.setValue(0)
         self.lbl_time_cur.setText('0:00')
         self.lbl_time_total.setText('0:00')
         self.set_playing_state(False)
