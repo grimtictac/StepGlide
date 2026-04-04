@@ -19,7 +19,8 @@ _ICON_SIZE = 18  # default icon pixel size for transport buttons
 # ── Gauge stylesheets (vertical orientation) ─────────────
 _GAUGE_WIDTH = 10
 
-_SPEED_BAR_V_CSS = '''
+# Speed gauge — fills upward (green→yellow→red, bottom-to-top)
+_SPEED_BAR_UP_CSS = '''
     QProgressBar {{
         background: {bg};
         border: 1px solid {border};
@@ -34,7 +35,24 @@ _SPEED_BAR_V_CSS = '''
 '''.format(bg=COLORS['bg'], border=COLORS['border'],
            green=COLORS['green'], yellow=COLORS['yellow'], red=COLORS['red'])
 
-_BOOST_BAR_V_CSS = '''
+# Speed gauge — fills downward (green→yellow→red, top-to-bottom)
+_SPEED_BAR_DN_CSS = '''
+    QProgressBar {{
+        background: {bg};
+        border: 1px solid {border};
+        border-radius: 3px;
+    }}
+    QProgressBar::chunk {{
+        border-radius: 2px;
+        background: qlineargradient(
+            x1:0, y1:0, x2:0, y2:1,
+            stop:0 {green}, stop:0.5 {yellow}, stop:1 {red});
+    }}
+'''.format(bg=COLORS['bg'], border=COLORS['border'],
+           green=COLORS['green'], yellow=COLORS['yellow'], red=COLORS['red'])
+
+# Boost gauge — fills upward (cyan→accent, bottom-to-top)
+_BOOST_BAR_UP_CSS = '''
     QProgressBar {{
         background: {bg};
         border: 1px solid {border};
@@ -44,6 +62,22 @@ _BOOST_BAR_V_CSS = '''
         border-radius: 2px;
         background: qlineargradient(
             x1:0, y1:1, x2:0, y2:0,
+            stop:0 {cyan}, stop:1 {accent});
+    }}
+'''.format(bg=COLORS['bg'], border=COLORS['border'],
+           cyan=COLORS['cyan'], accent=COLORS['accent'])
+
+# Boost gauge — fills downward (cyan→accent, top-to-bottom)
+_BOOST_BAR_DN_CSS = '''
+    QProgressBar {{
+        background: {bg};
+        border: 1px solid {border};
+        border-radius: 3px;
+    }}
+    QProgressBar::chunk {{
+        border-radius: 2px;
+        background: qlineargradient(
+            x1:0, y1:0, x2:0, y2:1,
             stop:0 {cyan}, stop:1 {accent});
     }}
 '''.format(bg=COLORS['bg'], border=COLORS['border'],
@@ -130,22 +164,40 @@ class VolumeStrip(QWidget):
             f'color: {COLORS["fg_dim"]}; font-size: 10px; font-weight: bold;')
         layout.addWidget(self.lbl_vol_pct, alignment=Qt.AlignHCenter)
 
-        # ── Slider row: [speed bar] [volume slider] [boost bar] ──
+        # ── Slider row: [speed col] [volume slider] [boost col] ──
         slider_row = QHBoxLayout()
         slider_row.setSpacing(3)
         slider_row.setContentsMargins(0, 0, 0, 0)
 
-        # Speed gauge (left of slider)
-        self._speed_bar = QProgressBar()
-        self._speed_bar.setOrientation(Qt.Vertical)
-        self._speed_bar.setRange(0, 100)
-        self._speed_bar.setValue(0)
-        self._speed_bar.setFixedWidth(_GAUGE_WIDTH)
-        self._speed_bar.setStyleSheet(_SPEED_BAR_V_CSS)
-        self._speed_bar.setFormat('')
-        self._speed_bar.setToolTip('Fade speed')
-        self._speed_bar.setTextVisible(False)
-        slider_row.addWidget(self._speed_bar)
+        # Helper to create one half-height gauge bar
+        def _make_bar(css, inverted=False, tooltip=''):
+            bar = QProgressBar()
+            bar.setOrientation(Qt.Vertical)
+            bar.setRange(0, 100)
+            bar.setValue(0)
+            bar.setFixedWidth(_GAUGE_WIDTH)
+            bar.setStyleSheet(css)
+            bar.setFormat('')
+            bar.setTextVisible(False)
+            bar.setToolTip(tooltip)
+            if inverted:
+                bar.setInvertedAppearance(True)
+            return bar
+
+        # ── Speed column (left of slider) ──
+        speed_col = QVBoxLayout()
+        speed_col.setSpacing(1)
+        speed_col.setContentsMargins(0, 0, 0, 0)
+
+        self._speed_bar_up = _make_bar(
+            _SPEED_BAR_UP_CSS, inverted=False, tooltip='Fade speed (up)')
+        speed_col.addWidget(self._speed_bar_up, stretch=1)
+
+        self._speed_bar_dn = _make_bar(
+            _SPEED_BAR_DN_CSS, inverted=True, tooltip='Fade speed (down)')
+        speed_col.addWidget(self._speed_bar_dn, stretch=1)
+
+        slider_row.addLayout(speed_col)
 
         # Volume slider (center)
         self.volume_slider = QSlider(Qt.Vertical)
@@ -186,17 +238,20 @@ class VolumeStrip(QWidget):
         self.volume_slider.installEventFilter(self)
         slider_row.addWidget(self.volume_slider)
 
-        # Boost gauge (right of slider)
-        self._boost_bar = QProgressBar()
-        self._boost_bar.setOrientation(Qt.Vertical)
-        self._boost_bar.setRange(0, 100)
-        self._boost_bar.setValue(0)
-        self._boost_bar.setFixedWidth(_GAUGE_WIDTH)
-        self._boost_bar.setStyleSheet(_BOOST_BAR_V_CSS)
-        self._boost_bar.setFormat('')
-        self._boost_bar.setToolTip('Boost amount')
-        self._boost_bar.setTextVisible(False)
-        slider_row.addWidget(self._boost_bar)
+        # ── Boost column (right of slider) ──
+        boost_col = QVBoxLayout()
+        boost_col.setSpacing(1)
+        boost_col.setContentsMargins(0, 0, 0, 0)
+
+        self._boost_bar_up = _make_bar(
+            _BOOST_BAR_UP_CSS, inverted=False, tooltip='Boost (up)')
+        boost_col.addWidget(self._boost_bar_up, stretch=1)
+
+        self._boost_bar_dn = _make_bar(
+            _BOOST_BAR_DN_CSS, inverted=True, tooltip='Boost (down)')
+        boost_col.addWidget(self._boost_bar_dn, stretch=1)
+
+        slider_row.addLayout(boost_col)
 
         layout.addLayout(slider_row, stretch=1)
 
@@ -388,33 +443,47 @@ class VolumeStrip(QWidget):
         self._update_gauges(is_fading)
 
     def _update_gauges(self, is_fading):
-        """Update the vertical speed/boost bars and labels.
+        """Update the split up/down speed & boost bars and labels.
 
-        Speed bar: accumulated_speed as % of max possible speed.
-        Boost bar: instantaneous velocity as % of vel_high.
+        When fading UP   → top halves show values, bottom halves zeroed.
+        When fading DOWN → bottom halves show values, top halves zeroed.
+        When idle        → all zeroed.
         """
         max_speed = self._fade_step * 1000.0 / self._min_interval_ms
+        direction = self._fade_direction  # -1, 0, +1
 
+        # ── Speed bars ──
         if is_fading or self._accumulated_speed > 0:
-            # Speed bar — accumulated speed as % of max
-            if max_speed > 0:
-                speed_pct = int(100 * self._accumulated_speed / max_speed)
-            else:
-                speed_pct = 0
-            self._speed_bar.setValue(max(0, min(100, speed_pct)))
-            current_interval = self._speed_to_interval(self._accumulated_speed)
+            speed_pct = int(100 * self._accumulated_speed / max_speed) if max_speed > 0 else 0
+            speed_pct = max(0, min(100, speed_pct))
             self._speed_lbl.setText(f'{self._accumulated_speed:.0f}v/s')
+
+            if direction >= 0:  # fading up (or idle-with-residual → show up)
+                self._speed_bar_up.setValue(speed_pct)
+                self._speed_bar_dn.setValue(0)
+            else:               # fading down
+                self._speed_bar_up.setValue(0)
+                self._speed_bar_dn.setValue(speed_pct)
         else:
-            self._speed_bar.setValue(0)
+            self._speed_bar_up.setValue(0)
+            self._speed_bar_dn.setValue(0)
             self._speed_lbl.setText('—')
 
-        # Boost bar — instantaneous scroll velocity (independent of fade state)
+        # ── Boost bars ──
         if self._instant_velocity > 0:
             boost_pct = int(100 * self._instant_velocity / self._vel_high)
-            self._boost_bar.setValue(max(0, min(100, boost_pct)))
+            boost_pct = max(0, min(100, boost_pct))
             self._boost_lbl.setText(f'{self._instant_velocity:.0f}e/s')
+
+            if direction >= 0:
+                self._boost_bar_up.setValue(boost_pct)
+                self._boost_bar_dn.setValue(0)
+            else:
+                self._boost_bar_up.setValue(0)
+                self._boost_bar_dn.setValue(boost_pct)
         else:
-            self._boost_bar.setValue(0)
+            self._boost_bar_up.setValue(0)
+            self._boost_bar_dn.setValue(0)
             self._boost_lbl.setText('—')
 
         self._vel_lbl.setText(f'{self._instant_velocity:.1f}')
