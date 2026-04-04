@@ -72,8 +72,7 @@ class VolumeStrip(QWidget):
     volume_changed = Signal(int)   # 0–100
     mute_toggled = Signal()
     debug_log = Signal(str, str)   # (level, message) → route to debug panel
-    # (velocity_evt_s, current_interval_ms, initial_interval_ms, is_fading)
-    fade_state_changed = Signal(float, int, int, bool)
+    fade_state_changed = Signal(bool)  # is_fading
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -82,18 +81,25 @@ class VolumeStrip(QWidget):
         # ── Tunable parameters (driven by FadeTuningPanel) ──
         self._fade_step = 1           # volume units per tick
         self._min_interval_ms = 20    # fastest allowed fade tick (cap)
-        self._max_interval_ms = 200   # slowest fade tick (single gentle scroll)
+        self._max_interval_ms = 200   # slowest fade tick
         self._velocity_window_s = 0.4 # sliding window for measuring scroll speed
-        self._vel_low = 3.0           # scroll evt/s that maps to slowest fade
-        self._vel_high = 30.0         # scroll evt/s that maps to fastest fade
+        self._vel_low = 3.0           # scroll evt/s considered "slow"
+        self._vel_high = 30.0         # scroll evt/s considered "fast"
 
         # ── Fade state ──
-        self._fade_direction = 0   # -1 = fading down, +1 = fading up, 0 = idle
-        self._current_interval_ms = self._max_interval_ms
-        self._initial_interval_ms = self._max_interval_ms  # interval at fade start
-        self._last_velocity = 0.0
+        # The model: accumulated_speed is in "vol units per second".
+        # Each scroll burst *adds* to it based on instantaneous velocity.
+        # The timer interval is derived: interval = 1000 / (accumulated_speed / step).
+        self._fade_direction = 0      # -1 / 0 / +1
+        self._accumulated_speed = 0.0 # vol-units/sec, grows with each scroll burst
+        self._instant_velocity = 0.0  # latest scroll velocity (evt/s), for boost bar
         self._fade_timer = QTimer(self)
         self._fade_timer.timeout.connect(self._fade_tick)
+
+        # Timer to detect "user stopped scrolling" → reset boost bar
+        self._boost_decay_timer = QTimer(self)
+        self._boost_decay_timer.setSingleShot(True)
+        self._boost_decay_timer.timeout.connect(self._on_boost_decay)
 
         # Velocity measurement: timestamps of recent wheel events
         self._wheel_times: list[float] = []
@@ -232,29 +238,43 @@ class VolumeStrip(QWidget):
         """Intercept scroll wheel on the strip background (outside the slider)."""
         self._handle_wheel(event)
 
-    def _velocity_to_interval(self, velocity):
-        """Map scroll velocity (evt/s) → timer interval (ms).
+    def _velocity_to_speed_contribution(self, velocity):
+        """Map scroll velocity (evt/s) → speed contribution (vol-units/sec).
 
-        Higher velocity → shorter interval (faster fade).
-        Returns a value clamped to [_min_interval_ms, _max_interval_ms].
+        Slow scroll → small contribution, fast scroll → large contribution.
+        The range maps vel_low..vel_high to a contribution of
+        min_speed..max_speed where those are derived from the interval bounds.
         """
+        # max_speed corresponds to the fastest fade (min_interval)
+        # min_speed corresponds to the slowest fade (max_interval)
+        min_speed = self._fade_step * 1000.0 / self._max_interval_ms  # e.g. 1*1000/200 = 5 vol/s
+        max_speed = self._fade_step * 1000.0 / self._min_interval_ms  # e.g. 1*1000/20 = 50 vol/s
+
         rng = self._vel_high - self._vel_low
         if rng <= 0:
             rng = 1.0
         t = max(0.0, min(1.0, (velocity - self._vel_low) / rng))
-        interval = int(self._max_interval_ms
-                       - t * (self._max_interval_ms - self._min_interval_ms))
+        contribution = min_speed + t * (max_speed - min_speed)
+        return contribution
+
+    def _speed_to_interval(self, speed):
+        """Convert accumulated speed (vol-units/sec) → timer interval (ms)."""
+        if speed <= 0:
+            return self._max_interval_ms
+        interval = int(self._fade_step * 1000.0 / speed)
         return max(self._min_interval_ms, min(self._max_interval_ms, interval))
 
     def _handle_wheel(self, event):
-        """Unified wheel handler with velocity-based momentum fade.
+        """Unified wheel handler with additive accumulated speed.
 
-        Rules:
-        - Scrolling starts a fade toward 0 or 100.
-        - Scrolling in the same direction during an active fade can only
-          speed it up (interval decreases), never slow it down.
-        - Scrolling in the opposite direction stops the active fade.
-        - A fade always runs to 0 or 100 once started.
+        Model:
+        - Each scroll burst measures instantaneous velocity.
+        - That velocity is mapped to a speed contribution (vol-units/sec).
+        - The contribution is ADDED to the running accumulated speed.
+        - Timer interval is derived from accumulated speed.
+        - Boost bar shows instantaneous velocity, decays to 0 when scrolling stops.
+        - Speed bar shows accumulated total speed.
+        - Scrolling opposite direction stops the fade entirely.
         """
         delta = event.angleDelta().y()
         if delta == 0:
@@ -280,55 +300,62 @@ class VolumeStrip(QWidget):
         cutoff = now - self._velocity_window_s
         self._wheel_times = [t for t in self._wheel_times if t >= cutoff]
 
-        # Calculate velocity
+        # Calculate instantaneous velocity (evt/s)
         n = len(self._wheel_times)
         if n >= 2:
             span = self._wheel_times[-1] - self._wheel_times[0]
             velocity = (n - 1) / span if span > 0 else float(n)
         else:
-            velocity = self._vel_low  # single event → slowest
+            velocity = self._vel_low  # single event → minimum
 
-        new_interval = self._velocity_to_interval(velocity)
-        self._last_velocity = velocity
+        self._instant_velocity = velocity
 
-        # If a fade is already active, only allow speeding up (lower interval)
-        if self._fade_direction != 0:
-            old_interval = self._current_interval_ms
-            if new_interval >= old_interval:
-                # New scroll is same speed or slower — keep existing speed,
-                # but still restart the timer to avoid a stale tick gap.
-                self._log(
-                    'DEBUG',
-                    f'Volume scroll (boost ignored): vel={velocity:.1f} evt/s  '
-                    f'new_interval={new_interval}ms >= current={old_interval}ms'
-                )
-                self._emit_fade_state()
-                event.accept()
-                return
+        # Map velocity to a speed contribution and ADD to accumulated speed
+        contribution = self._velocity_to_speed_contribution(velocity)
+
+        was_idle = self._fade_direction == 0
+        old_speed = self._accumulated_speed
+        self._accumulated_speed += contribution
+
+        # Cap speed so interval doesn't go below min_interval_ms
+        max_speed = self._fade_step * 1000.0 / self._min_interval_ms
+        self._accumulated_speed = min(self._accumulated_speed, max_speed)
+
+        new_interval = self._speed_to_interval(self._accumulated_speed)
+
+        if was_idle:
             self._log(
                 'DEBUG',
-                f'Volume scroll (speed up): vel={velocity:.1f} evt/s  '
-                f'interval {old_interval}ms → {new_interval}ms'
+                f'Volume fade: NEW {"UP" if direction > 0 else "DOWN"}  '
+                f'vel={velocity:.1f} e/s  contribution={contribution:.1f} v/s  '
+                f'total_speed={self._accumulated_speed:.1f} v/s  '
+                f'interval={new_interval}ms'
             )
         else:
-            # New fade — record the starting interval
-            self._initial_interval_ms = new_interval
             self._log(
                 'DEBUG',
-                f'Volume scroll (new fade): '
-                f'{"UP" if direction > 0 else "DOWN"}  events={n}  '
-                f'vel={velocity:.1f} evt/s  interval={new_interval}ms  '
-                f'step={self._fade_step}'
+                f'Volume fade: BOOST  vel={velocity:.1f} e/s  '
+                f'+{contribution:.1f} v/s  '
+                f'speed {old_speed:.1f}→{self._accumulated_speed:.1f} v/s  '
+                f'interval={new_interval}ms'
             )
 
-        # Start / speed-up the fade
+        # Start / update the fade
         self._fade_direction = direction
-        self._current_interval_ms = new_interval
         self._fade_timer.setInterval(new_interval)
         self._fade_timer.start()
 
+        # Reset the boost decay timer (fires when user stops scrolling)
+        self._boost_decay_timer.start(int(self._velocity_window_s * 1000) + 100)
+
         self._emit_fade_state()
         event.accept()
+
+    def _on_boost_decay(self):
+        """Called when user stops scrolling — reset the boost bar to zero."""
+        self._instant_velocity = 0.0
+        self._wheel_times.clear()
+        self._update_gauges(is_fading=self._fade_direction != 0)
 
     def _fade_tick(self):
         """Called by the timer — move volume one step toward the limit."""
@@ -345,59 +372,52 @@ class VolumeStrip(QWidget):
         self._emit_fade_state()
 
     def _stop_fade(self):
-        """Stop the momentum fade."""
+        """Stop the momentum fade and reset all state."""
         self._fade_timer.stop()
+        self._boost_decay_timer.stop()
         self._fade_direction = 0
-        self._current_interval_ms = self._max_interval_ms
-        self._initial_interval_ms = self._max_interval_ms
-        self._last_velocity = 0.0
+        self._accumulated_speed = 0.0
+        self._instant_velocity = 0.0
         self._wheel_times.clear()
         self._emit_fade_state()
 
     def _emit_fade_state(self):
-        """Broadcast current fade metrics and update local gauges."""
+        """Broadcast current fade state and update local gauges."""
         is_fading = self._fade_direction != 0
-        self.fade_state_changed.emit(
-            self._last_velocity,
-            self._current_interval_ms,
-            self._initial_interval_ms,
-            is_fading,
-        )
+        self.fade_state_changed.emit(is_fading)
         self._update_gauges(is_fading)
 
     def _update_gauges(self, is_fading):
-        """Update the vertical speed/boost bars and labels."""
-        min_iv = self._min_interval_ms
-        max_iv = self._max_interval_ms
+        """Update the vertical speed/boost bars and labels.
 
-        if is_fading:
-            rng = max_iv - min_iv
-            if rng > 0:
-                speed_pct = int(100 * (max_iv - self._current_interval_ms) / rng)
+        Speed bar: accumulated_speed as % of max possible speed.
+        Boost bar: instantaneous velocity as % of vel_high.
+        """
+        max_speed = self._fade_step * 1000.0 / self._min_interval_ms
+
+        if is_fading or self._accumulated_speed > 0:
+            # Speed bar — accumulated speed as % of max
+            if max_speed > 0:
+                speed_pct = int(100 * self._accumulated_speed / max_speed)
             else:
-                speed_pct = 100
+                speed_pct = 0
             self._speed_bar.setValue(max(0, min(100, speed_pct)))
-            self._speed_lbl.setText(f'{self._current_interval_ms}ms')
-
-            if self._initial_interval_ms > min_iv:
-                reduction = self._initial_interval_ms - self._current_interval_ms
-                max_possible = self._initial_interval_ms - min_iv
-                boost_pct = int(100 * reduction / max_possible) if max_possible > 0 else 0
-            else:
-                boost_pct = 0
-            self._boost_bar.setValue(max(0, min(100, boost_pct)))
-            if self._initial_interval_ms != self._current_interval_ms:
-                self._boost_lbl.setText(f'-{self._initial_interval_ms - self._current_interval_ms}')
-            else:
-                self._boost_lbl.setText('—')
-
-            self._vel_lbl.setText(f'{self._last_velocity:.1f}')
+            current_interval = self._speed_to_interval(self._accumulated_speed)
+            self._speed_lbl.setText(f'{self._accumulated_speed:.0f}v/s')
         else:
             self._speed_bar.setValue(0)
             self._speed_lbl.setText('—')
+
+        # Boost bar — instantaneous scroll velocity (independent of fade state)
+        if self._instant_velocity > 0:
+            boost_pct = int(100 * self._instant_velocity / self._vel_high)
+            self._boost_bar.setValue(max(0, min(100, boost_pct)))
+            self._boost_lbl.setText(f'{self._instant_velocity:.0f}e/s')
+        else:
             self._boost_bar.setValue(0)
             self._boost_lbl.setText('—')
-            self._vel_lbl.setText('0.0')
+
+        self._vel_lbl.setText(f'{self._instant_velocity:.1f}')
 
     def _log(self, level, msg):
         """Emit a debug_log signal for the main window to pick up."""
