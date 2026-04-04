@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui.theme import COLORS
+from ui.waveform_bar import WaveformScrubBar
 
 
 def _fmt_ms(ms):
@@ -30,11 +31,11 @@ class PreviewDialog(QDialog):
     # Emitted when the dialog is closed (for cleanup in MainWindow)
     closed = Signal()
 
-    def __init__(self, track_entry, device_id='', parent=None):
+    def __init__(self, track_entry, device_id='', waveform_data=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle('Preview')
-        self.setMinimumSize(420, 160)
-        self.resize(480, 170)
+        self.setMinimumSize(420, 200)
+        self.resize(480, 210)
         self.setWindowFlags(
             self.windowFlags()
             | Qt.WindowStaysOnTopHint
@@ -44,6 +45,7 @@ class PreviewDialog(QDialog):
 
         self._track = track_entry
         self._device_id = device_id
+        self._waveform_data = waveform_data
 
         # ── Own VLC instance + player ────────────────────
         self._vlc_instance = vlc.Instance()
@@ -90,11 +92,14 @@ class PreviewDialog(QDialog):
         self._lbl_cur.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 11px;')
         scrub_row.addWidget(self._lbl_cur)
 
-        self._scrub = QSlider(Qt.Horizontal)
-        self._scrub.setRange(0, 10000)
-        self._scrub.setValue(0)
-        self._scrub.sliderPressed.connect(self._on_scrub_pressed)
-        self._scrub.sliderReleased.connect(self._on_scrub_released)
+        self._scrub = WaveformScrubBar()
+        self._scrub.BAR_HEIGHT = 40
+        self._scrub.setFixedHeight(40)
+        self._scrub.setMinimumHeight(40)
+        if self._waveform_data:
+            self._scrub.set_waveform(self._waveform_data)
+        self._scrub.scrub_pressed.connect(self._on_scrub_pressed)
+        self._scrub.scrub_released.connect(self._on_scrub_released)
         scrub_row.addWidget(self._scrub, stretch=1)
 
         self._lbl_total = QLabel('0:00')
@@ -183,7 +188,7 @@ class PreviewDialog(QDialog):
         self._vlc_player.stop()
         self._is_playing = False
         self._btn_play.setIcon(self._icon_play)
-        self._scrub.setValue(0)
+        self._scrub.set_position(0.0)
         self._lbl_cur.setText('0:00')
 
     def _on_volume(self, val):
@@ -194,9 +199,8 @@ class PreviewDialog(QDialog):
     def _on_scrub_pressed(self):
         self._user_scrubbing = True
 
-    def _on_scrub_released(self):
+    def _on_scrub_released(self, pos):
         self._user_scrubbing = False
-        pos = self._scrub.value() / 10000.0
         length = self._vlc_player.get_length()
         if length > 0:
             self._vlc_player.set_position(pos)
@@ -208,9 +212,7 @@ class PreviewDialog(QDialog):
             length = self._vlc_player.get_length()
             pos = self._vlc_player.get_position()
             if length > 0 and pos >= 0:
-                self._scrub.blockSignals(True)
-                self._scrub.setValue(int(pos * 10000))
-                self._scrub.blockSignals(False)
+                self._scrub.set_position(pos)
                 self._lbl_cur.setText(_fmt_ms(int(pos * length)))
                 self._lbl_total.setText(_fmt_ms(length))
 

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 import qtawesome as qta
 from ui.theme import COLORS
+from ui.waveform_bar import WaveformScrubBar
 
 _ICON_SIZE = 18  # default icon pixel size for transport buttons
 
@@ -1359,16 +1360,12 @@ class TransportBar(QWidget):
         self.lbl_time_cur.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 11px;')
         row1.addWidget(self.lbl_time_cur)
 
-        # Scrub slider
-        self.scrub_slider = TickSlider(Qt.Horizontal)
-        self.scrub_slider.setRange(0, 10000)
-        self.scrub_slider.setValue(0)
+        # Scrub bar (waveform moodbar)
+        self.scrub_slider = WaveformScrubBar()
         self.scrub_slider.setToolTip('Seek')
-        self.scrub_slider.setTickPosition(QSlider.TicksBelow)
-        self.scrub_slider.setTickInterval(1000)
-        self.scrub_slider.sliderPressed.connect(self._on_scrub_pressed)
-        self.scrub_slider.sliderMoved.connect(self._on_scrub_moved)
-        self.scrub_slider.sliderReleased.connect(self._on_scrub_released)
+        self.scrub_slider.scrub_pressed.connect(self._on_scrub_pressed)
+        self.scrub_slider.scrub_moved.connect(self._on_scrub_moved_wf)
+        self.scrub_slider.scrub_released.connect(self._on_scrub_released_wf)
         row1.addWidget(self.scrub_slider, stretch=1)
 
         # Total time
@@ -1439,27 +1436,25 @@ class TransportBar(QWidget):
     def _on_scrub_pressed(self):
         self._user_scrubbing = True
 
-    def _on_scrub_moved(self, value):
-        pos = value / 10000.0
+    def _on_scrub_moved_wf(self, pos):
+        """WaveformScrubBar emits float 0.0–1.0 directly."""
         self.scrub_moved.emit(pos)
 
-    def _on_scrub_released(self):
+    def _on_scrub_released_wf(self, pos):
+        """WaveformScrubBar emits float 0.0–1.0 directly."""
         self._user_scrubbing = False
-        pos = self.scrub_slider.value() / 10000.0
         self.scrub_released.emit(pos)
 
     # ── Public API for MainWindow ────────────────────────
 
     @property
     def is_user_scrubbing(self):
-        return self._user_scrubbing
+        return self._user_scrubbing or self.scrub_slider.is_scrubbing
 
     def set_scrub_position(self, pos):
         """Set the scrub slider position (0.0–1.0) without emitting signals."""
         if not self._user_scrubbing:
-            self.scrub_slider.blockSignals(True)
-            self.scrub_slider.setValue(int(pos * 10000))
-            self.scrub_slider.blockSignals(False)
+            self.scrub_slider.set_position(pos)
 
     def set_time_labels(self, current_ms, total_ms):
         self.lbl_time_cur.setText(self._fmt(current_ms))
@@ -1493,7 +1488,7 @@ class TransportBar(QWidget):
 
     def reset_display(self):
         """Reset scrub + time to zero (e.g. on stop)."""
-        self.set_scrub_position(0)
+        self.scrub_slider.clear()
         self.lbl_time_cur.setText('0:00')
         self.lbl_time_total.setText('0:00')
         self.set_playing_state(False)

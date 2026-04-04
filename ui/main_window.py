@@ -31,6 +31,7 @@ from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackFilterProx
 from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
 
 from core.audio_devices import list_audio_devices
+from core.waveform import WaveformWorker, deserialise_waveform, serialise_waveform
 
 
 class MainWindow(QMainWindow):
@@ -74,6 +75,9 @@ class MainWindow(QMainWindow):
 
         # Preview
         self._preview_dialog = None
+
+        # Waveform worker
+        self._waveform_worker = None
 
         # ── VLC ──────────────────────────────────────────
         self.vlc_instance = vlc.Instance()
@@ -695,6 +699,7 @@ class MainWindow(QMainWindow):
             self.current_index = index
             self._track_model.set_now_playing(index)
             self._track_table.jump_to_playlist_index(index)
+            self._start_waveform(index)
             return True
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Could not load {path}: {e}')
@@ -790,6 +795,7 @@ class MainWindow(QMainWindow):
 
     def _stop(self):
         """Stop playback."""
+        self._cancel_waveform()
         self.vlc_player.stop()
         self.is_playing = False
         self.is_paused = False
@@ -1433,9 +1439,21 @@ class MainWindow(QMainWindow):
         """Open the modeless preview dialog for the given track."""
         self._close_preview()
         entry = self.playlist[playlist_idx]
+
+        # Try to pass cached waveform data to the preview dialog
+        wf_data = None
+        rel_path = entry.get('path', '')
+        cached = self.db.get_waveform(rel_path)
+        if cached:
+            try:
+                wf_data = deserialise_waveform(cached)
+            except Exception:
+                pass
+
         self._preview_dialog = PreviewDialog(
             track_entry=entry,
             device_id=self.config.preview_audio_device,
+            waveform_data=wf_data,
             parent=self,
         )
         self._preview_dialog.closed.connect(self._on_preview_closed)
@@ -1462,6 +1480,73 @@ class MainWindow(QMainWindow):
     def _on_preview_closed(self):
         """Slot for PreviewDialog.closed signal."""
         self._preview_dialog = None
+
+    # ── Waveform ─────────────────────────────────────────
+
+    def _start_waveform(self, playlist_idx):
+        """Kick off waveform generation for the given track.
+
+        Checks the DB cache first; spawns a background worker on miss.
+        Cancels any in-flight worker.
+        """
+        # Cancel previous worker
+        if self._waveform_worker is not None:
+            self._waveform_worker.cancel()
+            self._waveform_worker = None
+
+        entry = self.playlist[playlist_idx]
+        abs_path = entry.get('_abs_path', '')
+        rel_path = entry.get('path', '')
+
+        # Try cache
+        cached = self.db.get_waveform(rel_path)
+        if cached:
+            try:
+                data = deserialise_waveform(cached)
+                self._transport.scrub_slider.set_waveform(data)
+                return
+            except Exception:
+                pass  # corrupt cache — regenerate
+
+        # Show loading state
+        self._transport.scrub_slider.set_loading(True)
+        self._debug_log('INFO', f'Waveform: generating for {os.path.basename(abs_path)}')
+
+        # Spawn worker
+        worker = WaveformWorker(abs_path, parent=self)
+        worker.finished.connect(
+            lambda fp, data, rp=rel_path: self._on_waveform_ready(rp, fp, data))
+        self._waveform_worker = worker
+        worker.start()
+
+    def _on_waveform_ready(self, rel_path, file_path, data):
+        """Slot: background waveform generation finished."""
+        self._waveform_worker = None
+        if not data:
+            self._transport.scrub_slider.set_loading(False)
+            self._debug_log('WARN', f'Waveform generation failed for {os.path.basename(file_path)}')
+            return
+
+        self._debug_log('INFO', f'Waveform: ready ({len(data)} bins) for {os.path.basename(file_path)}')
+
+        # Cache to DB
+        try:
+            blob = serialise_waveform(data)
+            self.db.save_waveform(rel_path, blob)
+        except Exception as e:
+            self._debug_log('WARN', f'Waveform cache save failed: {e}')
+
+        # Apply to scrub bar (only if we're still on the same track)
+        if self.current_index is not None:
+            cur_path = self.playlist[self.current_index].get('_abs_path', '')
+            if cur_path == file_path:
+                self._transport.scrub_slider.set_waveform(data)
+
+    def _cancel_waveform(self):
+        """Cancel any in-flight waveform worker."""
+        if self._waveform_worker is not None:
+            self._waveform_worker.cancel()
+            self._waveform_worker = None
 
     # ── Drag-and-drop ─────────────────────────────────
 
@@ -1502,6 +1587,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._poll_timer.stop()
+        self._cancel_waveform()
         self._close_preview()
         self.vlc_player.stop()
         self.config.visible_columns = self._track_table.get_visible_columns()

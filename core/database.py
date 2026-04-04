@@ -92,6 +92,7 @@ class Database:
             ('genre', "ALTER TABLE tracks ADD COLUMN genre TEXT DEFAULT 'Unknown'"),
             ('comment', "ALTER TABLE tracks ADD COLUMN comment TEXT DEFAULT ''"),
             ('length', "ALTER TABLE tracks ADD COLUMN length REAL"),
+            ('waveform', "ALTER TABLE tracks ADD COLUMN waveform BLOB"),
         ]:
             if col not in columns:
                 con.execute(sql)
@@ -407,6 +408,27 @@ class Database:
     def delete_track_eq(self, track_id):
         con = self.connect()
         con.execute("DELETE FROM track_eq WHERE track_id = ?", (track_id,))
+        con.commit()
+        con.close()
+
+    # ── Waveform cache ───────────────────────────────────
+
+    def get_waveform(self, path):
+        """Return cached waveform blob for *path*, or None."""
+        con = self.connect()
+        cur = con.cursor()
+        cur.execute("SELECT waveform FROM tracks WHERE file_path = ?", (path,))
+        row = cur.fetchone()
+        con.close()
+        if row and row[0]:
+            return row[0]
+        return None
+
+    def save_waveform(self, path, blob):
+        """Store compressed waveform blob for *path*."""
+        con = self.connect()
+        con.execute("UPDATE tracks SET waveform = ? WHERE file_path = ?",
+                    (blob, path))
         con.commit()
         con.close()
 
