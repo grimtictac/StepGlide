@@ -656,6 +656,8 @@ class PullFader(QWidget):
         self._fade_timer = QTimer(self)
         self._fade_timer.timeout.connect(self._fade_tick)
         self._fade_active = False
+        self._pull_speed_vps = 0.0
+        self._pull_max_speed = 1.0
 
         self._build_ui()
 
@@ -759,6 +761,12 @@ class PullFader(QWidget):
         # Stop the scroll-wheel fade if one was active
         vs._stop_fade()
 
+        # Drive the VolumeStrip gauge bars so speed indicators are visible
+        max_speed = vs._fade_step * 1000.0 / vs._min_interval_ms
+        self._pull_speed_vps = speed_vps
+        self._pull_max_speed = max_speed
+        self._update_vs_gauges()
+
         # Start our own fade-down timer
         self._fade_active = True
         self._fade_timer.setInterval(interval)
@@ -775,6 +783,37 @@ class PullFader(QWidget):
             self._stop_fade()
             return
         vs.volume_slider.setValue(new_val)
+        # Keep gauge bars in sync while fading
+        self._update_vs_gauges()
+
+    def _update_vs_gauges(self):
+        """Drive VolumeStrip speed/boost bars to reflect pull-fade state."""
+        vs = self._vs
+        speed = getattr(self, '_pull_speed_vps', 0.0)
+        max_speed = getattr(self, '_pull_max_speed', 1.0)
+        if speed > 0 and max_speed > 0:
+            pct = max(0, min(100, int(100 * speed / max_speed)))
+            vs._speed_bar_up.setValue(0)
+            vs._speed_bar_dn.setValue(pct)
+            vs._speed_lbl.setText(f'{speed:.0f}v/s')
+            # Use boost-down bar to show pull distance as a secondary indicator
+            vs._boost_bar_up.setValue(0)
+            vs._boost_bar_dn.setValue(pct)
+            vs._boost_lbl.setText(f'{speed:.0f}v/s')
+            vs._vel_lbl.setText(f'{speed:.1f}')
+        else:
+            self._clear_vs_gauges()
+
+    def _clear_vs_gauges(self):
+        """Reset VolumeStrip gauge bars to idle state."""
+        vs = self._vs
+        vs._speed_bar_up.setValue(0)
+        vs._speed_bar_dn.setValue(0)
+        vs._speed_lbl.setText('—')
+        vs._boost_bar_up.setValue(0)
+        vs._boost_bar_dn.setValue(0)
+        vs._boost_lbl.setText('—')
+        vs._vel_lbl.setText('0.0')
 
     def _stop_fade(self):
         """Stop the pull-fader fade."""
@@ -782,6 +821,8 @@ class PullFader(QWidget):
         self._fade_active = False
         self._pull_bar.setValue(0)
         self._lbl_speed.setText('—')
+        self._pull_speed_vps = 0.0
+        self._clear_vs_gauges()
 
     def stop(self):
         """Public: stop any active pull-fade (called when switching modes)."""
@@ -874,16 +915,11 @@ class VolumePanel(QWidget):
 
         self._fade_stack.setCurrentIndex(mode_id)
 
-        # Show/hide the scroll-wheel gauge bars based on mode
-        show_gauges = (mode_id == 0)
-        for bar in (self._vs._speed_bar_up, self._vs._speed_bar_dn,
-                    self._vs._boost_bar_up, self._vs._boost_bar_dn):
-            bar.setVisible(show_gauges)
-        self._vs._speed_lbl.setVisible(show_gauges)
-        self._vs._boost_lbl.setVisible(show_gauges)
+        # Gauge bars stay visible in both modes — the pull-fader drives
+        # them too, so the user always has speed/boost feedback.
 
         # Enable/disable scroll-wheel handling on VolumeStrip
-        self._vs._scroll_fade_enabled = show_gauges
+        self._vs._scroll_fade_enabled = (mode_id == 0)
 
     @staticmethod
     def _tab_btn_css():
