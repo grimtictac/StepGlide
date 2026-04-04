@@ -657,29 +657,65 @@ class SettingsDialog(QDialog):
         pl = QVBoxLayout(pull_group)
         pl.setSpacing(6)
 
-        self._sl_pull_speed, _ = self._volume_slider_row(
-            pl, 'Fade speed',
-            'How fast the fade runs at full pull. Higher = faster.',
-            1, 100, self._friendly_pull_speed(), '%')
-        self._sl_pull_speed.valueChanged.connect(self._on_friendly_pull_speed)
+        # ── Simple: min / max fade duration in seconds ──
+        # Min fade duration = time at full pull = 100 * min_interval / (step * 1000)
+        # Max fade duration = time at tiny pull = 100 * max_interval / (step * 1000)
+        self._sl_pull_min_dur, self._lbl_pull_min_dur = self._volume_slider_row(
+            pl, 'Fastest fade',
+            'Shortest fade duration at full pull (seconds).',
+            1, 100, self._pull_min_duration_tenths(), '')
+        self._sl_pull_min_dur.valueChanged.connect(self._on_pull_min_duration)
+        self._lbl_pull_min_dur.setText(self._format_duration_tenths(
+            self._pull_min_duration_tenths()))
 
-        self._sl_pull_range, _ = self._volume_slider_row(
-            pl, 'Speed range',
-            'Difference between a tiny pull and a full pull. Higher = wider range.',
-            1, 100, self._friendly_pull_range(), '%')
-        self._sl_pull_range.valueChanged.connect(self._on_friendly_pull_range)
+        self._sl_pull_max_dur, self._lbl_pull_max_dur = self._volume_slider_row(
+            pl, 'Slowest fade',
+            'Longest fade duration at smallest pull (seconds).',
+            5, 400, self._pull_max_duration_tenths(), '')
+        self._sl_pull_max_dur.valueChanged.connect(self._on_pull_max_duration)
+        self._lbl_pull_max_dur.setText(self._format_duration_tenths(
+            self._pull_max_duration_tenths()))
+
+        # ── Advanced pull-fader toggle ──
+        self._pull_adv_toggle = QPushButton('▶ Advanced')
+        self._pull_adv_toggle.setStyleSheet(
+            f'color: {COLORS["fg_dim"]}; border: none; text-align: left; '
+            f'font-size: 11px; padding: 4px 0;')
+        self._pull_adv_toggle.setCheckable(True)
+        self._pull_adv_toggle.clicked.connect(self._toggle_pull_advanced)
+        pl.addWidget(self._pull_adv_toggle)
+
+        self._pull_adv_group = QWidget()
+        pull_adv_layout = QVBoxLayout(self._pull_adv_group)
+        pull_adv_layout.setContentsMargins(0, 0, 0, 0)
+        pull_adv_layout.setSpacing(4)
 
         self._sl_pull_step, _ = self._volume_slider_row(
-            pl, 'Step size',
+            pull_adv_layout, 'Step size',
             'Volume units per fade tick. Higher = coarser steps.',
             1, 10, self._wk_pull_step, '')
         self._sl_pull_step.valueChanged.connect(self._on_pull_step)
 
+        self._sl_pull_min_iv, _ = self._volume_slider_row(
+            pull_adv_layout, 'Min interval (cap)',
+            'Fastest timer interval at full pull.',
+            5, 100, self._wk_pull_min_interval, 'ms')
+        self._sl_pull_min_iv.valueChanged.connect(self._on_pull_adv_min_interval)
+
+        self._sl_pull_max_iv, _ = self._volume_slider_row(
+            pull_adv_layout, 'Max interval',
+            'Slowest timer interval at tiny pull.',
+            50, 500, self._wk_pull_max_interval, 'ms')
+        self._sl_pull_max_iv.valueChanged.connect(self._on_pull_adv_max_interval)
+
         self._sl_pull_dz, _ = self._volume_slider_row(
-            pl, 'Dead zone',
+            pull_adv_layout, 'Dead zone',
             'Minimum pull distance (%) before a fade starts.',
             0, 30, self._wk_pull_dead_zone, '%')
         self._sl_pull_dz.valueChanged.connect(self._on_pull_dead_zone)
+
+        self._pull_adv_group.setVisible(False)
+        pl.addWidget(self._pull_adv_group)
 
         layout.addWidget(pull_group)
 
@@ -836,17 +872,74 @@ class SettingsDialog(QDialog):
         vs.set_vel_high(self._wk_fade_vel_high)
         vs.set_tick_threshold(self._wk_fade_tick_threshold)
 
-    # ── Pull-fader friendly conversions ──────────────────
+    # ── Pull-fader duration conversions ─────────────────
+    # Simple sliders work in tenths-of-a-second.
+    # Duration = 100 * interval_ms / (step * 1000)  →  interval = duration * step * 10
 
-    def _friendly_pull_speed(self):
-        """pull min_interval → friendly %.  100ms=1%, 5ms=100%."""
-        v = self._wk_pull_min_interval
-        return max(1, min(100, int(100 * (100 - v) / (100 - 5))))
+    @staticmethod
+    def _format_duration_tenths(tenths):
+        """Format tenths-of-a-second value as e.g. '2.0s' or '15.0s'."""
+        return f'{tenths / 10:.1f}s'
 
-    def _friendly_pull_range(self):
-        """pull max_interval → friendly %.  500ms=1%, 50ms=100%."""
-        v = self._wk_pull_max_interval
-        return max(1, min(100, int(100 * (500 - v) / (500 - 50))))
+    def _pull_min_duration_tenths(self):
+        """Fastest fade duration in tenths-of-a-second (full pull → min_interval)."""
+        dur = 100.0 * self._wk_pull_min_interval / (self._wk_pull_step * 1000.0)
+        return max(1, min(100, int(dur * 10)))
+
+    def _pull_max_duration_tenths(self):
+        """Slowest fade duration in tenths-of-a-second (tiny pull → max_interval)."""
+        dur = 100.0 * self._wk_pull_max_interval / (self._wk_pull_step * 1000.0)
+        return max(5, min(400, int(dur * 10)))
+
+    def _on_pull_min_duration(self, tenths):
+        """Simple fastest-fade slider → min_interval."""
+        dur_s = tenths / 10.0
+        self._lbl_pull_min_dur.setText(f'{dur_s:.1f}s')
+        # interval = duration * step * 1000 / 100 = duration * step * 10
+        val = max(5, min(100, int(dur_s * self._wk_pull_step * 10)))
+        self._wk_pull_min_interval = val
+        # Sync advanced slider
+        self._sl_pull_min_iv.blockSignals(True)
+        self._sl_pull_min_iv.setValue(val)
+        self._sl_pull_min_iv.blockSignals(False)
+        self._apply_pull_live()
+
+    def _on_pull_max_duration(self, tenths):
+        """Simple slowest-fade slider → max_interval."""
+        dur_s = tenths / 10.0
+        self._lbl_pull_max_dur.setText(f'{dur_s:.1f}s')
+        val = max(50, min(500, int(dur_s * self._wk_pull_step * 10)))
+        self._wk_pull_max_interval = val
+        # Sync advanced slider
+        self._sl_pull_max_iv.blockSignals(True)
+        self._sl_pull_max_iv.setValue(val)
+        self._sl_pull_max_iv.blockSignals(False)
+        self._apply_pull_live()
+
+    def _on_pull_adv_min_interval(self, v):
+        """Advanced min_interval changed → sync simple slider."""
+        self._wk_pull_min_interval = v
+        self._sl_pull_min_dur.blockSignals(True)
+        self._sl_pull_min_dur.setValue(self._pull_min_duration_tenths())
+        self._sl_pull_min_dur.blockSignals(False)
+        self._lbl_pull_min_dur.setText(self._format_duration_tenths(
+            self._pull_min_duration_tenths()))
+        self._apply_pull_live()
+
+    def _on_pull_adv_max_interval(self, v):
+        """Advanced max_interval changed → sync simple slider."""
+        self._wk_pull_max_interval = v
+        self._sl_pull_max_dur.blockSignals(True)
+        self._sl_pull_max_dur.setValue(self._pull_max_duration_tenths())
+        self._sl_pull_max_dur.blockSignals(False)
+        self._lbl_pull_max_dur.setText(self._format_duration_tenths(
+            self._pull_max_duration_tenths()))
+        self._apply_pull_live()
+
+    def _toggle_pull_advanced(self, checked):
+        self._pull_adv_group.setVisible(checked)
+        self._pull_adv_toggle.setText(
+            '▼ Advanced' if checked else '▶ Advanced')
 
     def _on_friendly_pull_speed(self, pct):
         """Friendly pull speed → min_interval."""

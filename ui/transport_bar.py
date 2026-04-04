@@ -24,7 +24,7 @@ _ICON_SIZE = 18  # default icon pixel size for transport buttons
 # ═════════════════════════════════════════════════════════
 
 class TickSlider(QSlider):
-    """QSlider subclass that manually draws tick marks.
+    """QSlider subclass that manually draws tick marks and optional labels.
 
     Qt's style engine stops rendering tick marks whenever a custom
     stylesheet is applied.  This subclass paints them in ``paintEvent``
@@ -34,12 +34,25 @@ class TickSlider(QSlider):
     ----------
     tick_color : str | QColor
         Colour used for the tick lines (default: theme ``fg_dim``).
+    tick_labels : dict[int, str] | None
+        Mapping of slider value → label text drawn beside the tick.
+        Only values that land on a tick interval are drawn.
+    label_side : str
+        ``'left'`` or ``'right'`` for vertical sliders (default ``'right'``).
     """
 
     def __init__(self, orientation=Qt.Horizontal, parent=None, *,
-                 tick_color=None):
+                 tick_color=None, tick_labels=None, label_side='right'):
         super().__init__(orientation, parent)
         self._tick_color = QColor(tick_color or COLORS['fg_dim'])
+        self._tick_labels: dict[int, str] = tick_labels or {}
+        self._label_side = label_side
+        self._label_font_size = 7
+
+    def set_tick_labels(self, labels: dict):
+        """Replace tick labels and repaint."""
+        self._tick_labels = labels
+        self.update()
 
     def paintEvent(self, event):
         # Let the stylesheet-driven painting happen first
@@ -92,6 +105,10 @@ class TickSlider(QSlider):
             span_end = groove.bottom() - half_handle
             span = span_end - span_start
 
+            from PySide6.QtGui import QFont
+            label_font = QFont()
+            label_font.setPixelSize(self._label_font_size)
+
             for i in range(num_ticks + 1):
                 val = self.minimum() + i * interval
                 if val > self.maximum():
@@ -106,6 +123,20 @@ class TickSlider(QSlider):
                     painter.drawLine(groove.left() - 2, y, groove.left() - 2 - tick_len, y)
                 if tp in (QSlider.TicksRight, QSlider.TicksBothSides):
                     painter.drawLine(groove.right() + 2, y, groove.right() + 2 + tick_len, y)
+
+                # Draw label if provided for this value
+                label_text = self._tick_labels.get(val)
+                if label_text:
+                    painter.setFont(label_font)
+                    fm = painter.fontMetrics()
+                    text_h = fm.height()
+                    text_w = fm.horizontalAdvance(label_text)
+                    if self._label_side == 'left':
+                        tx = groove.left() - 2 - tick_len - 2 - text_w
+                    else:
+                        tx = groove.right() + 2 + tick_len + 2
+                    ty = y + text_h // 3  # vertically centre on tick
+                    painter.drawText(tx, ty, label_text)
 
         painter.end()
 
@@ -205,7 +236,7 @@ class VolumeStrip(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(80)
+        self.setFixedWidth(96)
 
         # ── Tunable parameters (driven by FadeTuningPanel) ──
         self._fade_step = 1           # volume units per tick
@@ -297,20 +328,27 @@ class VolumeStrip(QWidget):
 
         slider_row.addLayout(speed_col)
 
-        # Volume slider (center)
-        self.volume_slider = TickSlider(Qt.Vertical)
+        # Volume slider (center) — with percent labels
+        _vol_labels = {0: '0', 20: '20', 40: '40', 60: '60', 80: '80', 100: '100'}
+        self.volume_slider = TickSlider(
+            Qt.Vertical, tick_labels=_vol_labels, label_side='right')
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
         self.volume_slider.setToolTip('Volume')
-        self.volume_slider.setTickPosition(QSlider.TicksBothSides)
+        self.volume_slider.setTickPosition(QSlider.TicksLeft)
         self.volume_slider.setTickInterval(10)
+        self.volume_slider._label_font_size = 6
         self.volume_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        self.volume_slider.setFixedWidth(36)
+        self.volume_slider.setFixedWidth(50)
         self.volume_slider.setStyleSheet(f'''
             QSlider::groove:vertical {{
-                background: {COLORS["bg_light"]};
                 width: 14px;
                 border-radius: 7px;
+                background: qlineargradient(
+                    x1:0, y1:0, x2:0, y2:1,
+                    stop:0.00 {COLORS["red"]},
+                    stop:0.50 {COLORS["yellow"]},
+                    stop:1.00 {COLORS["green"]});
             }}
             QSlider::handle:vertical {{
                 background: {COLORS["accent"]};
@@ -325,11 +363,11 @@ class VolumeStrip(QWidget):
                 border: 2px solid {COLORS["fg"]};
             }}
             QSlider::sub-page:vertical {{
-                background: {COLORS["bg_light"]};
+                background: transparent;
                 border-radius: 7px;
             }}
             QSlider::add-page:vertical {{
-                background: {COLORS["accent"]};
+                background: transparent;
                 border-radius: 7px;
             }}
         ''')
@@ -556,6 +594,10 @@ class VolumeStrip(QWidget):
         if new_val == current:
             self._log('DEBUG', f'Volume fade: hit limit at {current}% → stopped')
             self._stop_fade()
+            # Auto-mute when fade reaches zero
+            if current == 0:
+                self._log('DEBUG', 'Volume fade: reached zero → auto-mute')
+                self.mute_toggled.emit()
             return
 
         self.volume_slider.setValue(new_val)
@@ -610,6 +652,34 @@ class VolumeStrip(QWidget):
         self._fade_timer.setInterval(new_interval)
         self._fade_timer.start()
         self._emit_fade_state()
+
+    def set_fade_speed(self, speed_vps, direction):
+        """Set the fade speed to exactly *speed_vps* vol-units/sec.
+
+        Unlike inject_fade_speed (which adds), this *replaces* the current
+        speed.  Designed for continuous live control (e.g. pull-fader).
+
+        If the timer is already running the interval is updated in-place
+        only when it actually changes, avoiding the Qt restart-on-setInterval
+        behaviour that starves ticks during rapid calls.
+        """
+        if direction == 0 or speed_vps <= 0:
+            return
+
+        if self._fade_direction != 0 and direction != self._fade_direction:
+            self._stop_fade()
+
+        self._fade_direction = direction
+        max_speed = self._fade_step * 1000.0 / self._min_interval_ms
+        self._accumulated_speed = min(speed_vps, max_speed)
+
+        new_interval = self._speed_to_interval(self._accumulated_speed)
+        if self._fade_timer.isActive():
+            if self._fade_timer.interval() != new_interval:
+                self._fade_timer.setInterval(new_interval)
+        else:
+            self._fade_timer.setInterval(new_interval)
+            self._fade_timer.start()
 
     def _emit_fade_state(self):
         """Broadcast current fade state and update local gauges."""
@@ -724,14 +794,20 @@ class VolumeStrip(QWidget):
 
 
 # ═════════════════════════════════════════════════════════
-# Pull-fader — grab-and-release fade controller
+# Pull-fader — direct live speed controller
 # ═════════════════════════════════════════════════════════
 
 _PULL_FADER_CSS = '''
     QSlider::groove:vertical {{
-        background: {bg_light};
         width: 12px;
         border-radius: 6px;
+        background: qlineargradient(
+            x1:0, y1:0, x2:0, y2:1,
+            stop:0.00 {bg_dark},
+            stop:0.08 {bg_dark},
+            stop:0.12 {cyan_dim},
+            stop:0.50 {cyan},
+            stop:1.00 {cyan_bright});
     }}
     QSlider::handle:vertical {{
         background: {fg};
@@ -750,33 +826,35 @@ _PULL_FADER_CSS = '''
         border: 2px solid {fg};
     }}
     QSlider::sub-page:vertical {{
-        background: qlineargradient(
-            x1:0, y1:0, x2:0, y2:1,
-            stop:0 {yellow}, stop:1 {red});
+        background: transparent;
         border-radius: 6px;
     }}
     QSlider::add-page:vertical {{
-        background: {bg_light};
+        background: transparent;
         border-radius: 6px;
     }}
 '''.format(
-    bg_light=COLORS['bg_light'], red=COLORS['red'], fg=COLORS['fg'],
-    accent=COLORS['accent'], yellow=COLORS['yellow'],
+    bg_dark=COLORS['bg'], cyan_dim='#1a4a5a',
+    cyan=COLORS['cyan'], cyan_bright=COLORS['cyan_bright'],
+    red=COLORS['red'], fg=COLORS['fg'], accent=COLORS['accent'],
 )
 
 
 class PullFader(QWidget):
     """
-    Grab-and-release fade controller.
+    Direct live speed controller for volume fade.
 
-    A vertical slider whose handle rests at the top (100).  The user grabs
-    it and pulls downward.  On release, the handle snaps back to 100 and
-    the shared VolumeStrip fade model receives a speed injection proportional
-    to how far down the handle was pulled.
+    A vertical slider whose handle rests at the top (100).  While the user
+    holds the handle and drags it down, volume fades continuously — how far
+    the handle is pulled directly determines fade speed.  Releasing the
+    handle snaps it back to 100 and stops the fade.
 
-    Pull distance mapping:
-      - Small pull (< dead_zone%) → ignored
-      - Full pull  (100%)         → fastest fade (min_interval)
+    Dead zone: small region at the top where pulling has no effect.
+    Below the dead zone: speed scales from minimum to maximum proportional
+    to pull distance.
+
+    This is a *live* controller: fading happens the entire time the handle
+    is held outside the dead zone, not on release.
     """
 
     debug_log = Signal(str, str)
@@ -784,7 +862,7 @@ class PullFader(QWidget):
     def __init__(self, volume_strip: 'VolumeStrip', parent=None):
         super().__init__(parent)
         self._vs = volume_strip
-        self.setFixedWidth(70)
+        self.setFixedWidth(82)
 
         # Pull-fader own tunable parameters (independent of scroll-fade)
         self._min_interval_ms = 20    # fastest fade (full pull)
@@ -792,7 +870,40 @@ class PullFader(QWidget):
         self._fade_step = 1           # volume units per tick
         self._dead_zone_pct = 5       # pull < this% is ignored
 
+        self._user_holding = False     # True while mouse button is down
+
         self._build_ui()
+        self._update_tick_labels()     # compute seconds labels from params
+
+    def _pull_pct_to_speed(self, pull_pct):
+        """Convert pull_pct (0–100) → speed in vol-units/sec, or 0 if in dead zone."""
+        dz = self._dead_zone_pct
+        if pull_pct < dz:
+            return 0.0
+        usable = 100 - dz
+        t = (pull_pct - dz) / usable if usable > 0 else 1.0
+        t = max(0.0, min(1.0, t))
+        min_iv = self._min_interval_ms
+        max_iv = self._max_interval_ms
+        interval = max_iv - t * (max_iv - min_iv)
+        interval = max(min_iv, min(max_iv, interval))
+        return self._fade_step * 1000.0 / interval
+
+    def _update_tick_labels(self):
+        """Recalculate seconds-to-fade labels for each tick mark."""
+        labels: dict[int, str] = {}
+        for val in range(0, 101, 10):
+            pull_pct = 100 - val  # slider value → pull distance
+            speed = self._pull_pct_to_speed(pull_pct)
+            if speed > 0:
+                secs = 100.0 / speed  # time to fade 100→0 at this speed
+                if secs >= 10:
+                    labels[val] = f'{secs:.0f}s'
+                else:
+                    labels[val] = f'{secs:.1f}s'
+            else:
+                labels[val] = ''  # dead zone — no label
+        self._slider.set_tick_labels(labels)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -808,19 +919,23 @@ class PullFader(QWidget):
         layout.addWidget(title)
 
         # Pull slider — 100 at top (resting), 0 at bottom (max pull)
-        self._slider = TickSlider(Qt.Vertical)
+        self._slider = TickSlider(
+            Qt.Vertical, label_side='right')
         self._slider.setRange(0, 100)
         self._slider.setValue(100)
-        self._slider.setTickPosition(QSlider.TicksBothSides)
+        self._slider.setTickPosition(QSlider.TicksLeft)
         self._slider.setTickInterval(10)
-        self._slider.setFixedWidth(36)
+        self._slider._label_font_size = 6
+        self._slider.setFixedWidth(48)
         self._slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._slider.setStyleSheet(_PULL_FADER_CSS)
         self._slider.setToolTip(
-            'Pull down and release to fade volume.\n'
-            'Further pull = faster fade.')
+            'Hold and pull down to fade volume.\n'
+            'Further pull = faster fade.\n'
+            'Release to stop.')
         self._slider.sliderPressed.connect(self._on_pressed)
         self._slider.sliderReleased.connect(self._on_released)
+        self._slider.valueChanged.connect(self._on_value_changed)
         layout.addWidget(self._slider, stretch=1, alignment=Qt.AlignHCenter)
 
         # Speed readout
@@ -829,6 +944,14 @@ class PullFader(QWidget):
         self._lbl_speed.setStyleSheet(
             f'color:{COLORS["fg_dim"]};font-size:8px;')
         layout.addWidget(self._lbl_speed)
+
+        # Fade-time indicator
+        self._lbl_fade_time = QLabel('—')
+        self._lbl_fade_time.setAlignment(Qt.AlignCenter)
+        self._lbl_fade_time.setStyleSheet(
+            f'color:{COLORS["cyan"]};font-size:9px;font-weight:bold;')
+        self._lbl_fade_time.setToolTip('Estimated seconds to fade to zero')
+        layout.addWidget(self._lbl_fade_time)
 
         # Pull-distance indicator bar
         self._pull_bar = QProgressBar()
@@ -847,55 +970,79 @@ class PullFader(QWidget):
                 border-radius: 2px;
                 background: qlineargradient(
                     x1:0, y1:0, x2:1, y2:0,
-                    stop:0 {COLORS["yellow"]}, stop:1 {COLORS["red"]});
+                    stop:0 {COLORS["cyan"]}, stop:1 {COLORS["cyan_bright"]});
             }}
         ''')
         layout.addWidget(self._pull_bar)
 
+    # ── Slider interaction ──
+
     def _on_pressed(self):
-        """User grabbed the handle — stop any active fade."""
+        """User grabbed the handle — stop any existing scroll-fade."""
+        self._user_holding = True
         self._vs._stop_fade()
 
-    def _on_released(self):
-        """User released — map pull distance to speed, inject into VolumeStrip."""
-        pull_value = self._slider.value()  # 100 = top (no pull), 0 = max pull
-        pull_pct = 100 - pull_value        # 0 = no pull, 100 = max pull
+    def _on_value_changed(self, value):
+        """Called on every pixel of handle drag.
 
-        # Snap handle back to top
+        While the user is holding and outside the dead zone, continuously
+        feed the fade model with the current speed.
+        """
+        if not self._user_holding:
+            return
+
+        pull_pct = 100 - value   # 0 = no pull, 100 = max pull
+        speed_vps = self._pull_pct_to_speed(pull_pct)
+
+        if speed_vps <= 0:
+            # Inside dead zone — stop fade, clear readout
+            self._vs._stop_fade()
+            self._pull_bar.setValue(0)
+            self._lbl_speed.setText('—')
+            self._lbl_fade_time.setText('—')
+            return
+
+        # Update visuals
+        self._pull_bar.setValue(pull_pct)
+        self._lbl_speed.setText(f'{speed_vps:.0f}v/s')
+
+        # Compute time remaining to fade current volume to zero
+        cur_vol = self._vs.volume_slider.value()
+        if cur_vol > 0 and speed_vps > 0:
+            secs = cur_vol / speed_vps
+            if secs >= 10:
+                self._lbl_fade_time.setText(f'{secs:.0f}s')
+            else:
+                self._lbl_fade_time.setText(f'{secs:.1f}s')
+        else:
+            self._lbl_fade_time.setText('0s')
+
+        # Feed the fade model — always fade DOWN
+        self._vs.set_fade_speed(speed_vps, -1)
+
+    def _on_released(self):
+        """User released — stop the fade, snap handle back to top."""
+        self._user_holding = False
+        self._vs._stop_fade()
+
+        # Snap handle back to resting position
         self._slider.blockSignals(True)
         self._slider.setValue(100)
         self._slider.blockSignals(False)
 
-        dz = self._dead_zone_pct
-        if pull_pct < dz:
-            self._pull_bar.setValue(0)
-            self._lbl_speed.setText('—')
-            return
+        # Clear readout
+        self._pull_bar.setValue(0)
+        self._lbl_speed.setText('—')
+        self._lbl_fade_time.setText('—')
 
-        # Map pull_pct → speed (vol-units/sec)
-        min_iv = self._min_interval_ms
-        max_iv = self._max_interval_ms
-        usable = 100 - dz
-        t = max(0.0, min(1.0, (pull_pct - dz) / usable)) if usable > 0 else 1.0
-        interval = int(max_iv - t * (max_iv - min_iv))
-        interval = max(min_iv, min(max_iv, interval))
-        speed_vps = self._fade_step * 1000.0 / interval
-
-        # Visual feedback
-        self._pull_bar.setValue(pull_pct)
-        self._lbl_speed.setText(f'{speed_vps:.0f}v/s')
-
-        self.debug_log.emit(
-            'DEBUG',
-            f'Pull-fader: pull={pull_pct}%  speed={speed_vps:.1f} v/s → injecting')
-
-        # Inject into the shared fade model (always fade DOWN)
-        self._vs.inject_fade_speed(speed_vps, -1)
+        self.debug_log.emit('DEBUG', 'Pull-fader: released → fade stopped')
 
     def stop(self):
         """Public: reset visual state (called externally if needed)."""
+        self._user_holding = False
         self._pull_bar.setValue(0)
         self._lbl_speed.setText('—')
+        self._lbl_fade_time.setText('—')
         self._slider.blockSignals(True)
         self._slider.setValue(100)
         self._slider.blockSignals(False)
@@ -904,15 +1051,19 @@ class PullFader(QWidget):
 
     def set_min_interval(self, v):
         self._min_interval_ms = v
+        self._update_tick_labels()
 
     def set_max_interval(self, v):
         self._max_interval_ms = v
+        self._update_tick_labels()
 
     def set_fade_step(self, v):
         self._fade_step = v
+        self._update_tick_labels()
 
     def set_dead_zone(self, v):
         self._dead_zone_pct = v
+        self._update_tick_labels()
 
     def apply_config(self, config):
         """Apply pull-fader settings from an AppConfig instance."""

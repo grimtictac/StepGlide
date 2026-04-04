@@ -275,7 +275,7 @@ class MainWindow(QMainWindow):
         self._main_splitter.addWidget(self._center)
         self._main_splitter.addWidget(self._right_splitter)
         self._main_splitter.addWidget(vol_container)
-        self._main_splitter.setSizes([120, 850, 280, 230])
+        self._main_splitter.setSizes([120, 850, 280, 260])
         self._main_splitter.setStretchFactor(0, 0)
         self._main_splitter.setStretchFactor(1, 1)
         self._main_splitter.setStretchFactor(2, 0)
