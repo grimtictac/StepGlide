@@ -61,6 +61,15 @@ class AppConfig:
         self.saved_voter = ''
         self.visible_columns = None  # list or None
 
+        # Volume fade tuning defaults
+        self.fade_step = 1
+        self.fade_min_interval = 20
+        self.fade_max_interval = 200
+        self.fade_vel_window = 400       # ms
+        self.fade_vel_low = 3.0
+        self.fade_vel_high = 30.0
+        self.fade_tick_threshold = 120
+
     def load(self):
         """Load settings from XML config file. Returns True if file existed."""
         if not os.path.exists(self.config_path):
@@ -139,6 +148,25 @@ class AppConfig:
             if cols_text:
                 self.visible_columns = [c.strip() for c in cols_text.split(',') if c.strip()]
 
+        # Volume fade tuning
+        fade_el = root.find('volume_fade')
+        if fade_el is not None:
+            for attr, field, conv in [
+                ('step', 'fade_step', int),
+                ('min_interval', 'fade_min_interval', int),
+                ('max_interval', 'fade_max_interval', int),
+                ('vel_window', 'fade_vel_window', int),
+                ('vel_low', 'fade_vel_low', float),
+                ('vel_high', 'fade_vel_high', float),
+                ('tick_threshold', 'fade_tick_threshold', int),
+            ]:
+                val = fade_el.get(attr)
+                if val is not None:
+                    try:
+                        setattr(self, field, conv(val))
+                    except (ValueError, TypeError):
+                        pass
+
         return True
 
     def save(self, voter_name=''):
@@ -200,6 +228,16 @@ class AppConfig:
         if self.visible_columns is not None:
             vis_el = ET.SubElement(root, 'visible_columns')
             vis_el.text = ','.join(self.visible_columns)
+
+        # Volume fade tuning
+        ET.SubElement(root, 'volume_fade',
+                      step=str(self.fade_step),
+                      min_interval=str(self.fade_min_interval),
+                      max_interval=str(self.fade_max_interval),
+                      vel_window=str(self.fade_vel_window),
+                      vel_low=str(self.fade_vel_low),
+                      vel_high=str(self.fade_vel_high),
+                      tick_threshold=str(self.fade_tick_threshold))
 
         ET.indent(root)
         tree = ET.ElementTree(root)

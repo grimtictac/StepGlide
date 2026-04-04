@@ -27,7 +27,7 @@ from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
 from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
-from ui.transport_bar import FadeTuningPanel, TransportBar, VolumeStrip
+from ui.transport_bar import TransportBar, VolumeStrip
 
 
 class MainWindow(QMainWindow):
@@ -248,13 +248,14 @@ class MainWindow(QMainWindow):
 
         self._right_splitter.setSizes([350, 250])
 
-        # Volume strip + fade tuning — far right edge
+        # Volume strip — far right edge
         self._volume_strip = VolumeStrip(self)
         self._volume_strip.volume_changed.connect(self._on_volume_changed)
         self._volume_strip.mute_toggled.connect(self._toggle_mute)
         self._volume_strip.debug_log.connect(self._debug_log)
-
-        self._fade_tuning = FadeTuningPanel(self._volume_strip, self)
+        self._volume_strip.settings_requested.connect(
+            lambda: self._open_settings(tab='Volume'))
+        self._volume_strip.apply_config(self.config)
 
         vol_container = QWidget()
         vol_container.setStyleSheet(
@@ -264,7 +265,6 @@ class MainWindow(QMainWindow):
         vcl.setContentsMargins(0, 0, 0, 0)
         vcl.setSpacing(0)
         vcl.addWidget(self._volume_strip, stretch=1)
-        vcl.addWidget(self._fade_tuning, stretch=0)
 
         # Add to main splitter
         self._main_splitter.addWidget(self._sidebar)
@@ -1181,9 +1181,13 @@ class MainWindow(QMainWindow):
 
     # ── Settings ─────────────────────────────────────────
 
-    def _open_settings(self):
+    def _open_settings(self, tab=None):
         """Open the settings dialog and apply changes on save."""
-        dlg = SettingsDialog(self, config=self.config, db=self.db, genres=self.genres)
+        dlg = SettingsDialog(
+            self, config=self.config, db=self.db, genres=self.genres,
+            volume_strip=self._volume_strip)
+        if tab:
+            dlg.show_tab(tab)
         if dlg.exec():
             # Refresh UI elements that depend on config
             self._sidebar.set_genre_data(
@@ -1192,6 +1196,8 @@ class MainWindow(QMainWindow):
             if self.config.length_filter_durations:
                 opts = [label for label, lo, hi in self.config.length_filter_durations]
                 self._search_bar.set_length_options(opts)
+            # Apply saved fade settings
+            self._volume_strip.apply_config(self.config)
 
     # ── Misc dialogs ────────────────────────────────────
 

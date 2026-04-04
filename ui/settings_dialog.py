@@ -9,9 +9,9 @@ from datetime import datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QScrollArea,
-    QStackedWidget, QVBoxLayout, QWidget,
+    QCheckBox, QDialog, QFrame, QGroupBox, QHBoxLayout, QInputDialog,
+    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+    QPushButton, QScrollArea, QSlider, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from core.config import DEFAULT_TOOLTIPS
@@ -23,7 +23,7 @@ import qtawesome as qta
 class SettingsDialog(QDialog):
     """Tabbed settings dialog matching the five original tabs."""
 
-    def __init__(self, parent, *, config, db, genres):
+    def __init__(self, parent, *, config, db, genres, volume_strip=None):
         super().__init__(parent)
         self.setWindowTitle('Settings')
         self.resize(580, 620)
@@ -32,6 +32,7 @@ class SettingsDialog(QDialog):
         self._config = config
         self._db = db
         self._genres = sorted(genres)
+        self._volume_strip = volume_strip
 
         # Working copies so Cancel discards changes
         self._working_groups = {k: list(v) for k, v in config.genre_groups.items()}
@@ -40,6 +41,15 @@ class SettingsDialog(QDialog):
         self._working_durations = [list(d) for d in config.length_filter_durations]
         self._working_tooltips = dict(config.tooltip_texts)
         self._working_queue_throb = config.queue_btn_throb_enabled
+
+        # Volume fade working copies
+        self._wk_fade_step = config.fade_step
+        self._wk_fade_min_interval = config.fade_min_interval
+        self._wk_fade_max_interval = config.fade_max_interval
+        self._wk_fade_vel_window = config.fade_vel_window
+        self._wk_fade_vel_low = config.fade_vel_low
+        self._wk_fade_vel_high = config.fade_vel_high
+        self._wk_fade_tick_threshold = config.fade_tick_threshold
 
         self._build_ui()
 
@@ -55,7 +65,7 @@ class SettingsDialog(QDialog):
         self._tab_buttons = {}
         self._stack = QStackedWidget()
 
-        for label in ('Genres', 'Tags', 'Length', 'Tooltips', 'Interface'):
+        for label in ('Genres', 'Tags', 'Length', 'Tooltips', 'Interface', 'Volume'):
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setFixedHeight(30)
@@ -71,6 +81,7 @@ class SettingsDialog(QDialog):
         self._stack.addWidget(self._build_length_tab())     # 2
         self._stack.addWidget(self._build_tooltips_tab())   # 3
         self._stack.addWidget(self._build_interface_tab())  # 4
+        self._stack.addWidget(self._build_volume_tab())     # 5
         root.addWidget(self._stack, 1)
 
         # Bottom buttons
@@ -102,8 +113,15 @@ class SettingsDialog(QDialog):
 
         self._show_tab('Genres')
 
+    def show_tab(self, name):
+        """Public API — jump to a named tab (e.g. 'Volume')."""
+        self._show_tab(name)
+
     def _show_tab(self, name):
-        idx_map = {'Genres': 0, 'Tags': 1, 'Length': 2, 'Tooltips': 3, 'Interface': 4}
+        idx_map = {
+            'Genres': 0, 'Tags': 1, 'Length': 2,
+            'Tooltips': 3, 'Interface': 4, 'Volume': 5,
+        }
         self._stack.setCurrentIndex(idx_map[name])
         for lbl, btn in self._tab_buttons.items():
             btn.setChecked(lbl == name)
@@ -525,6 +543,254 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return page
 
+    # ── Volume tab ───────────────────────────────────────
+
+    def _build_volume_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setSpacing(6)
+
+        layout.addWidget(self._heading('Volume & Fade'))
+        layout.addWidget(self._subtext(
+            'Control how the momentum fade behaves when you scroll.'))
+
+        # ── User-friendly section ────────────────────────
+        friendly = QGroupBox('Fade Controls')
+        friendly.setStyleSheet(
+            f'QGroupBox {{ font-weight: bold; color: {COLORS["fg"]}; '
+            f'border: 1px solid {COLORS["border"]}; border-radius: 4px; '
+            f'margin-top: 8px; padding-top: 14px; }}'
+            f'QGroupBox::title {{ subcontrol-origin: margin; left: 10px; }}')
+        fl = QVBoxLayout(friendly)
+        fl.setSpacing(6)
+
+        # Fade speed: high-level slider that controls max_interval (inverted)
+        # Low max_interval = faster initial fade, high = slower
+        self._sl_fade_speed, _ = self._volume_slider_row(
+            fl, 'Fade speed',
+            'How fast the fade starts. Higher = faster initial fade.',
+            1, 100, self._friendly_fade_speed(), '%')
+        self._sl_fade_speed.valueChanged.connect(self._on_friendly_fade_speed)
+
+        # Fade max speed: controls min_interval (inverted)
+        self._sl_fade_max_speed, _ = self._volume_slider_row(
+            fl, 'Maximum speed',
+            'Upper speed limit the fade can reach. Higher = faster cap.',
+            1, 100, self._friendly_fade_max_speed(), '%')
+        self._sl_fade_max_speed.valueChanged.connect(self._on_friendly_max_speed)
+
+        # Scroll sensitivity: controls tick_threshold (inverted)
+        self._sl_scroll_sens, _ = self._volume_slider_row(
+            fl, 'Scroll sensitivity',
+            'How little scroll is needed to register. Higher = more sensitive.',
+            1, 100, self._friendly_scroll_sens(), '%')
+        self._sl_scroll_sens.valueChanged.connect(self._on_friendly_scroll_sens)
+
+        layout.addWidget(friendly)
+
+        # ── Advanced section (collapsible) ───────────────
+        self._adv_toggle = QPushButton('▶ Advanced')
+        self._adv_toggle.setStyleSheet(
+            f'color: {COLORS["fg_dim"]}; border: none; text-align: left; '
+            f'font-size: 11px; padding: 4px 0;')
+        self._adv_toggle.setCheckable(True)
+        self._adv_toggle.clicked.connect(self._toggle_advanced)
+        layout.addWidget(self._adv_toggle)
+
+        self._adv_group = QWidget()
+        adv_layout = QVBoxLayout(self._adv_group)
+        adv_layout.setContentsMargins(0, 0, 0, 0)
+        adv_layout.setSpacing(4)
+
+        self._sl_step, _ = self._volume_slider_row(
+            adv_layout, 'Step (vol/tick)', '', 1, 10,
+            self._wk_fade_step, '')
+        self._sl_step.valueChanged.connect(self._on_adv_step)
+
+        self._sl_min_iv, _ = self._volume_slider_row(
+            adv_layout, 'Min interval (cap)', '', 5, 100,
+            self._wk_fade_min_interval, 'ms')
+        self._sl_min_iv.valueChanged.connect(self._on_adv_min_interval)
+
+        self._sl_max_iv, _ = self._volume_slider_row(
+            adv_layout, 'Max interval', '', 50, 500,
+            self._wk_fade_max_interval, 'ms')
+        self._sl_max_iv.valueChanged.connect(self._on_adv_max_interval)
+
+        self._sl_vel_win, _ = self._volume_slider_row(
+            adv_layout, 'Velocity window', '', 100, 2000,
+            self._wk_fade_vel_window, 'ms')
+        self._sl_vel_win.valueChanged.connect(self._on_adv_vel_window)
+
+        self._sl_vel_lo, _ = self._volume_slider_row(
+            adv_layout, 'Velocity low', '', 1, 30,
+            int(self._wk_fade_vel_low), 'e/s')
+        self._sl_vel_lo.valueChanged.connect(self._on_adv_vel_low)
+
+        self._sl_vel_hi, _ = self._volume_slider_row(
+            adv_layout, 'Velocity high', '', 5, 80,
+            int(self._wk_fade_vel_high), 'e/s')
+        self._sl_vel_hi.valueChanged.connect(self._on_adv_vel_high)
+
+        self._sl_tick_thr, _ = self._volume_slider_row(
+            adv_layout, 'Tick threshold', '', 10, 360,
+            self._wk_fade_tick_threshold, '°')
+        self._sl_tick_thr.valueChanged.connect(self._on_adv_tick_threshold)
+
+        self._adv_group.setVisible(False)
+        layout.addWidget(self._adv_group)
+
+        layout.addStretch()
+        return page
+
+    # ── Volume tab helpers ───────────────────────────────
+
+    def _volume_slider_row(self, layout, label_text, tooltip, min_val, max_val,
+                           default, suffix):
+        """Add a label + horizontal slider + value readout row.
+        Returns (slider, value_label)."""
+        row_w = QWidget()
+        row_w.setStyleSheet(
+            f'background-color: {COLORS["bg_mid"]}; border-radius: 4px;')
+        rl = QVBoxLayout(row_w)
+        rl.setContentsMargins(10, 6, 10, 6)
+        rl.setSpacing(2)
+
+        lbl = QLabel(label_text)
+        lbl.setStyleSheet('font-size: 11px; font-weight: bold;')
+        if tooltip:
+            lbl.setToolTip(tooltip)
+        rl.addWidget(lbl)
+
+        sl_row = QHBoxLayout()
+        sl_row.setSpacing(6)
+
+        sl = QSlider(Qt.Horizontal)
+        sl.setRange(min_val, max_val)
+        sl.setValue(default)
+        sl.setFixedHeight(20)
+        sl_row.addWidget(sl, stretch=1)
+
+        val_lbl = QLabel()
+        val_lbl.setFixedWidth(50)
+        val_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        val_lbl.setStyleSheet(
+            f'color: {COLORS["accent"]}; font-size: 11px; font-weight: bold;')
+
+        def _update(v):
+            val_lbl.setText(f'{v}{suffix}')
+        sl.valueChanged.connect(_update)
+        _update(default)
+
+        sl_row.addWidget(val_lbl)
+        rl.addLayout(sl_row)
+        layout.addWidget(row_w)
+        return sl, val_lbl
+
+    def _toggle_advanced(self, checked):
+        self._adv_group.setVisible(checked)
+        self._adv_toggle.setText('▼ Advanced' if checked else '▶ Advanced')
+
+    # ── Friendly ↔ advanced conversions ──────────────────
+    # Friendly sliders are 1–100 percentages that map to dev values.
+
+    def _friendly_fade_speed(self):
+        """max_interval → friendly %.  500=1%, 50=100%."""
+        v = self._wk_fade_max_interval
+        return max(1, min(100, int(100 * (500 - v) / (500 - 50))))
+
+    def _friendly_fade_max_speed(self):
+        """min_interval → friendly %.  100=1%, 5=100%."""
+        v = self._wk_fade_min_interval
+        return max(1, min(100, int(100 * (100 - v) / (100 - 5))))
+
+    def _friendly_scroll_sens(self):
+        """tick_threshold → friendly %.  360=1%, 10=100%."""
+        v = self._wk_fade_tick_threshold
+        return max(1, min(100, int(100 * (360 - v) / (360 - 10))))
+
+    def _on_friendly_fade_speed(self, pct):
+        """Friendly fade speed → max_interval."""
+        val = int(500 - pct * (500 - 50) / 100)
+        val = max(50, min(500, val))
+        self._wk_fade_max_interval = val
+        self._sl_max_iv.blockSignals(True)
+        self._sl_max_iv.setValue(val)
+        self._sl_max_iv.blockSignals(False)
+        self._apply_fade_live()
+
+    def _on_friendly_max_speed(self, pct):
+        """Friendly max speed → min_interval."""
+        val = int(100 - pct * (100 - 5) / 100)
+        val = max(5, min(100, val))
+        self._wk_fade_min_interval = val
+        self._sl_min_iv.blockSignals(True)
+        self._sl_min_iv.setValue(val)
+        self._sl_min_iv.blockSignals(False)
+        self._apply_fade_live()
+
+    def _on_friendly_scroll_sens(self, pct):
+        """Friendly scroll sensitivity → tick_threshold."""
+        val = int(360 - pct * (360 - 10) / 100)
+        val = max(10, min(360, val))
+        self._wk_fade_tick_threshold = val
+        self._sl_tick_thr.blockSignals(True)
+        self._sl_tick_thr.setValue(val)
+        self._sl_tick_thr.blockSignals(False)
+        self._apply_fade_live()
+
+    # ── Advanced → friendly sync ─────────────────────────
+
+    def _on_adv_step(self, v):
+        self._wk_fade_step = v
+        self._apply_fade_live()
+
+    def _on_adv_min_interval(self, v):
+        self._wk_fade_min_interval = v
+        self._sl_fade_max_speed.blockSignals(True)
+        self._sl_fade_max_speed.setValue(self._friendly_fade_max_speed())
+        self._sl_fade_max_speed.blockSignals(False)
+        self._apply_fade_live()
+
+    def _on_adv_max_interval(self, v):
+        self._wk_fade_max_interval = v
+        self._sl_fade_speed.blockSignals(True)
+        self._sl_fade_speed.setValue(self._friendly_fade_speed())
+        self._sl_fade_speed.blockSignals(False)
+        self._apply_fade_live()
+
+    def _on_adv_vel_window(self, v):
+        self._wk_fade_vel_window = v
+        self._apply_fade_live()
+
+    def _on_adv_vel_low(self, v):
+        self._wk_fade_vel_low = float(v)
+        self._apply_fade_live()
+
+    def _on_adv_vel_high(self, v):
+        self._wk_fade_vel_high = float(v)
+        self._apply_fade_live()
+
+    def _on_adv_tick_threshold(self, v):
+        self._wk_fade_tick_threshold = v
+        self._sl_scroll_sens.blockSignals(True)
+        self._sl_scroll_sens.setValue(self._friendly_scroll_sens())
+        self._sl_scroll_sens.blockSignals(False)
+        self._apply_fade_live()
+
+    def _apply_fade_live(self):
+        """Push current working fade values to the VolumeStrip in real-time."""
+        vs = self._volume_strip
+        if vs is None:
+            return
+        vs.set_fade_step(self._wk_fade_step)
+        vs.set_min_interval(self._wk_fade_min_interval)
+        vs.set_max_interval(self._wk_fade_max_interval)
+        vs.set_velocity_window(self._wk_fade_vel_window)
+        vs.set_vel_low(self._wk_fade_vel_low)
+        vs.set_vel_high(self._wk_fade_vel_high)
+        vs.set_tick_threshold(self._wk_fade_tick_threshold)
+
     # ── Helpers ──────────────────────────────────────────
 
     @staticmethod
@@ -605,6 +871,15 @@ class SettingsDialog(QDialog):
 
         # Interface
         c.queue_btn_throb_enabled = self._chk_queue_throb.isChecked()
+
+        # Volume fade
+        c.fade_step = self._wk_fade_step
+        c.fade_min_interval = self._wk_fade_min_interval
+        c.fade_max_interval = self._wk_fade_max_interval
+        c.fade_vel_window = self._wk_fade_vel_window
+        c.fade_vel_low = self._wk_fade_vel_low
+        c.fade_vel_high = self._wk_fade_vel_high
+        c.fade_tick_threshold = self._wk_fade_tick_threshold
 
         c.save()
         self.accept()

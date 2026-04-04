@@ -107,6 +107,7 @@ class VolumeStrip(QWidget):
     mute_toggled = Signal()
     debug_log = Signal(str, str)   # (level, message) → route to debug panel
     fade_state_changed = Signal(bool)  # is_fading
+    settings_requested = Signal()      # gear button clicked → open settings
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -281,6 +282,16 @@ class VolumeStrip(QWidget):
         bar_labels.addWidget(self._boost_lbl)
 
         layout.addLayout(bar_labels)
+
+        # Gear button at the bottom
+        self._btn_gear = QPushButton()
+        self._btn_gear.setIcon(qta.icon('mdi6.cog', color=COLORS['fg_dim']))
+        self._btn_gear.setFixedSize(32, 28)
+        self._btn_gear.setIconSize(self._btn_gear.size() * 0.6)
+        self._btn_gear.setToolTip('Volume & fade settings')
+        self._btn_gear.setStyleSheet('border: none;')
+        self._btn_gear.clicked.connect(self.settings_requested)
+        layout.addWidget(self._btn_gear, alignment=Qt.AlignHCenter)
 
     # ── Wheel event with momentum fade ───────────────────
 
@@ -538,7 +549,7 @@ class VolumeStrip(QWidget):
         self.volume_slider.blockSignals(False)
         self.lbl_vol_pct.setText(f'{vol}%')
 
-    # ── Tuning setters (called by FadeTuningPanel) ───────
+    # ── Tuning setters (called by settings dialog / FadeTuningPanel) ──
 
     def set_fade_step(self, v):
         self._fade_step = v
@@ -550,13 +561,26 @@ class VolumeStrip(QWidget):
         self._max_interval_ms = v
 
     def set_velocity_window(self, v):
-        self._velocity_window_s = v / 1000.0  # panel sends ms, store as seconds
+        self._velocity_window_s = v / 1000.0  # caller sends ms, store as seconds
 
     def set_vel_low(self, v):
         self._vel_low = v
 
     def set_vel_high(self, v):
         self._vel_high = v
+
+    def set_tick_threshold(self, v):
+        self._tick_threshold = v
+
+    def apply_config(self, config):
+        """Apply fade settings from an AppConfig instance."""
+        self.set_fade_step(config.fade_step)
+        self.set_min_interval(config.fade_min_interval)
+        self.set_max_interval(config.fade_max_interval)
+        self.set_velocity_window(config.fade_vel_window)
+        self.set_vel_low(config.fade_vel_low)
+        self.set_vel_high(config.fade_vel_high)
+        self.set_tick_threshold(config.fade_tick_threshold)
 
 
 # ═════════════════════════════════════════════════════════
