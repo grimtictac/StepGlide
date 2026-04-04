@@ -52,7 +52,7 @@ class TickSlider(QSlider):
     def set_tick_labels(self, labels: dict):
         """Replace tick labels and repaint."""
         self._tick_labels = labels
-        self.update()
+        self.repaint()  # force immediate repaint (not deferred)
 
     def paintEvent(self, event):
         # Let the stylesheet-driven painting happen first
@@ -132,9 +132,9 @@ class TickSlider(QSlider):
                     text_h = fm.height()
                     text_w = fm.horizontalAdvance(label_text)
                     if self._label_side == 'left':
-                        tx = groove.left() - 2 - tick_len - 2 - text_w
+                        tx = 0  # flush to left edge of widget
                     else:
-                        tx = groove.right() + 2 + tick_len + 2
+                        tx = self.width() - text_w  # flush to right edge
                     ty = y + text_h // 3  # vertically centre on tick
                     painter.drawText(tx, ty, label_text)
 
