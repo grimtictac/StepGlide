@@ -255,6 +255,7 @@ class VolumeStrip(QWidget):
         self._accumulated_speed = 0.0 # vol-units/sec, grows with each scroll burst
         self._instant_velocity = 0.0  # latest scroll velocity (evt/s), for boost bar
         self._delta_accumulator = 0   # angleDelta accumulator for tick detection
+        self._pending_interval = 0    # deferred interval for set_fade_speed()
         self._fade_timer = QTimer(self)
         self._fade_timer.timeout.connect(self._fade_tick)
 
@@ -603,6 +604,11 @@ class VolumeStrip(QWidget):
         self.volume_slider.setValue(new_val)
         self._emit_fade_state()
 
+        # Apply deferred interval change from set_fade_speed()
+        if self._pending_interval > 0:
+            self._fade_timer.setInterval(self._pending_interval)
+            self._pending_interval = 0
+
     def _stop_fade(self):
         """Stop the momentum fade and reset all state."""
         self._fade_timer.stop()
@@ -611,6 +617,7 @@ class VolumeStrip(QWidget):
         self._accumulated_speed = 0.0
         self._instant_velocity = 0.0
         self._delta_accumulator = 0
+        self._pending_interval = 0
         self._wheel_times.clear()
         self._emit_fade_state()
 
@@ -659,9 +666,10 @@ class VolumeStrip(QWidget):
         Unlike inject_fade_speed (which adds), this *replaces* the current
         speed.  Designed for continuous live control (e.g. pull-fader).
 
-        If the timer is already running the interval is updated in-place
-        only when it actually changes, avoiding the Qt restart-on-setInterval
-        behaviour that starves ticks during rapid calls.
+        The desired interval is stored in *_pending_interval*.  If the timer
+        is already running it is picked up on the next ``_fade_tick`` rather
+        than calling ``setInterval()`` mid-countdown, which would restart the
+        timer and starve ticks during rapid drag events.
         """
         if direction == 0 or speed_vps <= 0:
             return
@@ -675,9 +683,10 @@ class VolumeStrip(QWidget):
 
         new_interval = self._speed_to_interval(self._accumulated_speed)
         if self._fade_timer.isActive():
-            if self._fade_timer.interval() != new_interval:
-                self._fade_timer.setInterval(new_interval)
+            # Don't touch the running timer — let _fade_tick pick it up
+            self._pending_interval = new_interval
         else:
+            self._pending_interval = 0
             self._fade_timer.setInterval(new_interval)
             self._fade_timer.start()
 
