@@ -6,15 +6,109 @@ speed controls, and mute button.
 import time
 
 from PySide6.QtCore import Qt, QEvent, QTimer, Signal
+from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar,
-    QPushButton, QSlider, QSizePolicy, QVBoxLayout, QWidget,
+    QPushButton, QSlider, QSizePolicy, QStyleOptionSlider,
+    QStyle, QVBoxLayout, QWidget,
 )
 
 import qtawesome as qta
 from ui.theme import COLORS
 
 _ICON_SIZE = 18  # default icon pixel size for transport buttons
+
+
+# ═════════════════════════════════════════════════════════
+# TickSlider — QSlider that paints tick marks even with a stylesheet
+# ═════════════════════════════════════════════════════════
+
+class TickSlider(QSlider):
+    """QSlider subclass that manually draws tick marks.
+
+    Qt's style engine stops rendering tick marks whenever a custom
+    stylesheet is applied.  This subclass paints them in ``paintEvent``
+    so they remain visible regardless of stylesheet.
+
+    Parameters
+    ----------
+    tick_color : str | QColor
+        Colour used for the tick lines (default: theme ``fg_dim``).
+    """
+
+    def __init__(self, orientation=Qt.Horizontal, parent=None, *,
+                 tick_color=None):
+        super().__init__(orientation, parent)
+        self._tick_color = QColor(tick_color or COLORS['fg_dim'])
+
+    def paintEvent(self, event):
+        # Let the stylesheet-driven painting happen first
+        super().paintEvent(event)
+
+        interval = self.tickInterval()
+        if interval <= 0 or self.tickPosition() == QSlider.NoTicks:
+            return
+
+        painter = QPainter(self)
+        painter.setPen(QPen(self._tick_color, 1))
+
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+
+        # Pixel span available for the slider travel
+        groove = self.style().subControlRect(
+            QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
+        handle = self.style().subControlRect(
+            QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
+
+        num_ticks = (self.maximum() - self.minimum()) // interval
+        if num_ticks <= 0:
+            painter.end()
+            return
+
+        if self.orientation() == Qt.Horizontal:
+            half_handle = handle.width() / 2
+            span_start = groove.x() + half_handle
+            span_end = groove.right() - half_handle
+            span = span_end - span_start
+
+            for i in range(num_ticks + 1):
+                val = self.minimum() + i * interval
+                if val > self.maximum():
+                    break
+                frac = (val - self.minimum()) / (self.maximum() - self.minimum())
+                x = int(span_start + frac * span)
+
+                tick_len = 4
+                tp = self.tickPosition()
+                if tp in (QSlider.TicksAbove, QSlider.TicksBothSides):
+                    painter.drawLine(x, groove.top() - 2, x, groove.top() - 2 - tick_len)
+                if tp in (QSlider.TicksBelow, QSlider.TicksBothSides):
+                    painter.drawLine(x, groove.bottom() + 2, x, groove.bottom() + 2 + tick_len)
+        else:
+            # Vertical — ticks on left / right / both
+            half_handle = handle.height() / 2
+            span_start = groove.y() + half_handle
+            span_end = groove.bottom() - half_handle
+            span = span_end - span_start
+
+            for i in range(num_ticks + 1):
+                val = self.minimum() + i * interval
+                if val > self.maximum():
+                    break
+                # For vertical sliders higher value = lower pixel-y
+                frac = 1.0 - (val - self.minimum()) / (self.maximum() - self.minimum())
+                y = int(span_start + frac * span)
+
+                tick_len = 4
+                tp = self.tickPosition()
+                if tp in (QSlider.TicksLeft, QSlider.TicksBothSides):
+                    painter.drawLine(groove.left() - 2, y, groove.left() - 2 - tick_len, y)
+                if tp in (QSlider.TicksRight, QSlider.TicksBothSides):
+                    painter.drawLine(groove.right() + 2, y, groove.right() + 2 + tick_len, y)
+
+        painter.end()
+
 
 # ── Gauge stylesheets (vertical orientation) ─────────────
 _GAUGE_WIDTH = 10
@@ -204,10 +298,12 @@ class VolumeStrip(QWidget):
         slider_row.addLayout(speed_col)
 
         # Volume slider (center)
-        self.volume_slider = QSlider(Qt.Vertical)
+        self.volume_slider = TickSlider(Qt.Vertical)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
         self.volume_slider.setToolTip('Volume')
+        self.volume_slider.setTickPosition(QSlider.TicksBothSides)
+        self.volume_slider.setTickInterval(10)
         self.volume_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.volume_slider.setFixedWidth(36)
         self.volume_slider.setStyleSheet(f'''
@@ -712,9 +808,11 @@ class PullFader(QWidget):
         layout.addWidget(title)
 
         # Pull slider — 100 at top (resting), 0 at bottom (max pull)
-        self._slider = QSlider(Qt.Vertical)
+        self._slider = TickSlider(Qt.Vertical)
         self._slider.setRange(0, 100)
         self._slider.setValue(100)
+        self._slider.setTickPosition(QSlider.TicksBothSides)
+        self._slider.setTickInterval(10)
         self._slider.setFixedWidth(36)
         self._slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._slider.setStyleSheet(_PULL_FADER_CSS)
@@ -949,10 +1047,12 @@ class FadeTuningPanel(QWidget):
         row = QHBoxLayout()
         row.setSpacing(4)
 
-        sl = QSlider(Qt.Horizontal)
+        sl = TickSlider(Qt.Horizontal)
         sl.setRange(min_val, max_val)
         sl.setValue(default)
-        sl.setFixedHeight(16)
+        sl.setFixedHeight(20)
+        sl.setTickPosition(QSlider.TicksBelow)
+        sl.setTickInterval(max(1, (max_val - min_val) // 10))
         row.addWidget(sl, stretch=1)
 
         val_lbl = QLabel()
@@ -1100,10 +1200,12 @@ class TransportBar(QWidget):
         row1.addWidget(self.lbl_time_cur)
 
         # Scrub slider
-        self.scrub_slider = QSlider(Qt.Horizontal)
+        self.scrub_slider = TickSlider(Qt.Horizontal)
         self.scrub_slider.setRange(0, 10000)
         self.scrub_slider.setValue(0)
         self.scrub_slider.setToolTip('Seek')
+        self.scrub_slider.setTickPosition(QSlider.TicksBelow)
+        self.scrub_slider.setTickInterval(1000)
         self.scrub_slider.sliderPressed.connect(self._on_scrub_pressed)
         self.scrub_slider.sliderMoved.connect(self._on_scrub_moved)
         self.scrub_slider.sliderReleased.connect(self._on_scrub_released)

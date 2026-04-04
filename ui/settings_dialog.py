@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from core.config import DEFAULT_TOOLTIPS
 from ui.theme import COLORS
+from ui.transport_bar import TickSlider
 
 import qtawesome as qta
 
@@ -707,10 +708,12 @@ class SettingsDialog(QDialog):
         sl_row = QHBoxLayout()
         sl_row.setSpacing(6)
 
-        sl = QSlider(Qt.Horizontal)
+        sl = TickSlider(Qt.Horizontal)
         sl.setRange(min_val, max_val)
         sl.setValue(default)
-        sl.setFixedHeight(20)
+        sl.setFixedHeight(24)
+        sl.setTickPosition(TickSlider.TicksBelow)
+        sl.setTickInterval(max(1, (max_val - min_val) // 10))
         sl_row.addWidget(sl, stretch=1)
 
         val_lbl = QLabel()
