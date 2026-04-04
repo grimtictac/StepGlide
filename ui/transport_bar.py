@@ -119,6 +119,7 @@ class VolumeStrip(QWidget):
         self._velocity_window_s = 0.4 # sliding window for measuring scroll speed
         self._vel_low = 3.0           # scroll evt/s considered "slow"
         self._vel_high = 30.0         # scroll evt/s considered "fast"
+        self._tick_threshold = 120    # angleDelta° per logical tick (120 = 1 mouse notch)
 
         # ── Fade state ──
         # The model: accumulated_speed is in "vol units per second".
@@ -127,6 +128,7 @@ class VolumeStrip(QWidget):
         self._fade_direction = 0      # -1 / 0 / +1
         self._accumulated_speed = 0.0 # vol-units/sec, grows with each scroll burst
         self._instant_velocity = 0.0  # latest scroll velocity (evt/s), for boost bar
+        self._delta_accumulator = 0   # angleDelta accumulator for tick detection
         self._fade_timer = QTimer(self)
         self._fade_timer.timeout.connect(self._fade_tick)
 
@@ -320,16 +322,20 @@ class VolumeStrip(QWidget):
         return max(self._min_interval_ms, min(self._max_interval_ms, interval))
 
     def _handle_wheel(self, event):
-        """Unified wheel handler with additive accumulated speed.
+        """Unified wheel handler with delta accumulation and additive speed.
 
-        Model:
-        - Each scroll burst measures instantaneous velocity.
-        - That velocity is mapped to a speed contribution (vol-units/sec).
-        - The contribution is ADDED to the running accumulated speed.
-        - Timer interval is derived from accumulated speed.
-        - Boost bar shows instantaneous velocity, decays to 0 when scrolling stops.
-        - Speed bar shows accumulated total speed.
-        - Scrolling opposite direction stops the fade entirely.
+        Raw angleDelta values are accumulated until they cross _tick_threshold
+        (default 120° = one mouse-wheel notch).  This normalises trackpad
+        micro-events so they produce the same tick rate as a mouse wheel for
+        equivalent scroll distance.
+
+        Each logical tick:
+        - Applies an immediate volume step.
+        - Records a timestamp for velocity measurement.
+        - Maps velocity → speed contribution → adds to accumulated speed.
+        - Updates the fade timer interval.
+
+        Scrolling opposite direction stops the fade entirely.
         """
         delta = event.angleDelta().y()
         if delta == 0:
@@ -337,31 +343,47 @@ class VolumeStrip(QWidget):
 
         direction = 1 if delta > 0 else -1
 
-        # Opposite direction → stop current fade
+        # Opposite direction → stop current fade and reset accumulator
         if self._fade_direction != 0 and direction != self._fade_direction:
             self._log('DEBUG', 'Volume fade: reversed direction → stopping fade')
             self._stop_fade()
             event.accept()
             return
 
-        # Apply the immediate scroll step (2 units per wheel notch)
-        step = 2
-        new_val = max(0, min(100, self.volume_slider.value() + direction * step))
+        # Accumulate raw delta
+        self._delta_accumulator += delta
+
+        # How many logical ticks did we cross?
+        ticks = int(self._delta_accumulator / self._tick_threshold)
+        if ticks == 0:
+            # Not enough delta yet — just consume the event
+            event.accept()
+            return
+
+        # Keep the remainder for next event
+        self._delta_accumulator -= ticks * self._tick_threshold
+        abs_ticks = abs(ticks)
+
+        # Apply the immediate scroll step (2 vol-units per logical tick)
+        step_per_tick = 2
+        new_val = max(0, min(100,
+                    self.volume_slider.value() + direction * step_per_tick * abs_ticks))
         self.volume_slider.setValue(new_val)
 
-        # Record this wheel event for velocity measurement
+        # Record logical ticks for velocity measurement
         now = time.monotonic()
-        self._wheel_times.append(now)
+        for _ in range(abs_ticks):
+            self._wheel_times.append(now)
         cutoff = now - self._velocity_window_s
         self._wheel_times = [t for t in self._wheel_times if t >= cutoff]
 
-        # Calculate instantaneous velocity (evt/s)
+        # Calculate instantaneous velocity (logical ticks/s)
         n = len(self._wheel_times)
         if n >= 2:
             span = self._wheel_times[-1] - self._wheel_times[0]
             velocity = (n - 1) / span if span > 0 else float(n)
         else:
-            velocity = self._vel_low  # single event → minimum
+            velocity = self._vel_low  # single tick → minimum
 
         self._instant_velocity = velocity
 
@@ -382,15 +404,16 @@ class VolumeStrip(QWidget):
             self._log(
                 'DEBUG',
                 f'Volume fade: NEW {"UP" if direction > 0 else "DOWN"}  '
-                f'vel={velocity:.1f} e/s  contribution={contribution:.1f} v/s  '
+                f'ticks={abs_ticks}  vel={velocity:.1f} t/s  '
+                f'contribution={contribution:.1f} v/s  '
                 f'total_speed={self._accumulated_speed:.1f} v/s  '
                 f'interval={new_interval}ms'
             )
         else:
             self._log(
                 'DEBUG',
-                f'Volume fade: BOOST  vel={velocity:.1f} e/s  '
-                f'+{contribution:.1f} v/s  '
+                f'Volume fade: BOOST  ticks={abs_ticks}  '
+                f'vel={velocity:.1f} t/s  +{contribution:.1f} v/s  '
                 f'speed {old_speed:.1f}→{self._accumulated_speed:.1f} v/s  '
                 f'interval={new_interval}ms'
             )
@@ -433,6 +456,7 @@ class VolumeStrip(QWidget):
         self._fade_direction = 0
         self._accumulated_speed = 0.0
         self._instant_velocity = 0.0
+        self._delta_accumulator = 0
         self._wheel_times.clear()
         self._emit_fade_state()
 
