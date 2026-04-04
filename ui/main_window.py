@@ -22,12 +22,15 @@ from ui.debug_panel import DebugPanel
 from ui.eq_dialog import EqualizerDialog, apply_eq_for_track
 from ui.misc_dialogs import AuditLogDialog, RandomQueueDialog
 from ui.play_log_panel import PlayLogPanel
+from ui.preview_dialog import PreviewDialog
 from ui.queue_panel import QueuePanel
 from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
 from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
 from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
+
+from core.audio_devices import list_audio_devices
 
 
 class MainWindow(QMainWindow):
@@ -69,6 +72,9 @@ class MainWindow(QMainWindow):
         self._muted = False
         self._pre_mute_vol = 80
 
+        # Preview
+        self._preview_dialog = None
+
         # ── VLC ──────────────────────────────────────────
         self.vlc_instance = vlc.Instance()
         self.vlc_player = self.vlc_instance.media_list_player_new()
@@ -90,6 +96,9 @@ class MainWindow(QMainWindow):
 
         # ── Keyboard shortcuts ───────────────────────────
         self._bind_shortcuts()
+
+        # ── Apply configured main audio output device ────
+        self._apply_main_audio_device()
 
         # ── Accept drag-and-drop from file manager ───────
         self.setAcceptDrops(True)
@@ -353,6 +362,12 @@ class MainWindow(QMainWindow):
         show_all_cols_action = QAction('Show &All Columns', self)
         show_all_cols_action.triggered.connect(self._show_all_columns)
         track_list_menu.addAction(show_all_cols_action)
+
+        # ── Audio menu ──────────────────────────────────
+        audio_menu = menu_bar.addMenu('&Audio')
+        self._audio_main_sub = audio_menu.addMenu('Main &Output')
+        self._audio_preview_sub = audio_menu.addMenu('&Preview Output')
+        self._refresh_audio_device_menus()
 
         tools_menu = menu_bar.addMenu('&Tools')
 
@@ -754,6 +769,8 @@ class MainWindow(QMainWindow):
 
     def _play_index(self, index):
         """Load and start playing a specific playlist index."""
+        # Auto-close preview when main player starts a new track
+        self._close_preview()
         if not self._load(index):
             return
         try:
@@ -923,6 +940,7 @@ class MainWindow(QMainWindow):
         # Play
         if not multi:
             menu.addAction('\u25b6  Play', lambda: self._play_index(playlist_idx))
+            menu.addAction('\U0001f3a7  Preview', lambda: self._preview_track(playlist_idx))
 
         # Add to queue
         q_label = f'\U0001f4cb  Add {len(selected)} to Queue' if multi else '\U0001f4cb  Add to Queue'
@@ -1291,6 +1309,7 @@ class MainWindow(QMainWindow):
         _sc('Ctrl+L',     self._toggle_lite_mode)
         _sc('F10',        self._toggle_debug_panel)
         _sc('F11',        self._toggle_fullscreen)
+        _sc('P',          self._preview_selected)
 
     def _focus_search(self):
         """Focus the search box."""
@@ -1366,6 +1385,84 @@ class MainWindow(QMainWindow):
         """Write a message to the debug panel."""
         self._debug_panel.log(level, msg)
 
+    # ── Audio device routing ─────────────────────────────
+
+    def _refresh_audio_device_menus(self):
+        """(Re)populate the Audio → Main Output / Preview Output sub-menus."""
+        devices = list_audio_devices(self.vlc_instance)
+
+        for sub, current_id, setter in [
+            (self._audio_main_sub, self.config.main_audio_device,
+             self._set_main_audio_device),
+            (self._audio_preview_sub, self.config.preview_audio_device,
+             self._set_preview_audio_device),
+        ]:
+            sub.clear()
+            for dev_id, label in devices:
+                prefix = '\u2713  ' if dev_id == current_id else '     '
+                action = sub.addAction(
+                    f'{prefix}{label}',
+                    lambda d=dev_id, s=setter: s(d),
+                )
+                action.setData(dev_id)
+
+    def _set_main_audio_device(self, device_id):
+        self.config.main_audio_device = device_id
+        self._apply_main_audio_device()
+        self._refresh_audio_device_menus()
+        self.config.save()
+        label = 'System Default' if not device_id else device_id
+        self._debug_log('INFO', f'Main audio output → {label}')
+
+    def _set_preview_audio_device(self, device_id):
+        self.config.preview_audio_device = device_id
+        self._refresh_audio_device_menus()
+        self.config.save()
+        label = 'System Default' if not device_id else device_id
+        self._debug_log('INFO', f'Preview audio output → {label}')
+
+    def _apply_main_audio_device(self):
+        """Route the main VLC media player to the configured device."""
+        dev = self.config.main_audio_device
+        if dev:
+            self._vlc_mp().audio_output_device_set(None, dev)
+
+    # ── Preview ──────────────────────────────────────────
+
+    def _preview_track(self, playlist_idx):
+        """Open the modeless preview dialog for the given track."""
+        self._close_preview()
+        entry = self.playlist[playlist_idx]
+        self._preview_dialog = PreviewDialog(
+            track_entry=entry,
+            device_id=self.config.preview_audio_device,
+            parent=self,
+        )
+        self._preview_dialog.closed.connect(self._on_preview_closed)
+        self._preview_dialog.show()
+        self._debug_log('INFO',
+                        f'Preview: {entry.get("title", entry.get("basename", "?"))}')
+
+    def _preview_selected(self):
+        """Preview the first selected track (P shortcut)."""
+        selected = self._get_selected_indices()
+        if selected:
+            self._preview_track(selected[0])
+
+    def _close_preview(self):
+        """Stop and close the preview dialog if it is open."""
+        if self._preview_dialog is not None:
+            try:
+                self._preview_dialog.stop_and_release()
+                self._preview_dialog.close()
+            except RuntimeError:
+                pass  # already deleted
+            self._preview_dialog = None
+
+    def _on_preview_closed(self):
+        """Slot for PreviewDialog.closed signal."""
+        self._preview_dialog = None
+
     # ── Drag-and-drop ─────────────────────────────────
 
     _AUDIO_EXTS = ('.mp3', '.wav', '.ogg', '.flac')
@@ -1405,6 +1502,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._poll_timer.stop()
+        self._close_preview()
         self.vlc_player.stop()
         self.config.visible_columns = self._track_table.get_visible_columns()
         self.config.save()

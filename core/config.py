@@ -70,6 +70,10 @@ class AppConfig:
         self.fade_vel_high = 30.0
         self.fade_tick_threshold = 120
 
+        # Audio device routing
+        self.main_audio_device = ''      # '' = system default
+        self.preview_audio_device = ''   # '' = system default
+
         # Pull-fader tuning defaults
         self.pull_fade_step = 1
         self.pull_min_interval = 20      # fastest (full pull)
@@ -189,6 +193,16 @@ class AppConfig:
                     except (ValueError, TypeError):
                         pass
 
+        # Audio device routing
+        audio_el = root.find('audio')
+        if audio_el is not None:
+            md = audio_el.find('main_device')
+            if md is not None and md.text:
+                self.main_audio_device = md.text
+            pd = audio_el.find('preview_device')
+            if pd is not None and pd.text:
+                self.preview_audio_device = pd.text
+
         return True
 
     def save(self, voter_name=''):
@@ -267,6 +281,13 @@ class AppConfig:
                       min_interval=str(self.pull_min_interval),
                       max_interval=str(self.pull_max_interval),
                       dead_zone=str(self.pull_dead_zone))
+
+        # Audio device routing
+        audio_el = ET.SubElement(root, 'audio')
+        md = ET.SubElement(audio_el, 'main_device')
+        md.text = self.main_audio_device or ''
+        pd = ET.SubElement(audio_el, 'preview_device')
+        pd.text = self.preview_audio_device or ''
 
         ET.indent(root)
         tree = ET.ElementTree(root)
