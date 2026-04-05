@@ -3,7 +3,8 @@ WaveformScrubBar — a custom QWidget that displays a frequency-coloured
 moodbar waveform (Serato-style: mirrored, RGB = bass/mid/treble) and
 acts as a seek / scrub control.
 
-Drop-in replacement for the TickSlider scrub bar in TransportBar.
+Reads visual tuning from ``core.waveform.waveform_settings`` at paint time
+so changes from the settings panel take effect immediately.
 """
 
 from PySide6.QtCore import Qt, Signal
@@ -21,33 +22,33 @@ class WaveformScrubBar(QWidget):
     scrub_pressed()
         User pressed the mouse — scrubbing started.
     scrub_moved(float)
-        Position 0.0–1.0 while dragging.
+        Position 0.0-1.0 while dragging.
     scrub_released(float)
-        Final position 0.0–1.0 on mouse release.
+        Final position 0.0-1.0 on mouse release.
     """
 
     scrub_pressed = Signal()
     scrub_moved = Signal(float)
     scrub_released = Signal(float)
 
-    # Visual tuning
-    BAR_HEIGHT = 60
-    PLAYED_ALPHA = 255
-    UNPLAYED_ALPHA = 80
+    # Fallback defaults (overridden by waveform_settings at paint time)
     PLAYHEAD_COLOR = QColor('#ffffff')
     BG_COLOR = QColor(COLORS['bg_dark'])
     LOADING_COLOR = QColor(COLORS['fg_very_dim'])
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, height=None):
         super().__init__(parent)
-        self.setMinimumHeight(self.BAR_HEIGHT)
-        self.setFixedHeight(self.BAR_HEIGHT)
+        from core.waveform import waveform_settings
+        self._settings = waveform_settings
+        h = height or self._settings.bar_height
+        self.setMinimumHeight(h)
+        self.setFixedHeight(h)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setMouseTracking(True)
 
-        self._waveform = None       # list of (r, g, b, amp) normalised 0–1
-        self._binned = None         # re-sampled to widget width
-        self._position = 0.0        # 0.0–1.0
+        self._waveform = None       # list of (r, g, b, amp) normalised 0-1
+        self._binned = None         # re-sampled to bar count
+        self._position = 0.0        # 0.0-1.0
         self._is_scrubbing = False
         self._loading = False
         self._hover_x = -1          # -1 = no hover
@@ -62,7 +63,7 @@ class WaveformScrubBar(QWidget):
         self.update()
 
     def set_position(self, pos):
-        """Set playback position 0.0–1.0 (called from poll timer)."""
+        """Set playback position 0.0-1.0 (called from poll timer)."""
         self._position = max(0.0, min(1.0, pos))
         self.update()
 
@@ -83,21 +84,31 @@ class WaveformScrubBar(QWidget):
     def is_scrubbing(self):
         return self._is_scrubbing
 
+    def apply_height(self, h):
+        """Update the bar height (called from settings panel)."""
+        self.setMinimumHeight(h)
+        self.setFixedHeight(h)
+        self._rebin()
+        self.update()
+
     # ── Internal ─────────────────────────────────────────
 
     def _rebin(self):
-        """Resample waveform data to match current widget width."""
+        """Resample waveform data to match current widget width and stride."""
         w = self.width()
         src = self._waveform
         if not src or w <= 0:
             self._binned = None
             return
 
+        s = self._settings
+        stride = s.bar_width + s.bar_gap
+        num_bars = max(1, w // stride)
         n = len(src)
         binned = []
-        for x in range(w):
-            lo = int(x * n / w)
-            hi = int((x + 1) * n / w)
+        for i in range(num_bars):
+            lo = int(i * n / num_bars)
+            hi = int((i + 1) * n / num_bars)
             if hi <= lo:
                 hi = lo + 1
             hi = min(hi, n)
@@ -125,14 +136,14 @@ class WaveformScrubBar(QWidget):
         w = self.width()
         h = self.height()
         mid_y = h // 2
+        s = self._settings
 
         # Background
         painter.fillRect(0, 0, w, h, self.BG_COLOR)
 
         if self._loading and not self._binned:
-            # Pulsing "analysing" text
             painter.setPen(QPen(self.LOADING_COLOR))
-            painter.drawText(self.rect(), Qt.AlignCenter, 'Analysing waveform…')
+            painter.drawText(self.rect(), Qt.AlignCenter, 'Analysing waveform\u2026')
             painter.end()
             return
 
@@ -140,31 +151,36 @@ class WaveformScrubBar(QWidget):
             # No waveform — draw a simple center line
             painter.setPen(QPen(QColor(COLORS['border']), 1))
             painter.drawLine(0, mid_y, w, mid_y)
-            # Draw playhead anyway
             self._draw_playhead(painter, w, h)
             painter.end()
             return
 
         playhead_x = int(self._position * w)
+        stride = s.bar_width + s.bar_gap
+        played_a = s.played_alpha
+        unplayed_a = s.unplayed_alpha
 
-        for x, (r, g, b, amp) in enumerate(self._binned):
+        for i, (r, g, b, amp) in enumerate(self._binned):
+            x = i * stride
             if x >= w:
                 break
 
             bar_h = max(1, int(amp * (mid_y - 2)))
 
-            # Colour: RGB from frequency bands
-            alpha = self.PLAYED_ALPHA if x < playhead_x else self.UNPLAYED_ALPHA
+            alpha = played_a if x < playhead_x else unplayed_a
             color = QColor(
                 min(int(r * 255), 255),
                 min(int(g * 255), 255),
                 min(int(b * 255), 255),
                 alpha,
             )
-            painter.setPen(QPen(color, 1))
 
-            # Mirrored: draw upward and downward from center
-            painter.drawLine(x, mid_y - bar_h, x, mid_y + bar_h)
+            bw = s.bar_width
+            if bw == 1:
+                painter.setPen(QPen(color, 1))
+                painter.drawLine(x, mid_y - bar_h, x, mid_y + bar_h)
+            else:
+                painter.fillRect(x, mid_y - bar_h, bw, bar_h * 2, color)
 
         self._draw_playhead(painter, w, h)
 

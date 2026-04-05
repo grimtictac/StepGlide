@@ -32,6 +32,8 @@ from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
 
 from core.audio_devices import list_audio_devices
 from core.waveform import WaveformWorker, deserialise_waveform, serialise_waveform
+from ui.waveform_bar import WaveformScrubBar
+from ui.waveform_settings_panel import WaveformSettingsPanel
 
 
 class MainWindow(QMainWindow):
@@ -78,6 +80,7 @@ class MainWindow(QMainWindow):
 
         # Waveform worker
         self._waveform_worker = None
+        self._wf_user_scrubbing = False
 
         # ── VLC ──────────────────────────────────────────
         self.vlc_instance = vlc.Instance()
@@ -211,11 +214,30 @@ class MainWindow(QMainWindow):
 
         center_layout.addWidget(now_playing_bar)
 
-        # Transport bar
+        # Full-width waveform scrub bar (sits above transport controls)
+        self._waveform_bar = WaveformScrubBar(self)
+        self._waveform_bar.scrub_pressed.connect(self._on_wf_scrub_pressed)
+        self._waveform_bar.scrub_moved.connect(self._on_wf_scrub_moved)
+        self._waveform_bar.scrub_released.connect(self._on_wf_scrub_released)
+        self._waveform_bar.setStyleSheet(f'background-color: {COLORS["bg_dark"]};')
+        center_layout.addWidget(self._waveform_bar)
+
+        # Waveform settings panel (collapsible, hidden by default)
+        self._waveform_settings_panel = WaveformSettingsPanel(self)
+        self._waveform_settings_panel.visual_changed.connect(self._on_wf_visual_changed)
+        self._waveform_settings_panel.analysis_changed.connect(self._on_wf_analysis_changed)
+        self._waveform_settings_panel.height_changed.connect(self._waveform_bar.apply_height)
+        self._waveform_settings_panel.hide()
+        center_layout.addWidget(self._waveform_settings_panel)
+
+        # Transport bar (buttons + time labels; plain slider fallback only)
         self._transport = TransportBar(self)
         self._transport.setStyleSheet(f'background-color: {COLORS["bg_dark"]};')
-        if not self.config.waveform_enabled:
-            self._transport.swap_scrub_mode(False)
+        if self.config.waveform_enabled:
+            self._transport.swap_scrub_mode(False)  # use plain slider internally
+            self._waveform_bar.show()
+        else:
+            self._waveform_bar.hide()
         self._connect_transport()
         center_layout.addWidget(self._transport)
 
@@ -363,6 +385,10 @@ class MainWindow(QMainWindow):
         self._waveform_action.setChecked(self.config.waveform_enabled)
         self._waveform_action.triggered.connect(self._toggle_waveform_scrub)
         view_menu.addAction(self._waveform_action)
+
+        wf_settings_action = QAction('Waveform Se&ttings', self)
+        wf_settings_action.triggered.connect(self._toggle_waveform_settings)
+        view_menu.addAction(wf_settings_action)
 
         view_menu.addSeparator()
 
@@ -1280,14 +1306,17 @@ class MainWindow(QMainWindow):
             self._consecutive_skips = 0
 
         # Update scrub slider and time labels
-        if not self._transport.is_user_scrubbing:
+        scrubbing = self._transport.is_user_scrubbing or self._wf_user_scrubbing
+        if not scrubbing:
             length = mp.get_length()
             pos = mp.get_position()
             if length > 0 and pos >= 0:
                 self._transport.set_scrub_position(pos)
+                self._waveform_bar.set_position(pos)
                 self._transport.set_time_labels(int(pos * length), length)
             elif not is_playing and not self.is_paused:
                 self._transport.set_scrub_position(0)
+                self._waveform_bar.set_position(0)
                 self._transport.set_time_labels(0, 0)
 
         # Auto-advance: VLC finished playing and we were in 'playing' state
@@ -1388,15 +1417,63 @@ class MainWindow(QMainWindow):
     def _toggle_waveform_scrub(self, checked):
         """Switch between waveform moodbar and plain slider."""
         self.config.waveform_enabled = checked
-        self._transport.swap_scrub_mode(checked)
         if checked:
-            # Kick off waveform generation for the current track
+            self._waveform_bar.show()
+            self._transport.swap_scrub_mode(False)  # plain slider hidden behind waveform
             if self.current_index is not None:
                 self._start_waveform(self.current_index)
         else:
+            self._waveform_bar.hide()
+            self._waveform_bar.clear()
+            self._waveform_settings_panel.hide()
+            self._transport.swap_scrub_mode(False)  # ensure plain slider visible
             self._cancel_waveform()
         self.statusBar().showMessage(
             'Waveform scrub bar ' + ('enabled' if checked else 'disabled'), 3000)
+
+    def _toggle_waveform_settings(self):
+        """Show/hide the waveform settings panel."""
+        if self._waveform_settings_panel.isVisible():
+            self._waveform_settings_panel.hide()
+        else:
+            self._waveform_settings_panel.show()
+
+    def _on_wf_scrub_pressed(self):
+        """Standalone waveform bar: user started scrubbing."""
+        self._wf_user_scrubbing = True
+
+    def _on_wf_scrub_moved(self, pos):
+        """Standalone waveform bar: user is dragging."""
+        # Also update transport's time display
+        mp = self._vlc_mp()
+        length = mp.get_length()
+        if length > 0:
+            self._transport.set_time_labels(int(pos * length), length)
+
+    def _on_wf_scrub_released(self, pos):
+        """Standalone waveform bar: user finished scrubbing — seek."""
+        self._wf_user_scrubbing = False
+        mp = self._vlc_mp()
+        length = mp.get_length()
+        if length > 0 and (self.is_playing or self.is_paused):
+            mp.set_position(pos)
+
+    def _on_wf_visual_changed(self):
+        """Waveform settings changed — rebin and repaint (no regeneration)."""
+        self._waveform_bar._rebin()
+        self._waveform_bar.update()
+
+    def _on_wf_analysis_changed(self):
+        """Waveform analysis settings changed — regenerate current track."""
+        if self.config.waveform_enabled and self.current_index is not None:
+            # Clear cache for this track and regenerate
+            entry = self.playlist[self.current_index]
+            rel_path = entry.get('path', '')
+            try:
+                self.db.save_waveform(rel_path, None)
+            except Exception:
+                pass
+            self._start_waveform(self.current_index)
 
     def _reset_track_list_default(self):
         """Reset columns to the default visible set and widths."""
@@ -1529,13 +1606,13 @@ class MainWindow(QMainWindow):
         if cached:
             try:
                 data = deserialise_waveform(cached)
-                self._transport.scrub_slider.set_waveform(data)
+                self._waveform_bar.set_waveform(data)
                 return
             except Exception:
                 pass  # corrupt cache — regenerate
 
         # Show loading state
-        self._transport.scrub_slider.set_loading(True)
+        self._waveform_bar.set_loading(True)
         self._debug_log('INFO', f'Waveform: generating for {os.path.basename(abs_path)}')
 
         # Spawn worker
@@ -1549,7 +1626,7 @@ class MainWindow(QMainWindow):
         """Slot: background waveform generation finished."""
         self._waveform_worker = None
         if not data:
-            self._transport.scrub_slider.set_loading(False)
+            self._waveform_bar.set_loading(False)
             self._debug_log('WARN', f'Waveform generation failed for {os.path.basename(file_path)}')
             return
 
@@ -1566,7 +1643,7 @@ class MainWindow(QMainWindow):
         if self.current_index is not None:
             cur_path = self.playlist[self.current_index].get('_abs_path', '')
             if cur_path == file_path:
-                self._transport.scrub_slider.set_waveform(data)
+                self._waveform_bar.set_waveform(data)
 
     def _cancel_waveform(self):
         """Cancel any in-flight waveform worker."""
