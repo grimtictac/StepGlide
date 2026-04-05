@@ -10,7 +10,7 @@ Changes are applied live via the global ``waveform_settings`` singleton.
 
 import math
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFrame, QGroupBox, QHBoxLayout, QLabel,
@@ -95,6 +95,14 @@ class WaveformSettingsPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._settings = waveform_settings
+
+        # Debounce timer: only fire analysis_changed after user stops
+        # dragging for 400ms (avoids re-decoding on every slider tick)
+        self._analysis_timer = QTimer(self)
+        self._analysis_timer.setSingleShot(True)
+        self._analysis_timer.setInterval(400)
+        self._analysis_timer.timeout.connect(self.analysis_changed.emit)
+
         self._build_ui()
 
     def _build_ui(self):
@@ -279,6 +287,10 @@ class WaveformSettingsPanel(QWidget):
         self._tabs.setVisible(self._content_visible)
         self._btn_collapse.setText('\u25b2' if self._content_visible else '\u25bc')
 
+    def _debounce_analysis(self):
+        """Restart the debounce timer — analysis_changed fires after 400ms idle."""
+        self._analysis_timer.start()
+
     # ── Simple tab callbacks ─────────────────────────────
 
     def _set_bar_width(self, v):
@@ -300,11 +312,11 @@ class WaveformSettingsPanel(QWidget):
 
     def _set_amp_gamma_simple(self, v):
         self._settings.amp_gamma = v
-        self.analysis_changed.emit()
+        self._debounce_analysis()
 
     def _set_color_gamma_simple(self, v):
         self._settings.color_gamma = v
-        self.analysis_changed.emit()
+        self._debounce_analysis()
 
     def _set_unplayed_alpha(self, v):
         self._settings.unplayed_alpha = int(v)
@@ -312,33 +324,33 @@ class WaveformSettingsPanel(QWidget):
 
     def _set_adaptive(self, checked):
         self._settings.adaptive_bands = checked
-        self.analysis_changed.emit()
+        self._debounce_analysis()
 
     # ── Advanced tab callbacks ───────────────────────────
 
     def _set_amp_percentile(self, v):
         self._settings.amp_percentile = v
-        self.analysis_changed.emit()
+        self._debounce_analysis()
 
     def _set_amp_gamma(self, v):
         self._settings.amp_gamma = v
-        self.analysis_changed.emit()
+        self._debounce_analysis()
 
     def _set_color_gamma(self, v):
         self._settings.color_gamma = v
-        self.analysis_changed.emit()
+        self._debounce_analysis()
 
     def _set_bass_cutoff(self, hz):
         self._settings.a_lo = self._settings.alpha_from_hz(hz)
         self._settings.adaptive_bands = False
         self._cb_adaptive.setChecked(False)
-        self.analysis_changed.emit()
+        self._debounce_analysis()
 
     def _set_treble_cutoff(self, hz):
         self._settings.a_hi = self._settings.alpha_from_hz(hz)
         self._settings.adaptive_bands = False
         self._cb_adaptive.setChecked(False)
-        self.analysis_changed.emit()
+        self._debounce_analysis()
 
     def _set_played_alpha(self, v):
         self._settings.played_alpha = int(v)
