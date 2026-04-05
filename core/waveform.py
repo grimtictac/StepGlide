@@ -36,6 +36,7 @@ DEFAULT_TREBLE_FC = 2000    # HP cutoff for treble band
 DEFAULT_AMP_PERCENTILE = 0.85   # lower = more headroom, more dynamic range
 DEFAULT_AMP_GAMMA = 0.65        # lower = more compressed (quiet parts louder)
 DEFAULT_COLOR_GAMMA = 2.5       # higher = more vivid/saturated colours
+DEFAULT_COLOR_SMOOTH = 0.60     # EMA alpha per bin (0=none, higher=smoother)
 
 
 class WaveformSettings:
@@ -47,6 +48,7 @@ class WaveformSettings:
         self.amp_percentile = DEFAULT_AMP_PERCENTILE
         self.amp_gamma = DEFAULT_AMP_GAMMA
         self.color_gamma = DEFAULT_COLOR_GAMMA
+        self.color_smooth = DEFAULT_COLOR_SMOOTH
         self.draw_mode = 'bars'          # 'bars' or 'envelope'
         self.bar_width = 2               # pixels (bars mode only)
         self.bar_gap = 1                 # pixels (bars mode only)
@@ -176,12 +178,59 @@ def _analyse_chunk(chunk, lp_coeffs, hp_coeffs):
             math.sqrt(total_e * inv_n))
 
 
+# ── Temporal smoothing ────────────────────────────────────
+
+def _smooth_colors(binned, smooth):
+    """Bidirectional EMA on the (bass, mid, treble) channels.
+
+    smooth is the EMA alpha per bin-step.  0 = no smoothing.
+    Bidirectional (forward + backward averaged) avoids phase shift.
+    Amplitude is NOT smoothed so bar heights stay crisp.
+    """
+    if smooth <= 0.0 or len(binned) < 2:
+        return binned
+
+    n = len(binned)
+    a = smooth
+    b = 1.0 - a
+
+    # Forward pass
+    fwd = [None] * n
+    rb, gm, bt = binned[0][0], binned[0][1], binned[0][2]
+    fwd[0] = (rb, gm, bt)
+    for i in range(1, n):
+        rb = a * rb + b * binned[i][0]
+        gm = a * gm + b * binned[i][1]
+        bt = a * bt + b * binned[i][2]
+        fwd[i] = (rb, gm, bt)
+
+    # Backward pass
+    bwd = [None] * n
+    rb, gm, bt = binned[-1][0], binned[-1][1], binned[-1][2]
+    bwd[-1] = (rb, gm, bt)
+    for i in range(n - 2, -1, -1):
+        rb = a * rb + b * binned[i][0]
+        gm = a * gm + b * binned[i][1]
+        bt = a * bt + b * binned[i][2]
+        bwd[i] = (rb, gm, bt)
+
+    # Average forward + backward, keep original amplitude
+    result = []
+    for i in range(n):
+        r = (fwd[i][0] + bwd[i][0]) * 0.5
+        g = (fwd[i][1] + bwd[i][1]) * 0.5
+        bl = (fwd[i][2] + bwd[i][2]) * 0.5
+        result.append((r, g, bl, binned[i][3]))
+    return result
+
+
 # ── Bin chunk results into NUM_BINS ──────────────────────
 
 def _bin_results(chunk_results, num_bins):
     """Downsample chunk_results to num_bins normalised (r, g, b, amp) entries.
 
     - Each band is normalised independently to its own track-wide max
+    - Temporal smoothing blends colour transitions between adjacent bins
     - Amplitude uses percentile-based normalisation with gamma compression
     - color_gamma sharpens the dominant band to produce vivid colours
     """
@@ -210,6 +259,9 @@ def _bin_results(chunk_results, num_bins):
             amp_sum += a
         inv = 1.0 / count if count else 1.0
         binned.append((bass_sum * inv, mid_sum * inv, treb_sum * inv, amp_sum * inv))
+
+    # -- Temporal colour smoothing (before normalisation) --
+    binned = _smooth_colors(binned, settings.color_smooth)
 
     # -- Amplitude normalisation (RMS-based percentile) --
     amps = sorted(b[3] for b in binned)
@@ -290,8 +342,8 @@ def _decode_to_samples(file_path, sample_rate=SAMPLE_RATE):
             '#transcode{acodec=s16l,channels=1,samplerate='
             + str(sample_rate)
             + "}:std{access=file,mux=wav,dst='"
-            + tmp_path.replace("\'", "\'\\\'\'")
-            + "\'}"
+            + tmp_path.replace("'", "'\\''")
+            + "'}"
         )
 
         if sys.platform == 'win32':

@@ -21,6 +21,7 @@ from core.waveform import (
     waveform_settings,
     DEFAULT_BASS_FC, DEFAULT_TREBLE_FC,
     DEFAULT_AMP_PERCENTILE, DEFAULT_AMP_GAMMA, DEFAULT_COLOR_GAMMA,
+    DEFAULT_COLOR_SMOOTH,
 )
 
 
@@ -187,6 +188,12 @@ class WaveformSettingsPanel(QWidget):
                          self._set_color_gamma_simple, float_scale=100,
                          tooltip='Higher = more vivid, saturated colours\n'
                                  'Lower = more blended/pastel')
+        _make_slider_row(layout, 'Colour Smoothing', 0, 95,
+                         int(s.color_smooth * 100), '',
+                         self._set_color_smooth_simple, float_scale=100,
+                         tooltip='Smooth colour transitions between adjacent bars\n'
+                                 'Higher = smoother flowing colours (Serato-like)\n'
+                                 'Lower = more raw/detailed colour changes')
         _make_slider_row(layout, 'Unplayed Brightness', 20, 255,
                          s.unplayed_alpha, '',
                          self._set_unplayed_alpha,
@@ -226,6 +233,11 @@ class WaveformSettingsPanel(QWidget):
                          self._set_color_gamma, float_scale=100,
                          tooltip='Power curve for R/G/B band separation.\n'
                                  'Higher = more saturated dominant colour.')
+        _make_slider_row(layout, 'Colour Smoothing', 0, 95,
+                         int(s.color_smooth * 100), '',
+                         self._set_color_smooth, float_scale=100,
+                         tooltip='Bidirectional EMA smoothing on colour channels.\n'
+                                 '0 = raw, 0.90+ = very smooth.')
         _make_slider_row(layout, 'Played Alpha', 100, 255,
                          s.played_alpha, '',
                          self._set_played_alpha,
@@ -278,6 +290,10 @@ class WaveformSettingsPanel(QWidget):
         self._settings.color_gamma = v
         self._debounce_analysis()
 
+    def _set_color_smooth_simple(self, v):
+        self._settings.color_smooth = v
+        self._debounce_analysis()
+
     def _set_unplayed_alpha(self, v):
         self._settings.unplayed_alpha = int(v)
         self.visual_changed.emit()
@@ -304,6 +320,10 @@ class WaveformSettingsPanel(QWidget):
         self._settings.color_gamma = v
         self._debounce_analysis()
 
+    def _set_color_smooth(self, v):
+        self._settings.color_smooth = v
+        self._debounce_analysis()
+
     def _set_played_alpha(self, v):
         self._settings.played_alpha = int(v)
         self.visual_changed.emit()
@@ -322,6 +342,7 @@ class WaveformSettingsPanel(QWidget):
         s.amp_percentile = DEFAULT_AMP_PERCENTILE
         s.amp_gamma = DEFAULT_AMP_GAMMA
         s.color_gamma = DEFAULT_COLOR_GAMMA
+        s.color_smooth = DEFAULT_COLOR_SMOOTH
         s.draw_mode = 'bars'
         s.bar_width = 2
         s.bar_gap = 1
