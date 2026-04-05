@@ -13,7 +13,7 @@ import math
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QGroupBox, QHBoxLayout, QLabel,
+    QCheckBox, QComboBox, QFrame, QGroupBox, QHBoxLayout, QLabel,
     QPushButton, QSlider, QSizePolicy, QTabWidget,
     QVBoxLayout, QWidget,
 )
@@ -147,6 +147,25 @@ class WaveformSettingsPanel(QWidget):
 
         s = self._settings
 
+        # Draw mode selector
+        mode_row = QHBoxLayout()
+        mode_lbl = QLabel('Draw Style')
+        mode_lbl.setStyleSheet(_LABEL_CSS)
+        mode_row.addWidget(mode_lbl)
+        mode_row.addStretch()
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItems(['Bars', 'Envelope'])
+        self._mode_combo.setCurrentIndex(0 if s.draw_mode == 'bars' else 1)
+        self._mode_combo.setFixedWidth(100)
+        self._mode_combo.setFixedHeight(22)
+        self._mode_combo.setStyleSheet(f'font-size:10px;')
+        self._mode_combo.setToolTip(
+            'Bars: discrete vertical bars (Serato/rekordbox style)\n'
+            'Envelope: smooth filled waveform (SoundCloud style)')
+        self._mode_combo.currentIndexChanged.connect(self._set_draw_mode)
+        mode_row.addWidget(self._mode_combo)
+        layout.addLayout(mode_row)
+
         _make_slider_row(layout, 'Bar Thickness', 1, 6, s.bar_width, ' px',
                          self._set_bar_width,
                          tooltip='Width of each waveform bar in pixels')
@@ -270,6 +289,10 @@ class WaveformSettingsPanel(QWidget):
         self._settings.bar_gap = int(v)
         self.visual_changed.emit()
 
+    def _set_draw_mode(self, index):
+        self._settings.draw_mode = 'bars' if index == 0 else 'envelope'
+        self.visual_changed.emit()
+
     def _set_height(self, v):
         self._settings.bar_height = int(v)
         self.height_changed.emit(int(v))
@@ -337,6 +360,7 @@ class WaveformSettingsPanel(QWidget):
         s.amp_percentile = DEFAULT_AMP_PERCENTILE
         s.amp_gamma = DEFAULT_AMP_GAMMA
         s.color_gamma = DEFAULT_COLOR_GAMMA
+        s.draw_mode = 'bars'
         s.bar_width = 2
         s.bar_gap = 1
         s.bar_height = 60

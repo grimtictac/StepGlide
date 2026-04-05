@@ -51,8 +51,9 @@ class WaveformSettings:
         self.amp_percentile = DEFAULT_AMP_PERCENTILE
         self.amp_gamma = DEFAULT_AMP_GAMMA
         self.color_gamma = DEFAULT_COLOR_GAMMA
-        self.bar_width = 2               # pixels
-        self.bar_gap = 1                 # pixels
+        self.draw_mode = 'bars'          # 'bars' or 'envelope'
+        self.bar_width = 2               # pixels (bars mode only)
+        self.bar_gap = 1                 # pixels (bars mode only)
         self.bar_height = 60             # pixels
         self.played_alpha = 255
         self.unplayed_alpha = 80

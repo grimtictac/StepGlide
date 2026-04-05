@@ -1,14 +1,16 @@
 """
-WaveformScrubBar — a custom QWidget that displays a frequency-coloured
-moodbar waveform (Serato-style: mirrored, RGB = bass/mid/treble) and
-acts as a seek / scrub control.
+WaveformScrubBar -- frequency-coloured mirrored waveform + scrub control.
 
-Reads visual tuning from ``core.waveform.waveform_settings`` at paint time
+Supports two draw modes (configurable via waveform_settings.draw_mode):
+  - **bars**:     discrete vertical bars with configurable width & gap
+  - **envelope**: smooth filled polygon (SoundCloud-style) with per-column colour
+
+Reads all visual tuning from ``core.waveform.waveform_settings`` at paint time
 so changes from the settings panel take effect immediately.
 """
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget, QSizePolicy
 
 from ui.theme import COLORS
@@ -20,7 +22,7 @@ class WaveformScrubBar(QWidget):
     Signals
     -------
     scrub_pressed()
-        User pressed the mouse — scrubbing started.
+        User pressed the mouse -- scrubbing started.
     scrub_moved(float)
         Position 0.0-1.0 while dragging.
     scrub_released(float)
@@ -53,7 +55,7 @@ class WaveformScrubBar(QWidget):
         self._loading = False
         self._hover_x = -1          # -1 = no hover
 
-    # ── Public API ───────────────────────────────────────
+    # -- Public API -----------------------------------------------
 
     def set_waveform(self, data):
         """Load waveform data: list of (r, g, b, amp) or None to clear."""
@@ -91,7 +93,7 @@ class WaveformScrubBar(QWidget):
         self._rebin()
         self.update()
 
-    # ── Internal ─────────────────────────────────────────
+    # -- Internal -------------------------------------------------
 
     def _rebin(self):
         """Resample waveform data to match current widget width and stride."""
@@ -102,8 +104,13 @@ class WaveformScrubBar(QWidget):
             return
 
         s = self._settings
-        stride = s.bar_width + s.bar_gap
-        num_bars = max(1, w // stride)
+        if s.draw_mode == 'envelope':
+            # One bin per pixel column for smooth envelope
+            num_bars = max(1, w)
+        else:
+            stride = s.bar_width + s.bar_gap
+            num_bars = max(1, w // stride)
+
         n = len(src)
         binned = []
         for i in range(num_bars):
@@ -127,7 +134,7 @@ class WaveformScrubBar(QWidget):
 
         self._binned = binned
 
-    # ── Paint ────────────────────────────────────────────
+    # -- Paint ----------------------------------------------------
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -148,13 +155,28 @@ class WaveformScrubBar(QWidget):
             return
 
         if not self._binned:
-            # No waveform — draw a simple center line
             painter.setPen(QPen(QColor(COLORS['border']), 1))
             painter.drawLine(0, mid_y, w, mid_y)
             self._draw_playhead(painter, w, h)
             painter.end()
             return
 
+        if s.draw_mode == 'envelope':
+            self._paint_envelope(painter, w, h, mid_y, s)
+        else:
+            self._paint_bars(painter, w, h, mid_y, s)
+
+        self._draw_playhead(painter, w, h)
+
+        # Hover position indicator
+        if self._hover_x >= 0 and not self._is_scrubbing:
+            painter.setPen(QPen(QColor(255, 255, 255, 60), 1))
+            painter.drawLine(self._hover_x, 0, self._hover_x, h)
+
+        painter.end()
+
+    def _paint_bars(self, painter, w, h, mid_y, s):
+        """Draw discrete vertical bars (Serato/rekordbox style)."""
         playhead_x = int(self._position * w)
         stride = s.bar_width + s.bar_gap
         played_a = s.played_alpha
@@ -166,7 +188,6 @@ class WaveformScrubBar(QWidget):
                 break
 
             bar_h = max(1, int(amp * (mid_y - 2)))
-
             alpha = played_a if x < playhead_x else unplayed_a
             color = QColor(
                 min(int(r * 255), 255),
@@ -182,14 +203,49 @@ class WaveformScrubBar(QWidget):
             else:
                 painter.fillRect(x, mid_y - bar_h, bw, bar_h * 2, color)
 
-        self._draw_playhead(painter, w, h)
+    def _paint_envelope(self, painter, w, h, mid_y, s):
+        """Draw a smooth filled envelope (SoundCloud style).
 
-        # Hover position indicator
-        if self._hover_x >= 0 and not self._is_scrubbing:
-            painter.setPen(QPen(QColor(255, 255, 255, 60), 1))
-            painter.drawLine(self._hover_x, 0, self._hover_x, h)
+        Strategy: build a QPainterPath for the top contour, mirror it
+        for the bottom, then fill column-by-column strips so each
+        column gets its own RGB colour from the frequency data.
+        """
+        binned = self._binned
+        n = len(binned)
+        if n == 0:
+            return
 
-        painter.end()
+        playhead_x = int(self._position * w)
+        played_a = s.played_alpha
+        unplayed_a = s.unplayed_alpha
+
+        # Pre-compute heights for each column
+        heights = []
+        for i in range(n):
+            amp = binned[i][3]
+            bar_h = max(1, int(amp * (mid_y - 2)))
+            heights.append(bar_h)
+
+        # Smooth the heights with a 3-tap moving average for a nicer contour
+        if n > 4:
+            smoothed = [heights[0]]
+            for i in range(1, n - 1):
+                smoothed.append((heights[i - 1] + heights[i] + heights[i + 1]) // 3)
+            smoothed.append(heights[-1])
+            heights = smoothed
+
+        # Draw column-by-column filled strips (each column = 1px wide)
+        for x in range(min(n, w)):
+            r, g, b, _amp = binned[x]
+            bar_h = heights[x]
+            alpha = played_a if x < playhead_x else unplayed_a
+            color = QColor(
+                min(int(r * 255), 255),
+                min(int(g * 255), 255),
+                min(int(b * 255), 255),
+                alpha,
+            )
+            painter.fillRect(x, mid_y - bar_h, 1, bar_h * 2, color)
 
     def _draw_playhead(self, painter, w, h):
         """Draw the vertical playhead line."""
@@ -197,13 +253,13 @@ class WaveformScrubBar(QWidget):
         painter.setPen(QPen(self.PLAYHEAD_COLOR, 2))
         painter.drawLine(px, 0, px, h)
 
-    # ── Resize ───────────────────────────────────────────
+    # -- Resize ---------------------------------------------------
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._rebin()
 
-    # ── Mouse interaction (scrubbing) ────────────────────
+    # -- Mouse interaction (scrubbing) ----------------------------
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
