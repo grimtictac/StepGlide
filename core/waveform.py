@@ -1,9 +1,8 @@
 """
 Waveform / moodbar generation via VLC CLI subprocess.
 
-Decode audio to a temp WAV, analyse 3-band energy with adaptive
-per-file frequency cutoffs, return (r, g, b, amplitude) tuples
-for the UI.
+Decode audio to a temp WAV, split into 3 frequency bands using
+2nd-order biquad filters, return (r, g, b, amplitude) tuples.
 
 Cross-platform: cvlc on Linux, vlc.exe -I dummy on Windows.
 No ffmpeg, no numpy -- pure Python + stdlib.
@@ -23,31 +22,28 @@ import zlib
 
 from PySide6.QtCore import QThread, Signal
 
-# ── Defaults (overridable via WaveformSettings) ─────────
+# ── Defaults ─────────────────────────────────────────────
 
 SAMPLE_RATE = 8000
 NUM_BINS = 1600
 CHUNK_SAMPLES = 512
 
-# Default IIR filter coefficients for 8 kHz sample rate
-# Low-pass cutoff ~300 Hz:  alpha = 2*pi*fc / (2*pi*fc + sr)
-DEFAULT_A_LO = 0.22
-# High-pass cutoff ~2000 Hz
-DEFAULT_A_HI = 0.84
+# Biquad crossover frequencies (Hz)
+DEFAULT_BASS_FC = 300       # LP cutoff for bass band
+DEFAULT_TREBLE_FC = 2000    # HP cutoff for treble band
 
 # Amplitude normalisation
-DEFAULT_AMP_PERCENTILE = 0.95
-DEFAULT_AMP_GAMMA = 0.85        # higher = less compression
-DEFAULT_COLOR_GAMMA = 1.8
+DEFAULT_AMP_PERCENTILE = 0.85   # lower = more headroom, more dynamic range
+DEFAULT_AMP_GAMMA = 0.65        # lower = more compressed (quiet parts louder)
+DEFAULT_COLOR_GAMMA = 2.5       # higher = more vivid/saturated colours
 
 
 class WaveformSettings:
     """Runtime-adjustable waveform analysis parameters."""
 
     def __init__(self):
-        self.adaptive_bands = True       # scan file to set cutoffs
-        self.a_lo = DEFAULT_A_LO         # bass LP coefficient
-        self.a_hi = DEFAULT_A_HI         # treble HP coefficient
+        self.bass_fc = DEFAULT_BASS_FC
+        self.treble_fc = DEFAULT_TREBLE_FC
         self.amp_percentile = DEFAULT_AMP_PERCENTILE
         self.amp_gamma = DEFAULT_AMP_GAMMA
         self.color_gamma = DEFAULT_COLOR_GAMMA
@@ -58,21 +54,8 @@ class WaveformSettings:
         self.played_alpha = 255
         self.unplayed_alpha = 80
 
-    def cutoff_hz(self, alpha, sample_rate=SAMPLE_RATE):
-        """Convert IIR alpha to approximate cutoff frequency in Hz."""
-        if alpha <= 0 or alpha >= 1:
-            return 0
-        return alpha * sample_rate / (2 * math.pi * (1 - alpha))
 
-    def alpha_from_hz(self, fc, sample_rate=SAMPLE_RATE):
-        """Convert cutoff frequency in Hz to IIR alpha coefficient."""
-        if fc <= 0:
-            return 0.01
-        omega = 2 * math.pi * fc / sample_rate
-        return omega / (omega + 1)
-
-
-# Global singleton — UI panels modify this in-place
+# Global singleton -- UI panels modify this in-place
 waveform_settings = WaveformSettings()
 
 
@@ -106,119 +89,109 @@ def _find_vlc_cli():
 _VLC_BIN = _find_vlc_cli()
 
 
-# ── Adaptive frequency band detection ───────────────────
+# ── Biquad filter design ────────────────────────────────
 
-def _estimate_spectral_bands(samples, sample_rate=SAMPLE_RATE):
-    """Scan decoded samples and return (a_lo, a_hi) IIR coefficients
-    tuned to the file's actual frequency content.
+def _biquad_lp(fc, sr, Q=0.707):
+    """2nd-order Butterworth low-pass biquad coefficients."""
+    w0 = 2.0 * math.pi * fc / sr
+    alpha = math.sin(w0) / (2.0 * Q)
+    cos_w0 = math.cos(w0)
+    b0 = (1.0 - cos_w0) / 2.0
+    b1 = 1.0 - cos_w0
+    b2 = b0
+    a0 = 1.0 + alpha
+    a1 = -2.0 * cos_w0
+    a2 = 1.0 - alpha
+    return (b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
 
-    Strategy: compute the average zero-crossing rate over windows to
-    estimate spectral centroid.  Then place bass/treble cutoffs at
-    the 25th and 75th percentile of local zero-crossing rates.
 
-    Returns (a_lo, a_hi) alpha values for the IIR filters.
+def _biquad_hp(fc, sr, Q=0.707):
+    """2nd-order Butterworth high-pass biquad coefficients."""
+    w0 = 2.0 * math.pi * fc / sr
+    alpha = math.sin(w0) / (2.0 * Q)
+    cos_w0 = math.cos(w0)
+    b0 = (1.0 + cos_w0) / 2.0
+    b1 = -(1.0 + cos_w0)
+    b2 = b0
+    a0 = 1.0 + alpha
+    a1 = -2.0 * cos_w0
+    a2 = 1.0 - alpha
+    return (b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0)
+
+
+# ── 3-band energy extraction (biquad) ───────────────────
+
+def _analyse_chunk(chunk, lp_coeffs, hp_coeffs):
+    """Return (bass_rms, mid_rms, treble_rms, rms_amplitude) for a chunk.
+
+    Uses 2nd-order biquad LP for bass, HP for treble, and
+    mid = signal - bass - treble.  Returns RMS values.
     """
-    n = len(samples)
-    if n < 4000:
-        return (DEFAULT_A_LO, DEFAULT_A_HI)
-
-    # Measure zero-crossing rate in windows
-    win_size = min(2048, n // 8)
-    zcr_list = []
-    for start in range(0, n - win_size, win_size):
-        crossings = 0
-        for i in range(start + 1, start + win_size):
-            if (samples[i] >= 0) != (samples[i - 1] >= 0):
-                crossings += 1
-        # Zero-crossing rate → approximate frequency
-        freq_est = (crossings / win_size) * sample_rate * 0.5
-        if freq_est > 10:  # skip silence
-            zcr_list.append(freq_est)
-
-    if len(zcr_list) < 4:
-        return (DEFAULT_A_LO, DEFAULT_A_HI)
-
-    zcr_list.sort()
-    p25 = zcr_list[len(zcr_list) // 4]
-    p75 = zcr_list[3 * len(zcr_list) // 4]
-
-    # Clamp to reasonable ranges
-    bass_cutoff = max(80, min(600, p25))
-    treble_cutoff = max(1000, min(3500, p75))
-
-    # Ensure separation
-    if treble_cutoff < bass_cutoff * 2.5:
-        treble_cutoff = bass_cutoff * 2.5
-
-    settings = waveform_settings
-    a_lo = settings.alpha_from_hz(bass_cutoff, sample_rate)
-    a_hi = settings.alpha_from_hz(treble_cutoff, sample_rate)
-
-    return (a_lo, a_hi)
-
-
-# ── 3-band energy extraction ────────────────────────────
-
-def _analyse_chunk(samples, a_lo, a_hi):
-    """Return (bass_energy, mid_energy, treble_energy, peak) for a chunk.
-
-    Uses cascaded single-pole IIR filters:
-    - bass:   low-pass at a_lo
-    - treble: high-pass at a_hi
-    - mid:    original minus bass minus treble
-    """
-    n = len(samples)
+    n = len(chunk)
     if n < 4:
         return (0.0, 0.0, 0.0, 0.0)
+
+    lb0, lb1, lb2, la1, la2 = lp_coeffs
+    hb0, hb1, hb2, ha1, ha2 = hp_coeffs
 
     bass_e = 0.0
     mid_e = 0.0
     treb_e = 0.0
-    peak = 0.0
+    total_e = 0.0
 
-    lp = samples[0]
-    hp_prev = samples[0]
+    # LP filter state
+    lx1 = lx2 = ly1 = ly2 = 0.0
+    # HP filter state
+    hx1 = hx2 = hy1 = hy2 = 0.0
 
-    for i in range(1, n):
-        s = samples[i]
+    for i in range(n):
+        s = chunk[i]
 
         # Low-pass (bass)
-        lp += a_lo * (s - lp)
-        bass = lp
+        lo = lb0 * s + lb1 * lx1 + lb2 * lx2 - la1 * ly1 - la2 * ly2
+        lx2 = lx1
+        lx1 = s
+        ly2 = ly1
+        ly1 = lo
 
         # High-pass (treble)
-        hp = a_hi * (hp_prev + s - samples[i - 1])
-        hp_prev = hp
-        treble = hp
+        hi = hb0 * s + hb1 * hx1 + hb2 * hx2 - ha1 * hy1 - ha2 * hy2
+        hx2 = hx1
+        hx1 = s
+        hy2 = hy1
+        hy1 = hi
 
         # Mid = original minus bass minus treble
-        mid = s - bass - treble
+        mid = s - lo - hi
 
-        bass_e += bass * bass
+        bass_e += lo * lo
         mid_e += mid * mid
-        treb_e += treble * treble
-
-        a = abs(s)
-        if a > peak:
-            peak = a
+        treb_e += hi * hi
+        total_e += s * s
 
     inv_n = 1.0 / n
-    bass_e *= inv_n
-    mid_e *= inv_n
-    treb_e *= inv_n
-    return (bass_e, mid_e, treb_e, peak)
+    return (math.sqrt(bass_e * inv_n),
+            math.sqrt(mid_e * inv_n),
+            math.sqrt(treb_e * inv_n),
+            math.sqrt(total_e * inv_n))
 
 
 # ── Bin chunk results into NUM_BINS ──────────────────────
 
 def _bin_results(chunk_results, num_bins):
-    """Downsample chunk_results to num_bins normalised (r, g, b, amp) entries."""
+    """Downsample chunk_results to num_bins normalised (r, g, b, amp) entries.
+
+    - Each band is normalised independently to its own track-wide max
+    - Amplitude uses percentile-based normalisation with gamma compression
+    - color_gamma sharpens the dominant band to produce vivid colours
+    """
     n = len(chunk_results)
     if n == 0:
         return [(0.0, 0.0, 0.0, 0.0)] * num_bins
 
     settings = waveform_settings
 
+    # Average chunks into bins
     binned = []
     for i in range(num_bins):
         lo = int(i * n / num_bins)
@@ -227,46 +200,42 @@ def _bin_results(chunk_results, num_bins):
             hi = lo + 1
         hi = min(hi, n)
 
-        bass_sum = mid_sum = treb_sum = amp_max = 0.0
+        bass_sum = mid_sum = treb_sum = amp_sum = 0.0
         count = hi - lo
         for j in range(lo, hi):
             b, m, t, a = chunk_results[j]
             bass_sum += b
             mid_sum += m
             treb_sum += t
-            if a > amp_max:
-                amp_max = a
+            amp_sum += a
         inv = 1.0 / count if count else 1.0
-        binned.append((bass_sum * inv, mid_sum * inv, treb_sum * inv, amp_max))
+        binned.append((bass_sum * inv, mid_sum * inv, treb_sum * inv, amp_sum * inv))
 
-    # -- Normalise amplitude with compression --
+    # -- Amplitude normalisation (RMS-based percentile) --
     amps = sorted(b[3] for b in binned)
-    p_idx = int(len(amps) * settings.amp_percentile)
-    p_idx = min(p_idx, len(amps) - 1)
-    amp_ref = amps[p_idx] if amps[p_idx] > 1e-6 else 1.0
+    p_idx = min(int(len(amps) * settings.amp_percentile), len(amps) - 1)
+    amp_ref = amps[p_idx] if amps[p_idx] > 1e-8 else 1.0
 
-    max_bass = max_mid = max_treb = 1e-12
-    for b, m, t, a in binned:
-        if b > max_bass:
-            max_bass = b
-        if m > max_mid:
-            max_mid = m
-        if t > max_treb:
-            max_treb = t
+    # -- Per-band normalisation --
+    max_bass = max((b[0] for b in binned), default=1e-12) or 1e-12
+    max_mid = max((b[1] for b in binned), default=1e-12) or 1e-12
+    max_treb = max((b[2] for b in binned), default=1e-12) or 1e-12
 
     result = []
     color_gamma = settings.color_gamma
     amp_gamma = settings.amp_gamma
 
     for b, m, t, a in binned:
+        # Normalise each band to 0-1 relative to its own max
         rb = min(b / max_bass, 1.0)
         gm = min(m / max_mid, 1.0)
         bt = min(t / max_treb, 1.0)
 
+        # Amplitude: percentile + gamma compression
         amp = min(a / amp_ref, 1.0)
         amp = amp ** amp_gamma
 
-        # Power curve to increase colour contrast between bands
+        # Colour gamma: sharpen the dominant band
         rb = rb ** color_gamma
         gm = gm ** color_gamma
         bt = bt ** color_gamma
@@ -321,8 +290,8 @@ def _decode_to_samples(file_path, sample_rate=SAMPLE_RATE):
             '#transcode{acodec=s16l,channels=1,samplerate='
             + str(sample_rate)
             + "}:std{access=file,mux=wav,dst='"
-            + tmp_path.replace("'", "'\\''")
-            + "'}"
+            + tmp_path.replace("\'", "\'\\\'\'")
+            + "\'}"
         )
 
         if sys.platform == 'win32':
@@ -373,24 +342,21 @@ def _decode_to_samples(file_path, sample_rate=SAMPLE_RATE):
 # ── Main generation pipeline ────────────────────────────
 
 def _generate_waveform(file_path, num_bins=NUM_BINS, sample_rate=SAMPLE_RATE):
-    """Full pipeline: decode → adaptive bands → analyse → bin → normalise."""
+    """Full pipeline: decode -> biquad filter -> bin -> normalise."""
     samples = _decode_to_samples(file_path, sample_rate)
     if len(samples) < CHUNK_SAMPLES:
         return []
 
     settings = waveform_settings
 
-    # Adaptive frequency bands: scan the file to find cutoffs
-    if settings.adaptive_bands:
-        a_lo, a_hi = _estimate_spectral_bands(samples, sample_rate)
-    else:
-        a_lo = settings.a_lo
-        a_hi = settings.a_hi
+    # Compute biquad coefficients from current settings
+    lp_coeffs = _biquad_lp(settings.bass_fc, sample_rate)
+    hp_coeffs = _biquad_hp(settings.treble_fc, sample_rate)
 
     chunk_results = []
     for i in range(0, len(samples) - CHUNK_SAMPLES + 1, CHUNK_SAMPLES):
         chunk = samples[i:i + CHUNK_SAMPLES]
-        chunk_results.append(_analyse_chunk(chunk, a_lo, a_hi))
+        chunk_results.append(_analyse_chunk(chunk, lp_coeffs, hp_coeffs))
 
     return _bin_results(chunk_results, num_bins)
 
