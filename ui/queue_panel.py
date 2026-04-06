@@ -36,17 +36,29 @@ class _QueueDropTreeWidget(QTreeWidget):
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event):
+        # Let the base class compute the drop indicator position/line
+        # for both internal and external drags.
+        super().dragMoveEvent(event)
+        # Base class may reject external MIME it doesn't know — re-accept.
         if event.mimeData().hasFormat(TRACK_PATHS_MIME):
             event.acceptProposedAction()
-        else:
-            super().dragMoveEvent(event)
 
     def _drop_row(self, event):
-        """Return the queue row index the user dropped onto (or end)."""
-        item = self.itemAt(event.position().toPoint())
-        if item is not None:
-            return self.indexOfTopLevelItem(item)
-        return self.topLevelItemCount()   # past the end → append
+        """Use Qt's drop indicator to compute the precise insert row."""
+        pos = event.position().toPoint()
+        item = self.itemAt(pos)
+        if item is None:
+            return self.topLevelItemCount()
+
+        row = self.indexOfTopLevelItem(item)
+        indicator = self.dropIndicatorPosition()
+        if indicator == QAbstractItemView.DropIndicatorPosition.BelowItem:
+            return row + 1
+        elif indicator == QAbstractItemView.DropIndicatorPosition.AboveItem:
+            return row
+        else:
+            # OnItem / OnViewport — treat as "insert before this item"
+            return row
 
     def dropEvent(self, event):
         if event.mimeData().hasFormat(TRACK_PATHS_MIME):
