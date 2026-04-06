@@ -257,15 +257,20 @@ class TrackFilterProxy(QSortFilterProxyModel):
         self._length_filter = 'All'
         self._length_range = (None, None)  # (lo, hi) in seconds
         self._playlist_paths = None     # set of paths or None
+        self._sorting = False
 
     def sort(self, column, order=Qt.AscendingOrder):
-        """Wrap the sort with a wait cursor so the user sees feedback."""
+        """Wrap the sort with a wait cursor; ignore re-entrant calls."""
+        if self._sorting:
+            return
+        self._sorting = True
         QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
         QApplication.processEvents()
         try:
             super().sort(column, order)
         finally:
             QApplication.restoreOverrideCursor()
+            self._sorting = False
 
     def set_genre_filter(self, genres):
         """genres is a set of genre strings, or None for All."""
