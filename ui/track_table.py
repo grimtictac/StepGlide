@@ -303,6 +303,7 @@ class TrackFilterProxy(QSortFilterProxyModel):
         self._file_created_filter = 'All'
         self._length_filter = 'All'
         self._length_range = (None, None)  # (lo, hi) in seconds
+        self._playlist_paths = None     # set of paths or None
 
     # ── Drag-drop pass-through with row mapping ──────────
 
@@ -329,7 +330,6 @@ class TrackFilterProxy(QSortFilterProxyModel):
             src_row = -1
         return self.sourceModel().dropMimeData(
             data, action, src_row, column, QModelIndex())
-        self._playlist_paths = None     # set of paths or None
 
     def set_genre_filter(self, genres):
         """genres is a set of genre strings, or None for All."""
