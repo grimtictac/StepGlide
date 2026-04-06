@@ -56,6 +56,7 @@ class AppConfig:
         self.all_tags = set()
         self.tag_rows = {}  # tag_name → row number
         self.playlists = {}  # name → [file_path, ...]
+        self.smart_playlists = {}  # name → {'rules': [...], 'match': 'all'|'any'}
         self.tooltip_texts = dict(DEFAULT_TOOLTIPS)
         self.queue_btn_throb_enabled = True
         self.saved_voter = ''
@@ -137,6 +138,29 @@ class AppConfig:
                 name = pl_el.get('name', '')
                 paths = [t.text for t in pl_el.findall('track') if t.text]
                 self.playlists[name] = paths
+
+        # Smart playlists
+        smart_el = root.find('smart_playlists')
+        if smart_el is not None:
+            self.smart_playlists = {}
+            for sp_el in smart_el.findall('smart_playlist'):
+                name = sp_el.get('name', '')
+                match = sp_el.get('match', 'all')
+                rules = []
+                for r_el in sp_el.findall('rule'):
+                    field = r_el.get('field', '')
+                    op = r_el.get('op', '')
+                    value = r_el.get('value', '')
+                    # Numeric fields → store as int
+                    if field in ('Rating', 'Play Count', 'Last Played (days)'):
+                        try:
+                            value = int(value)
+                        except (ValueError, TypeError):
+                            pass
+                    rules.append({'field': field, 'op': op, 'value': value})
+                if name and rules:
+                    self.smart_playlists[name] = {
+                        'rules': rules, 'match': match}
 
         # Tooltips
         tooltips_el = root.find('tooltips')
@@ -252,6 +276,17 @@ class AppConfig:
             for path in paths:
                 t_el = ET.SubElement(pl_el, 'track')
                 t_el.text = path
+
+        # Smart playlists
+        smart_el = ET.SubElement(root, 'smart_playlists')
+        for name, sp in self.smart_playlists.items():
+            sp_el = ET.SubElement(smart_el, 'smart_playlist',
+                                  name=name, match=sp.get('match', 'all'))
+            for rule in sp.get('rules', []):
+                ET.SubElement(sp_el, 'rule',
+                              field=str(rule['field']),
+                              op=str(rule['op']),
+                              value=str(rule['value']))
 
         # Tooltips (only overrides)
         tooltips_el = ET.SubElement(root, 'tooltips')

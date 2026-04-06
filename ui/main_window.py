@@ -479,7 +479,10 @@ class MainWindow(QMainWindow):
 
         # Populate sidebar
         self._sidebar.set_genre_data(self.genres, self.config.genre_groups)
-        self._sidebar.set_playlist_data(self.config.playlists)
+        self._sidebar.set_playlist_data(
+            self.config.playlists, self.config.smart_playlists)
+        if self.config.all_tags:
+            self._sidebar.set_all_tags(self.config.all_tags)
 
         # Populate tag bar
         if self.config.all_tags:
@@ -690,6 +693,8 @@ class MainWindow(QMainWindow):
         sb.genre_selected.connect(self._on_genre_selected)
         sb.playlist_selected.connect(self._on_playlist_selected)
         sb.playlist_changed.connect(self._on_playlist_changed)
+        sb.smart_playlist_changed.connect(self._on_smart_playlist_changed)
+        sb.smart_playlist_evaluate.connect(self._on_smart_playlist_evaluate)
 
     def _on_search_changed(self, tokens):
         self._filter_proxy.set_search_tokens(tokens)
@@ -738,6 +743,26 @@ class MainWindow(QMainWindow):
         """A playlist was created/renamed/deleted — persist to config."""
         self.config.playlists = self._sidebar._playlists
         self.config.save()
+
+    def _on_smart_playlist_changed(self):
+        """A smart playlist was created/edited/deleted — persist to config."""
+        self.config.smart_playlists = self._sidebar.get_smart_playlists()
+        self.config.save()
+
+    def _on_smart_playlist_evaluate(self, name):
+        """Evaluate a smart playlist's rules and apply as a filter."""
+        from core.smart_playlist import collect_matching_paths
+        sp = self.config.smart_playlists.get(name)
+        if not sp:
+            self._filter_proxy.set_playlist_filter(None)
+            self._update_track_count()
+            return
+        paths = collect_matching_paths(
+            self.playlist, sp['rules'], sp.get('match', 'all'))
+        self._filter_proxy.set_playlist_filter(set(paths))
+        self._update_track_count()
+        self._debug_log('INFO',
+                        f'Smart playlist "{name}": {len(paths)} tracks matched')
 
     # ── Tag bar handler ──────────────────────────────────
 

@@ -3,7 +3,7 @@ Left sidebar — Genre list + Playlist list with CRUD.
 """
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
     QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem,
     QMenu, QMessageBox, QPushButton, QVBoxLayout, QWidget,
@@ -22,6 +22,8 @@ class SidebarWidget(QWidget):
     playlist_selected = Signal(object)   # set of paths or None (All Tracks)
 
     playlist_changed = Signal()          # emitted after any playlist CRUD
+    smart_playlist_changed = Signal()    # emitted after smart playlist CRUD
+    smart_playlist_evaluate = Signal(str)  # name → request evaluation
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -30,6 +32,7 @@ class SidebarWidget(QWidget):
         self._genre_label_map = {}  # display label → ('all'|'group'|'genre', name)
 
         self._playlists = {}  # name → [path, ...]
+        self._smart_playlists = {}  # name → {'rules': [...], 'match': str}
         self._active_playlist = None
 
         self._init_ui()
@@ -68,6 +71,15 @@ class SidebarWidget(QWidget):
         btn_new_pl.clicked.connect(self._create_playlist)
         pl_header_row.addWidget(btn_new_pl)
 
+        btn_new_smart = QPushButton()
+        btn_new_smart.setIcon(
+            qta.icon('mdi6.lightning-bolt', color=COLORS['yellow']))
+        btn_new_smart.setFixedSize(28, 28)
+        btn_new_smart.setIconSize(btn_new_smart.size() * 0.6)
+        btn_new_smart.setToolTip('New smart playlist')
+        btn_new_smart.clicked.connect(self._create_smart_playlist)
+        pl_header_row.addWidget(btn_new_smart)
+
         layout.addLayout(pl_header_row)
 
         self._playlist_list = QListWidget()
@@ -86,13 +98,19 @@ class SidebarWidget(QWidget):
         self._genre_groups = genre_groups
         self._build_genre_list()
 
-    def set_playlist_data(self, playlists):
+    def set_playlist_data(self, playlists, smart_playlists=None):
         """Set the playlists dict (name → [path, ...]) and rebuild."""
         self._playlists = playlists
+        if smart_playlists is not None:
+            self._smart_playlists = smart_playlists
         self._refresh_playlist_list()
 
     def get_active_playlist_name(self):
         return self._active_playlist
+
+    def get_smart_playlists(self):
+        """Return the smart playlists dict."""
+        return self._smart_playlists
 
     # ── Genre list ───────────────────────────────────────
 
@@ -154,13 +172,26 @@ class SidebarWidget(QWidget):
         # "All Tracks" entry
         all_item = QListWidgetItem('\u266b  All Tracks')
         all_item.setData(Qt.UserRole, None)
+        all_item.setData(Qt.UserRole + 1, 'all')  # type tag
         self._playlist_list.addItem(all_item)
 
+        # Static playlists
         for name in sorted(self._playlists.keys()):
             count = len(self._playlists[name])
             pl_item = QListWidgetItem(f'{name}  ({count})')
             pl_item.setData(Qt.UserRole, name)
+            pl_item.setData(Qt.UserRole + 1, 'static')
             self._playlist_list.addItem(pl_item)
+
+        # Smart playlists
+        for name in sorted(self._smart_playlists.keys()):
+            sp = self._smart_playlists[name]
+            n_rules = len(sp.get('rules', []))
+            sp_item = QListWidgetItem(f'\u26a1 {name}  ({n_rules} rules)')
+            sp_item.setData(Qt.UserRole, name)
+            sp_item.setData(Qt.UserRole + 1, 'smart')
+            sp_item.setForeground(QColor(COLORS['yellow']))
+            self._playlist_list.addItem(sp_item)
 
         # Restore selection
         if self._active_playlist is None:
@@ -181,9 +212,13 @@ class SidebarWidget(QWidget):
         if current is None:
             return
         name = current.data(Qt.UserRole)
+        kind = current.data(Qt.UserRole + 1) or 'all'
         self._active_playlist = name
         if name is None:
             self.playlist_selected.emit(None)
+        elif kind == 'smart':
+            # Ask main window to evaluate rules and filter
+            self.smart_playlist_evaluate.emit(name)
         else:
             paths = self._playlists.get(name, [])
             self.playlist_selected.emit(set(paths))
@@ -193,16 +228,24 @@ class SidebarWidget(QWidget):
         if item is None:
             return
         name = item.data(Qt.UserRole)
+        kind = item.data(Qt.UserRole + 1) or 'all'
         menu = QMenu(self)
         if name is None:
             # "All Tracks" — limited menu
             menu.addAction('New Playlist\u2026', self._create_playlist)
+            menu.addAction('New Smart Playlist\u2026', self._create_smart_playlist)
+        elif kind == 'smart':
+            menu.addAction('Edit\u2026', lambda: self._edit_smart_playlist(name))
+            menu.addAction('Delete', lambda: self._delete_smart_playlist(name))
+            menu.addSeparator()
+            menu.addAction('New Smart Playlist\u2026', self._create_smart_playlist)
         else:
             menu.addAction('Rename\u2026', lambda: self._rename_playlist(name))
             menu.addAction('Duplicate\u2026', lambda: self._duplicate_playlist(name))
             menu.addAction('Delete', lambda: self._delete_playlist(name))
             menu.addSeparator()
             menu.addAction('New Playlist\u2026', self._create_playlist)
+            menu.addAction('New Smart Playlist\u2026', self._create_smart_playlist)
         menu.exec(self._playlist_list.mapToGlobal(pos))
 
     # ── Playlist CRUD ────────────────────────────────────
@@ -280,3 +323,66 @@ class SidebarWidget(QWidget):
     def get_playlist_names(self):
         """Return sorted list of playlist names (for context-menu sub-menus)."""
         return sorted(self._playlists.keys())
+
+    # ── Smart playlist CRUD ──────────────────────────────
+
+    def _create_smart_playlist(self):
+        """Open the smart playlist dialog to create a new smart playlist."""
+        from ui.smart_playlist_dialog import SmartPlaylistDialog
+        dlg = SmartPlaylistDialog(
+            self,
+            genres=sorted(self._all_genres),
+            tags=sorted(getattr(self, '_all_tags', set())),
+        )
+        if dlg.exec() == SmartPlaylistDialog.Accepted:
+            name, rules, match = dlg.get_result()
+            if name in self._smart_playlists or name in self._playlists:
+                QMessageBox.warning(
+                    self, 'Name Conflict',
+                    f'A playlist named "{name}" already exists.')
+                return
+            self._smart_playlists[name] = {'rules': rules, 'match': match}
+            self._refresh_playlist_list()
+            self.smart_playlist_changed.emit()
+
+    def _edit_smart_playlist(self, name):
+        """Open the smart playlist dialog to edit an existing smart playlist."""
+        from ui.smart_playlist_dialog import SmartPlaylistDialog
+        sp = self._smart_playlists.get(name, {})
+        dlg = SmartPlaylistDialog(
+            self,
+            genres=sorted(self._all_genres),
+            tags=sorted(getattr(self, '_all_tags', set())),
+            name=name,
+            rules=sp.get('rules', []),
+            match_mode=sp.get('match', 'all'),
+        )
+        if dlg.exec() == SmartPlaylistDialog.Accepted:
+            new_name, rules, match = dlg.get_result()
+            # If renamed, remove old
+            if new_name != name:
+                self._smart_playlists.pop(name, None)
+            self._smart_playlists[new_name] = {'rules': rules, 'match': match}
+            self._refresh_playlist_list()
+            self.smart_playlist_changed.emit()
+            # Re-evaluate if this is the active playlist
+            if self._active_playlist == name or self._active_playlist == new_name:
+                self._active_playlist = new_name
+                self.smart_playlist_evaluate.emit(new_name)
+
+    def _delete_smart_playlist(self, name):
+        reply = QMessageBox.question(
+            self, 'Delete Smart Playlist',
+            f'Delete smart playlist "{name}"?',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self._smart_playlists.pop(name, None)
+            if self._active_playlist == name:
+                self._active_playlist = None
+                self.playlist_selected.emit(None)
+            self._refresh_playlist_list()
+            self.smart_playlist_changed.emit()
+
+    def set_all_tags(self, tags):
+        """Store available tags for smart playlist rule dropdowns."""
+        self._all_tags = tags
