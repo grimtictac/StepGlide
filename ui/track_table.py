@@ -258,18 +258,25 @@ class TrackFilterProxy(QSortFilterProxyModel):
         self._length_range = (None, None)  # (lo, hi) in seconds
         self._playlist_paths = None     # set of paths or None
         self._sorting = False
+        self._view = None  # set by TrackTableView after construction
 
     def sort(self, column, order=Qt.AscendingOrder):
-        """Wrap the sort with a wait cursor; ignore re-entrant calls."""
+        """Wrap the sort with a wait cursor; block header clicks during sort."""
         if self._sorting:
             return
         self._sorting = True
+        # Disable header clicks so queued events can't trigger another sort
+        header = self._view.horizontalHeader() if self._view else None
+        if header:
+            header.setSectionsClickable(False)
         QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
         QApplication.processEvents()
         try:
             super().sort(column, order)
         finally:
             QApplication.restoreOverrideCursor()
+            if header:
+                header.setSectionsClickable(True)
             self._sorting = False
 
     def set_genre_filter(self, genres):
@@ -471,6 +478,9 @@ class TrackTableView(QTableView):
 
     def setModel(self, model):
         super().setModel(model)
+        # Give the proxy a reference to this view for sort-lock
+        if hasattr(model, '_view'):
+            model._view = self
         # Apply default column widths
         for col, width in self._default_widths.items():
             self.setColumnWidth(col, width)
