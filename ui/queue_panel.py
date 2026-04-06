@@ -12,6 +12,46 @@ from PySide6.QtWidgets import (
 import qtawesome as qta
 from ui.theme import COLORS
 
+TRACK_PATHS_MIME = 'application/x-musicplayer-track-paths'
+
+
+class _QueueDropTreeWidget(QTreeWidget):
+    """QTreeWidget that keeps internal-move reorder AND accepts external
+    track-path drops from the track table."""
+
+    external_paths_dropped = Signal(list)  # [path, ...]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setDefaultDropAction(Qt.MoveAction)
+        self.setAcceptDrops(True)
+
+    # ── Accept our custom MIME in addition to the built-in tree MIME ──
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(TRACK_PATHS_MIME):
+            event.acceptProposedAction()
+        else:
+            super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat(TRACK_PATHS_MIME):
+            event.acceptProposedAction()
+        else:
+            super().dragMoveEvent(event)
+
+    def dropEvent(self, event):
+        if event.mimeData().hasFormat(TRACK_PATHS_MIME):
+            raw = bytes(event.mimeData().data(TRACK_PATHS_MIME)).decode('utf-8')
+            paths = [p for p in raw.split('\n') if p]
+            if paths:
+                self.external_paths_dropped.emit(paths)
+            event.acceptProposedAction()
+        else:
+            # Internal reorder — let base class handle it
+            super().dropEvent(event)
+
 
 class QueuePanel(QWidget):
     """Play queue panel with a tree-list and control buttons."""
@@ -23,6 +63,7 @@ class QueuePanel(QWidget):
         super().__init__(parent)
         self._queue = []       # list of playlist indices
         self._playlist = []    # reference to main playlist (set via set_playlist)
+        self._path_to_idx = {} # path → playlist index (rebuilt by set_playlist)
 
         self._init_ui()
 
@@ -49,17 +90,16 @@ class QueuePanel(QWidget):
         layout.addLayout(header)
 
         # Tree widget (Title, Genre columns)
-        self._tree = QTreeWidget()
+        self._tree = _QueueDropTreeWidget()
         self._tree.setHeaderLabels(['Title', 'Genre'])
         self._tree.setRootIsDecorated(False)
         self._tree.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._tree.setDragDropMode(QAbstractItemView.InternalMove)
-        self._tree.setDefaultDropAction(Qt.MoveAction)
         self._tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self._tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_right_click)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
+        self._tree.external_paths_dropped.connect(self._on_external_drop)
         # After internal drag-drop, sync data model
         self._tree.model().rowsMoved.connect(self._sync_from_tree)
         layout.addWidget(self._tree, stretch=1)
@@ -109,6 +149,8 @@ class QueuePanel(QWidget):
     def set_playlist(self, playlist):
         """Store a reference to the main playlist list (for title lookups)."""
         self._playlist = playlist
+        # Rebuild path→index map for external drops
+        self._path_to_idx = {e['path']: i for i, e in enumerate(playlist)}
 
     def get_queue(self):
         """Return a copy of the current queue (list of playlist indices)."""
@@ -123,6 +165,15 @@ class QueuePanel(QWidget):
         """Append several tracks to the queue."""
         self._queue.extend(indices)
         self._rebuild()
+
+    # ── External track drop ──────────────────────────────
+
+    def _on_external_drop(self, paths):
+        """Resolve dropped file paths to playlist indices and enqueue them."""
+        indices = [self._path_to_idx[p] for p in paths
+                   if p in self._path_to_idx]
+        if indices:
+            self.add_multiple(indices)
 
     def pop_next(self):
         """Remove and return the first queue item, or None."""
