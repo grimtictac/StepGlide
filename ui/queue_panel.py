@@ -86,14 +86,20 @@ class _QueueDropTreeWidget(QTreeWidget):
             paths = [p for p in raw.split('\n') if p]
             if paths:
                 self.external_paths_dropped.emit(row, paths)
+            event.acceptProposedAction()
         else:
-            # Internal reorder — find which row is being dragged
+            # Internal reorder — find which row is being dragged.
+            # We must NOT accept the event as a MoveAction, otherwise
+            # Qt's drag machinery removes the source item from the tree.
+            # Instead, set IgnoreAction so Qt leaves the tree alone,
+            # then do the reorder ourselves via _queue + _rebuild().
             selected = self.selectedItems()
             if selected:
                 src_row = self.indexOfTopLevelItem(selected[0])
                 if src_row >= 0 and src_row != row:
                     self.internal_move_requested.emit(src_row, row)
-        event.acceptProposedAction()
+            event.setDropAction(Qt.IgnoreAction)
+            event.accept()
 
     # ── Paint the drop indicator line ────────────────────
 
