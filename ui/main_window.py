@@ -33,6 +33,7 @@ from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
 from core.audio_devices import list_audio_devices
 from core.waveform import WaveformWorker, deserialise_waveform, serialise_waveform
 from ui.waveform_bar import WaveformScrubBar
+from ui.waveform_legend import WaveformLegend
 from ui.waveform_settings_panel import WaveformSettingsPanel
 
 
@@ -222,6 +223,11 @@ class MainWindow(QMainWindow):
         self._waveform_bar.setStyleSheet(f'background-color: {COLORS["bg_dark"]};')
         center_layout.addWidget(self._waveform_bar)
 
+        # Frequency colour legend (sits below waveform bar)
+        self._waveform_legend = WaveformLegend(self)
+        self._waveform_legend.setStyleSheet(f'background-color: {COLORS["bg_dark"]};')
+        center_layout.addWidget(self._waveform_legend)
+
         # Waveform settings panel (collapsible, hidden by default)
         self._waveform_settings_panel = WaveformSettingsPanel(self)
         self._waveform_settings_panel.visual_changed.connect(self._on_wf_visual_changed)
@@ -236,8 +242,10 @@ class MainWindow(QMainWindow):
         if self.config.waveform_enabled:
             self._transport.swap_scrub_mode(False)  # use plain slider internally
             self._waveform_bar.show()
+            self._waveform_legend.show()
         else:
             self._waveform_bar.hide()
+            self._waveform_legend.hide()
         self._connect_transport()
         center_layout.addWidget(self._transport)
 
@@ -1419,11 +1427,13 @@ class MainWindow(QMainWindow):
         self.config.waveform_enabled = checked
         if checked:
             self._waveform_bar.show()
+            self._waveform_legend.show()
             self._transport.swap_scrub_mode(False)  # plain slider hidden behind waveform
             if self.current_index is not None:
                 self._start_waveform(self.current_index)
         else:
             self._waveform_bar.hide()
+            self._waveform_legend.hide()
             self._waveform_bar.clear()
             self._waveform_settings_panel.hide()
             self._transport.swap_scrub_mode(False)  # ensure plain slider visible
@@ -1465,6 +1475,7 @@ class MainWindow(QMainWindow):
 
     def _on_wf_analysis_changed(self):
         """Waveform analysis settings changed — regenerate current track."""
+        self._waveform_legend.update()  # refresh frequency labels
         if self.config.waveform_enabled and self.current_index is not None:
             # Clear cache for this track and regenerate
             entry = self.playlist[self.current_index]
