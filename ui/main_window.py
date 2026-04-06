@@ -57,7 +57,6 @@ class MainWindow(QMainWindow):
         self._path_set = set()
         self._path_to_idx = {}
         self.current_index = None
-        self._now_playing_path = None   # relative path of currently-playing track
         self.is_playing = False
         self.is_paused = False
         self._last_action = 'stopped'
@@ -271,7 +270,6 @@ class MainWindow(QMainWindow):
         self._track_table.play_requested.connect(self._on_play_requested)
         self._track_table.selection_changed.connect(self._on_selection_changed)
         self._track_table.context_menu_requested.connect(self._on_context_menu)
-        self._track_model.rows_reordered.connect(self._on_rows_reordered)
 
         center_layout.addWidget(self._track_table, stretch=1)
 
@@ -509,32 +507,6 @@ class MainWindow(QMainWindow):
             self._track_count_lbl.setText(f'{total} tracks')
         else:
             self._track_count_lbl.setText(f'{shown} of {total} tracks')
-
-    def _on_rows_reordered(self):
-        """Sync main-window state after the user reordered rows via drag-drop.
-
-        The model has already moved entries and renumbered _playlist_idx.
-        We rebuild derived lookup structures and remap current_index to
-        follow the currently-playing track.
-        """
-        # Rebuild path→index map
-        self._path_to_idx = {}
-        self._path_set = set()
-        for i, entry in enumerate(self.playlist):
-            self._path_to_idx[entry['path']] = i
-            self._path_set.add(entry['path'])
-
-        # Remap current_index via the stashed path
-        if self.current_index is not None and hasattr(self, '_now_playing_path'):
-            new_idx = self._path_to_idx.get(self._now_playing_path)
-            if new_idx is not None:
-                self.current_index = new_idx
-                self._track_model.set_now_playing(new_idx)
-
-        # Update queue panel's reference
-        self._queue_panel.set_playlist(self.playlist)
-
-        self._debug_log('INFO', 'Playlist reordered via drag-drop')
 
     # ── Add files / folders ──────────────────────────────
 
@@ -797,7 +769,6 @@ class MainWindow(QMainWindow):
             self.vlc_player.stop()
             self.vlc_player.set_media_list(self.vlc_media_list)
             self.current_index = index
-            self._now_playing_path = self.playlist[index]['path']
             self._track_model.set_now_playing(index)
             self._track_table.jump_to_playlist_index(index)
             self._start_waveform(index)

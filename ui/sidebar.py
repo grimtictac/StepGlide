@@ -5,13 +5,62 @@ Left sidebar — Genre list + Playlist list with CRUD.
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction, QColor
 from PySide6.QtWidgets import (
-    QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QAbstractItemView, QHBoxLayout, QInputDialog, QLabel, QListWidget,
+    QListWidgetItem, QMenu, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
 from ui.theme import COLORS
 
 import qtawesome as qta
+
+
+TRACK_PATHS_MIME = 'application/x-musicplayer-track-paths'
+
+
+class _PlaylistDropListWidget(QListWidget):
+    """QListWidget that accepts drops of track paths onto static playlists."""
+
+    tracks_dropped = Signal(str, list)  # (playlist_name, [path, ...])
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DropOnly)
+
+    # ── Drag-enter / drag-move: accept only our MIME on static items ─
+
+    def _target_playlist_name(self, pos):
+        """Return the static playlist name under *pos*, or None."""
+        item = self.itemAt(pos)
+        if item is None:
+            return None
+        if item.data(Qt.UserRole + 1) != 'static':
+            return None
+        return item.data(Qt.UserRole)   # playlist name
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(TRACK_PATHS_MIME):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if (event.mimeData().hasFormat(TRACK_PATHS_MIME)
+                and self._target_playlist_name(event.position().toPoint())):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        name = self._target_playlist_name(event.position().toPoint())
+        if not name or not event.mimeData().hasFormat(TRACK_PATHS_MIME):
+            event.ignore()
+            return
+        raw = bytes(event.mimeData().data(TRACK_PATHS_MIME)).decode('utf-8')
+        paths = [p for p in raw.split('\n') if p]
+        if paths:
+            self.tracks_dropped.emit(name, paths)
+        event.acceptProposedAction()
 
 
 class SidebarWidget(QWidget):
@@ -82,12 +131,13 @@ class SidebarWidget(QWidget):
 
         layout.addLayout(pl_header_row)
 
-        self._playlist_list = QListWidget()
+        self._playlist_list = _PlaylistDropListWidget()
         self._playlist_list.setSelectionMode(QListWidget.SingleSelection)
         self._playlist_list.currentItemChanged.connect(self._on_playlist_item_changed)
         self._playlist_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._playlist_list.customContextMenuRequested.connect(
             self._on_playlist_right_click)
+        self._playlist_list.tracks_dropped.connect(self._on_tracks_dropped)
         layout.addWidget(self._playlist_list, stretch=1)
 
     # ── Public API ───────────────────────────────────────
@@ -293,6 +343,10 @@ class SidebarWidget(QWidget):
                 self.playlist_changed.emit()
 
     # ── External helpers (called by MainWindow) ──────────
+
+    def _on_tracks_dropped(self, playlist_name, paths):
+        """Handle tracks dragged from the track table onto a playlist."""
+        self.add_tracks_to_playlist(playlist_name, paths)
 
     def add_tracks_to_playlist(self, playlist_name, paths):
         """Add paths to a named playlist (dedup). Called by context menu."""

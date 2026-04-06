@@ -111,9 +111,7 @@ def _sort_value(entry, col_idx):
 class TrackTableModel(QAbstractTableModel):
     """Wraps the playlist list of dicts directly. No data copying."""
 
-    MIME_TYPE = 'application/x-musicplayer-track-rows'
-
-    rows_reordered = Signal()  # emitted after drag-drop reorder
+    MIME_TYPE = 'application/x-musicplayer-track-paths'
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -126,75 +124,28 @@ class TrackTableModel(QAbstractTableModel):
         self._tracks = tracks
         self.endResetModel()
 
-    # ── Drag-and-drop support ────────────────────────────
+    # ── Drag support (drag OUT only — no drop / reorder) ─
 
     def flags(self, index):
         default = super().flags(index)
         if index.isValid():
             return default | Qt.ItemIsDragEnabled
-        return default | Qt.ItemIsDropEnabled
-
-    def supportedDropActions(self):
-        return Qt.MoveAction
+        return default
 
     def mimeTypes(self):
         return [self.MIME_TYPE]
 
     def mimeData(self, indexes):
-        """Encode source row numbers into MIME payload."""
+        """Encode the relative file paths of dragged rows."""
         rows = sorted({idx.row() for idx in indexes if idx.isValid()})
+        paths = []
+        for r in rows:
+            if r < len(self._tracks):
+                paths.append(self._tracks[r].get('path', ''))
         mime = QMimeData()
-        # Pack row indices as comma-separated ASCII
         mime.setData(self.MIME_TYPE,
-                     QByteArray(','.join(str(r) for r in rows).encode('ascii')))
+                     QByteArray('\n'.join(paths).encode('utf-8')))
         return mime
-
-    def canDropMimeData(self, data, action, row, column, parent):
-        return data.hasFormat(self.MIME_TYPE)
-
-    def dropMimeData(self, data, action, row, column, parent):
-        """Move dragged rows to the drop position and renumber _playlist_idx."""
-        if not data.hasFormat(self.MIME_TYPE):
-            return False
-
-        raw = bytes(data.data(self.MIME_TYPE)).decode('ascii')
-        src_rows = sorted(int(r) for r in raw.split(',') if r)
-        if not src_rows:
-            return False
-
-        # Determine drop target row
-        if row >= 0:
-            dest_row = row
-        elif parent.isValid():
-            dest_row = parent.row()
-        else:
-            dest_row = len(self._tracks)
-
-        # Extract entries in drag order
-        dragged = [self._tracks[r] for r in src_rows]
-
-        # Remove from bottom-up so indices stay valid
-        for r in reversed(src_rows):
-            self.beginRemoveRows(QModelIndex(), r, r)
-            self._tracks.pop(r)
-            self.endRemoveRows()
-
-        # Adjust dest_row for removals above it
-        removed_above = sum(1 for r in src_rows if r < dest_row)
-        dest_row -= removed_above
-
-        # Insert at new position
-        self.beginInsertRows(QModelIndex(), dest_row, dest_row + len(dragged) - 1)
-        for i, entry in enumerate(dragged):
-            self._tracks.insert(dest_row + i, entry)
-        self.endInsertRows()
-
-        # Renumber _playlist_idx to match new order
-        for i, entry in enumerate(self._tracks):
-            entry['_playlist_idx'] = i
-
-        self.rows_reordered.emit()
-        return True
 
     def rowCount(self, parent=QModelIndex()):
         return len(self._tracks)
@@ -304,32 +255,6 @@ class TrackFilterProxy(QSortFilterProxyModel):
         self._length_filter = 'All'
         self._length_range = (None, None)  # (lo, hi) in seconds
         self._playlist_paths = None     # set of paths or None
-
-    # ── Drag-drop pass-through with row mapping ──────────
-
-    def supportedDropActions(self):
-        return Qt.MoveAction
-
-    def flags(self, index):
-        default = super().flags(index)
-        if index.isValid():
-            return default | Qt.ItemIsDragEnabled
-        return default | Qt.ItemIsDropEnabled
-
-    def dropMimeData(self, data, action, row, column, parent):
-        """Map the proxy drop-row to a source row and delegate."""
-        if row >= 0:
-            # Convert proxy row → source row
-            proxy_idx = self.index(row, 0)
-            source_idx = self.mapToSource(proxy_idx)
-            src_row = source_idx.row() if source_idx.isValid() else self.sourceModel().rowCount()
-        elif row == -1 and not parent.isValid():
-            # Dropped past the end
-            src_row = self.sourceModel().rowCount()
-        else:
-            src_row = -1
-        return self.sourceModel().dropMimeData(
-            data, action, src_row, column, QModelIndex())
 
     def set_genre_filter(self, genres):
         """genres is a set of genre strings, or None for All."""
@@ -500,12 +425,9 @@ class TrackTableView(QTableView):
         self.verticalHeader().setDefaultSectionSize(34)
         self.horizontalHeader().setStretchLastSection(True)
 
-        # Drag-and-drop row reordering
+        # Drag-and-drop: drag OUT of table only (into sidebar playlists)
         self.setDragEnabled(True)
-        self.setAcceptDrops(True)
-        self.setDragDropMode(QAbstractItemView.InternalMove)
-        self.setDefaultDropAction(Qt.MoveAction)
-        self.setDragDropOverwriteMode(False)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
         self.horizontalHeader().setSectionsMovable(True)
         self.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
         self.horizontalHeader().customContextMenuRequested.connect(
