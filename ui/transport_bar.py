@@ -5,8 +5,8 @@ speed controls, and mute button.
 
 import time
 
-from PySide6.QtCore import Qt, QEvent, QTimer, Signal
-from PySide6.QtGui import QPainter, QPen, QColor
+from PySide6.QtCore import Qt, QEvent, QRectF, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar,
     QPushButton, QSlider, QSizePolicy, QStyleOptionSlider,
@@ -138,6 +138,190 @@ class TickSlider(QSlider):
                         tx = self.width() - text_w  # flush to right edge
                     ty = y + text_h // 3  # vertically centre on tick
                     painter.drawText(tx, ty, label_text)
+
+        painter.end()
+
+
+# ═════════════════════════════════════════════════════════
+# GradientVolumeSlider — vertical slider with gradient fill
+# ═════════════════════════════════════════════════════════
+
+class GradientVolumeSlider(TickSlider):
+    """Vertical volume slider that paints a green→yellow→red gradient fill
+    only up to the current handle position.  The unfilled portion above the
+    handle is drawn in a dark background colour.
+
+    The gradient is anchored to the full groove height so the colour at any
+    point is always the same regardless of handle position — only the
+    "reveal" changes.
+    """
+
+    _GROOVE_WIDTH = 14
+    _GROOVE_RADIUS = 7
+    _HANDLE_HEIGHT = 24
+    _HANDLE_WIDTH = 28
+    _HANDLE_RADIUS = 6
+
+    def __init__(self, orientation=Qt.Vertical, parent=None, **kw):
+        super().__init__(orientation, parent, **kw)
+
+        # Colours — anchored gradient (bottom → top = green → yellow → red)
+        self._color_bottom = QColor(COLORS['green'])
+        self._color_mid = QColor(COLORS['yellow'])
+        self._color_top = QColor(COLORS['red'])
+        self._color_groove_bg = QColor(COLORS['bg'])
+        self._color_handle = QColor(COLORS['accent'])
+        self._color_handle_hover = QColor(COLORS['accent_hover'])
+        self._color_handle_border = QColor(COLORS['fg_dim'])
+        self._color_handle_border_hover = QColor(COLORS['fg'])
+
+        self._hovered = False
+        self.setAttribute(Qt.WA_Hover, True)
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        """Custom-paint groove with gradient fill, then handle, then ticks."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+
+        groove_rect = self.style().subControlRect(
+            QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
+        handle_rect = self.style().subControlRect(
+            QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
+
+        gw = self._GROOVE_WIDTH
+        gr = self._GROOVE_RADIUS
+
+        # Centre the groove horizontally within the groove rect
+        gx = groove_rect.center().x() - gw // 2
+        gy = groove_rect.y()
+        gh = groove_rect.height()
+
+        full_groove = QRectF(gx, gy, gw, gh)
+
+        # ── 1. Draw dark background for the entire groove ──
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(self._color_groove_bg))
+        painter.drawRoundedRect(full_groove, gr, gr)
+
+        # ── 2. Draw gradient fill from bottom up to handle centre ──
+        handle_centre_y = handle_rect.center().y()
+        fill_top = handle_centre_y
+        fill_bottom = gy + gh
+
+        if fill_bottom > fill_top:
+            fill_rect = QRectF(gx, fill_top, gw, fill_bottom - fill_top)
+
+            # Gradient anchored to the FULL groove height
+            grad = QLinearGradient(gx, gy, gx, gy + gh)
+            grad.setColorAt(0.0, self._color_top)       # top of groove = red
+            grad.setColorAt(0.5, self._color_mid)        # middle = yellow
+            grad.setColorAt(1.0, self._color_bottom)     # bottom = green
+
+            painter.setBrush(QBrush(grad))
+            # Clip to the fill region
+            painter.save()
+            painter.setClipRect(fill_rect)
+            painter.drawRoundedRect(full_groove, gr, gr)
+            painter.restore()
+
+        # ── 3. Draw handle ──
+        hw = self._HANDLE_WIDTH
+        hh = self._HANDLE_HEIGHT
+        hr = self._HANDLE_RADIUS
+        hx = groove_rect.center().x() - hw // 2
+        hy = handle_rect.center().y() - hh // 2
+        handle_draw = QRectF(hx, hy, hw, hh)
+
+        if self._hovered or self.isSliderDown():
+            painter.setBrush(QBrush(self._color_handle_hover))
+            painter.setPen(QPen(self._color_handle_border_hover, 2))
+        else:
+            painter.setBrush(QBrush(self._color_handle))
+            painter.setPen(QPen(self._color_handle_border, 2))
+
+        painter.drawRoundedRect(handle_draw, hr, hr)
+
+        painter.end()
+
+        # ── 4. Draw tick marks and labels via parent ──
+        # Re-enter TickSlider.paintEvent which calls super().paintEvent first
+        # (that paints the QSS-styled slider — we've already drawn over it)
+        # then draws ticks.  We only want the tick-drawing part.
+        # Instead, call the tick-painting logic directly.
+        self._paint_ticks()
+
+    def _paint_ticks(self):
+        """Draw tick marks and labels (extracted from TickSlider.paintEvent)."""
+        interval = self.tickInterval()
+        if interval <= 0 or self.tickPosition() == QSlider.NoTicks:
+            return
+
+        painter = QPainter(self)
+        painter.setPen(QPen(self._tick_color, 1))
+
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+
+        groove = self.style().subControlRect(
+            QStyle.CC_Slider, opt, QStyle.SC_SliderGroove, self)
+        handle = self.style().subControlRect(
+            QStyle.CC_Slider, opt, QStyle.SC_SliderHandle, self)
+
+        num_ticks = (self.maximum() - self.minimum()) // interval
+        if num_ticks <= 0:
+            painter.end()
+            return
+
+        half_handle = handle.height() / 2
+        span_start = groove.y() + half_handle
+        span_end = groove.bottom() - half_handle
+        span = span_end - span_start
+
+        from PySide6.QtGui import QFont
+        label_font = QFont()
+        label_font.setPixelSize(self._label_font_size)
+
+        for i in range(num_ticks + 1):
+            val = self.minimum() + i * interval
+            if val > self.maximum():
+                break
+            frac = 1.0 - (val - self.minimum()) / (self.maximum() - self.minimum())
+            y = int(span_start + frac * span)
+
+            tick_len = 4
+            tp = self.tickPosition()
+            if tp in (QSlider.TicksLeft, QSlider.TicksBothSides):
+                painter.drawLine(groove.left() - 2, y,
+                                 groove.left() - 2 - tick_len, y)
+            if tp in (QSlider.TicksRight, QSlider.TicksBothSides):
+                painter.drawLine(groove.right() + 2, y,
+                                 groove.right() + 2 + tick_len, y)
+
+            label_text = self._tick_labels.get(val)
+            if label_text:
+                painter.setFont(label_font)
+                fm = painter.fontMetrics()
+                text_h = fm.height()
+                text_w = fm.horizontalAdvance(label_text)
+                if self._label_side == 'left':
+                    tx = 0
+                else:
+                    tx = self.width() - text_w
+                ty = y + text_h // 3
+                painter.drawText(tx, ty, label_text)
 
         painter.end()
 
@@ -332,7 +516,7 @@ class VolumeStrip(QWidget):
 
         # Volume slider (center) — with percent labels
         _vol_labels = {0: '0', 20: '20', 40: '40', 60: '60', 80: '80', 100: '100'}
-        self.volume_slider = TickSlider(
+        self.volume_slider = GradientVolumeSlider(
             Qt.Vertical, tick_labels=_vol_labels, label_side='right')
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
@@ -342,35 +526,24 @@ class VolumeStrip(QWidget):
         self.volume_slider._label_font_size = 6
         self.volume_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.volume_slider.setFixedWidth(50)
+        # Minimal stylesheet — geometry only; painting is done in paintEvent
         self.volume_slider.setStyleSheet(f'''
             QSlider::groove:vertical {{
                 width: 14px;
                 border-radius: 7px;
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0.00 {COLORS["red"]},
-                    stop:0.50 {COLORS["yellow"]},
-                    stop:1.00 {COLORS["green"]});
+                background: transparent;
             }}
             QSlider::handle:vertical {{
-                background: {COLORS["accent"]};
-                border: 2px solid {COLORS["fg_dim"]};
+                background: transparent;
                 height: 24px;
                 width: 28px;
                 margin: 0 -7px;
-                border-radius: 6px;
-            }}
-            QSlider::handle:vertical:hover {{
-                background: {COLORS["accent_hover"]};
-                border: 2px solid {COLORS["fg"]};
             }}
             QSlider::sub-page:vertical {{
                 background: transparent;
-                border-radius: 7px;
             }}
             QSlider::add-page:vertical {{
                 background: transparent;
-                border-radius: 7px;
             }}
         ''')
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
