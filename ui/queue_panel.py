@@ -20,6 +20,7 @@ class _QueueDropTreeWidget(QTreeWidget):
     track-path drops from the track table."""
 
     external_paths_dropped = Signal(int, list)  # (insert_row, [path, ...])
+    internal_move_requested = Signal(int, int)  # (source_row, dest_row)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -27,6 +28,7 @@ class _QueueDropTreeWidget(QTreeWidget):
         self.setDefaultDropAction(Qt.MoveAction)
         self.setAcceptDrops(True)
         self._drop_indicator_row = -1   # row to draw indicator before
+        self._is_external = False       # is the current drag external?
 
     # ── Helpers ──────────────────────────────────────────
 
@@ -56,21 +58,15 @@ class _QueueDropTreeWidget(QTreeWidget):
     # ── Drag events ──────────────────────────────────────
 
     def dragEnterEvent(self, event):
-        if event.mimeData().hasFormat(TRACK_PATHS_MIME):
-            self._drop_indicator_row = -1
-            event.acceptProposedAction()
-        else:
-            super().dragEnterEvent(event)
+        self._is_external = event.mimeData().hasFormat(TRACK_PATHS_MIME)
+        self._drop_indicator_row = -1
+        event.acceptProposedAction()
 
     def dragMoveEvent(self, event):
-        if event.mimeData().hasFormat(TRACK_PATHS_MIME):
-            self._drop_indicator_row = self._insert_row_for_pos(
-                event.position().toPoint())
-            self.viewport().update()
-            event.acceptProposedAction()
-        else:
-            self._drop_indicator_row = -1
-            super().dragMoveEvent(event)
+        self._drop_indicator_row = self._insert_row_for_pos(
+            event.position().toPoint())
+        self.viewport().update()
+        event.acceptProposedAction()
 
     def dragLeaveEvent(self, event):
         self._drop_indicator_row = -1
@@ -78,20 +74,26 @@ class _QueueDropTreeWidget(QTreeWidget):
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event):
-        if event.mimeData().hasFormat(TRACK_PATHS_MIME):
-            row = self._drop_indicator_row
-            if row < 0:
-                row = self.topLevelItemCount()
-            self._drop_indicator_row = -1
-            self.viewport().update()
+        row = self._drop_indicator_row
+        if row < 0:
+            row = self.topLevelItemCount()
+        self._drop_indicator_row = -1
+        self.viewport().update()
+
+        if self._is_external:
+            # External drop from track table
             raw = bytes(event.mimeData().data(TRACK_PATHS_MIME)).decode('utf-8')
             paths = [p for p in raw.split('\n') if p]
             if paths:
                 self.external_paths_dropped.emit(row, paths)
-            event.acceptProposedAction()
         else:
-            self._drop_indicator_row = -1
-            super().dropEvent(event)
+            # Internal reorder — find which row is being dragged
+            selected = self.selectedItems()
+            if selected:
+                src_row = self.indexOfTopLevelItem(selected[0])
+                if src_row >= 0 and src_row != row:
+                    self.internal_move_requested.emit(src_row, row)
+        event.acceptProposedAction()
 
     # ── Paint the drop indicator line ────────────────────
 
@@ -154,8 +156,7 @@ class QueuePanel(QWidget):
         self._tree.customContextMenuRequested.connect(self._on_right_click)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
         self._tree.external_paths_dropped.connect(self._on_external_drop)
-        # After internal drag-drop, sync data model
-        self._tree.model().rowsMoved.connect(self._sync_from_tree)
+        self._tree.internal_move_requested.connect(self._on_internal_move)
         layout.addWidget(self._tree, stretch=1)
 
         # Button row: ▲ ▼ ⤒ ✕
@@ -316,16 +317,18 @@ class QueuePanel(QWidget):
 
     # ── Drag-drop sync ───────────────────────────────────
 
-    def _sync_from_tree(self):
-        """After an internal drag-drop, rebuild self._queue from tree order."""
-        new_queue = []
-        for i in range(self._tree.topLevelItemCount()):
-            item = self._tree.topLevelItem(i)
-            pl_idx = item.data(0, Qt.UserRole)
-            if pl_idx is not None:
-                new_queue.append(pl_idx)
-        self._queue = new_queue
-        self._title_lbl.setText(f'Queue ({len(self._queue)})')
+    def _on_internal_move(self, src_row, dest_row):
+        """Move a queue entry from src_row to dest_row."""
+        if src_row < 0 or src_row >= len(self._queue):
+            return
+        item = self._queue.pop(src_row)
+        # After popping, adjust dest if it was below the source
+        if dest_row > src_row:
+            dest_row -= 1
+        dest_row = max(0, min(dest_row, len(self._queue)))
+        self._queue.insert(dest_row, item)
+        self._rebuild()
+        self._select_row(dest_row)
 
     # ── Context menu ─────────────────────────────────────
 
