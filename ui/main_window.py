@@ -739,6 +739,9 @@ class MainWindow(QMainWindow):
             media = self.vlc_instance.media_new(path)
             self.vlc_media_list = self.vlc_instance.media_list_new()
             self.vlc_media_list.add_media(media)
+            # Stop any current playback before switching media list,
+            # otherwise the list player may ignore the new list.
+            self.vlc_player.stop()
             self.vlc_player.set_media_list(self.vlc_media_list)
             self.current_index = index
             self._track_model.set_now_playing(index)
