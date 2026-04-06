@@ -100,24 +100,6 @@ QHeaderView::section {
 QHeaderView::section:hover {
     background-color: #4a4a4a;
 }
-QHeaderView::down-arrow {
-    image: none;
-    width: 0; height: 0;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid #80f0ff;
-    margin-right: 6px;
-    subcontrol-position: center right;
-}
-QHeaderView::up-arrow {
-    image: none;
-    width: 0; height: 0;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-bottom: 6px solid #80f0ff;
-    margin-right: 6px;
-    subcontrol-position: center right;
-}
 
 /* ── Tree view (genre list, play log) ────────── */
 QTreeView, QTreeWidget {
