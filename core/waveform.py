@@ -338,11 +338,13 @@ def _decode_to_samples(file_path, sample_rate=SAMPLE_RATE):
     os.close(tmp_fd)
 
     try:
+        # Normalise to forward slashes -- backslashes break VLC sout on Windows
+        tmp_path_vlc = tmp_path.replace('\\', '/')
         sout = (
             '#transcode{acodec=s16l,channels=1,samplerate='
             + str(sample_rate)
             + "}:std{access=file,mux=wav,dst='"
-            + tmp_path.replace("'", "'\\''")
+            + tmp_path_vlc.replace("'", "'\\''")
             + "'}"
         )
 
