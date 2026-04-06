@@ -2,8 +2,8 @@
 Queue panel — shows the play queue with reorder / remove / clear controls.
 """
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt, QRect, Signal
+from PySide6.QtGui import QAction, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMenu,
     QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -26,50 +26,85 @@ class _QueueDropTreeWidget(QTreeWidget):
         self.setDragDropMode(QAbstractItemView.DragDrop)
         self.setDefaultDropAction(Qt.MoveAction)
         self.setAcceptDrops(True)
+        self._drop_indicator_row = -1   # row to draw indicator before
 
-    # ── Accept our custom MIME in addition to the built-in tree MIME ──
+    # ── Helpers ──────────────────────────────────────────
+
+    def _insert_row_for_pos(self, pos):
+        """Compute the insert-row index for a given pixel position."""
+        item = self.itemAt(pos)
+        if item is None:
+            return self.topLevelItemCount()
+        rect = self.visualItemRect(item)
+        row = self.indexOfTopLevelItem(item)
+        # Top half → insert before, bottom half → insert after
+        if pos.y() < rect.center().y():
+            return row
+        return row + 1
+
+    def _indicator_y(self, row):
+        """Return the viewport Y coordinate for the indicator line."""
+        if row < self.topLevelItemCount():
+            rect = self.visualItemRect(self.topLevelItem(row))
+            return rect.top()
+        elif self.topLevelItemCount() > 0:
+            rect = self.visualItemRect(
+                self.topLevelItem(self.topLevelItemCount() - 1))
+            return rect.bottom() + 1
+        return 0
+
+    # ── Drag events ──────────────────────────────────────
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(TRACK_PATHS_MIME):
+            self._drop_indicator_row = -1
             event.acceptProposedAction()
         else:
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event):
-        # Let the base class compute the drop indicator position/line
-        # for both internal and external drags.
-        super().dragMoveEvent(event)
-        # Base class may reject external MIME it doesn't know — re-accept.
         if event.mimeData().hasFormat(TRACK_PATHS_MIME):
+            self._drop_indicator_row = self._insert_row_for_pos(
+                event.position().toPoint())
+            self.viewport().update()
             event.acceptProposedAction()
-
-    def _drop_row(self, event):
-        """Use Qt's drop indicator to compute the precise insert row."""
-        pos = event.position().toPoint()
-        item = self.itemAt(pos)
-        if item is None:
-            return self.topLevelItemCount()
-
-        row = self.indexOfTopLevelItem(item)
-        indicator = self.dropIndicatorPosition()
-        if indicator == QAbstractItemView.DropIndicatorPosition.BelowItem:
-            return row + 1
-        elif indicator == QAbstractItemView.DropIndicatorPosition.AboveItem:
-            return row
         else:
-            # OnItem / OnViewport — treat as "insert before this item"
-            return row
+            self._drop_indicator_row = -1
+            super().dragMoveEvent(event)
+
+    def dragLeaveEvent(self, event):
+        self._drop_indicator_row = -1
+        self.viewport().update()
+        super().dragLeaveEvent(event)
 
     def dropEvent(self, event):
         if event.mimeData().hasFormat(TRACK_PATHS_MIME):
+            row = self._drop_indicator_row
+            if row < 0:
+                row = self.topLevelItemCount()
+            self._drop_indicator_row = -1
+            self.viewport().update()
             raw = bytes(event.mimeData().data(TRACK_PATHS_MIME)).decode('utf-8')
             paths = [p for p in raw.split('\n') if p]
             if paths:
-                self.external_paths_dropped.emit(self._drop_row(event), paths)
+                self.external_paths_dropped.emit(row, paths)
             event.acceptProposedAction()
         else:
-            # Internal reorder — let base class handle it
+            self._drop_indicator_row = -1
             super().dropEvent(event)
+
+    # ── Paint the drop indicator line ────────────────────
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._drop_indicator_row < 0:
+            return
+        y = self._indicator_y(self._drop_indicator_row)
+        painter = QPainter(self.viewport())
+        pen = QPen(QColor(COLORS.get('cyan_bright', '#80f0ff')), 2)
+        painter.setPen(pen)
+        painter.drawLine(0, y, self.viewport().width(), y)
+        painter.end()
 
 
 class QueuePanel(QWidget):
