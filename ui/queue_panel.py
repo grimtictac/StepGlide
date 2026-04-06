@@ -19,7 +19,7 @@ class _QueueDropTreeWidget(QTreeWidget):
     """QTreeWidget that keeps internal-move reorder AND accepts external
     track-path drops from the track table."""
 
-    external_paths_dropped = Signal(list)  # [path, ...]
+    external_paths_dropped = Signal(int, list)  # (insert_row, [path, ...])
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -41,12 +41,19 @@ class _QueueDropTreeWidget(QTreeWidget):
         else:
             super().dragMoveEvent(event)
 
+    def _drop_row(self, event):
+        """Return the queue row index the user dropped onto (or end)."""
+        item = self.itemAt(event.position().toPoint())
+        if item is not None:
+            return self.indexOfTopLevelItem(item)
+        return self.topLevelItemCount()   # past the end → append
+
     def dropEvent(self, event):
         if event.mimeData().hasFormat(TRACK_PATHS_MIME):
             raw = bytes(event.mimeData().data(TRACK_PATHS_MIME)).decode('utf-8')
             paths = [p for p in raw.split('\n') if p]
             if paths:
-                self.external_paths_dropped.emit(paths)
+                self.external_paths_dropped.emit(self._drop_row(event), paths)
             event.acceptProposedAction()
         else:
             # Internal reorder — let base class handle it
@@ -168,12 +175,14 @@ class QueuePanel(QWidget):
 
     # ── External track drop ──────────────────────────────
 
-    def _on_external_drop(self, paths):
-        """Resolve dropped file paths to playlist indices and enqueue them."""
+    def _on_external_drop(self, row, paths):
+        """Resolve dropped file paths to playlist indices and insert at row."""
         indices = [self._path_to_idx[p] for p in paths
                    if p in self._path_to_idx]
         if indices:
-            self.add_multiple(indices)
+            for i, idx in enumerate(indices):
+                self._queue.insert(row + i, idx)
+            self._rebuild()
 
     def pop_next(self):
         """Remove and return the first queue item, or None."""
