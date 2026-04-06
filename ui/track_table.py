@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from PySide6.QtCore import (
     QAbstractTableModel, QByteArray, QMimeData, QModelIndex,
-    QSortFilterProxyModel, Qt, QTimer, Signal,
+    QSortFilterProxyModel, Qt, Signal,
 )
 from PySide6.QtGui import QColor, QCursor, QFont
 from PySide6.QtWidgets import (
@@ -258,6 +258,15 @@ class TrackFilterProxy(QSortFilterProxyModel):
         self._length_range = (None, None)  # (lo, hi) in seconds
         self._playlist_paths = None     # set of paths or None
 
+    def sort(self, column, order=Qt.AscendingOrder):
+        """Wrap the sort with a wait cursor so the user sees feedback."""
+        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
+        QApplication.processEvents()
+        try:
+            super().sort(column, order)
+        finally:
+            QApplication.restoreOverrideCursor()
+
     def set_genre_filter(self, genres):
         """genres is a set of genre strings, or None for All."""
         self._genre_filter = genres
@@ -435,9 +444,6 @@ class TrackTableView(QTableView):
         self.horizontalHeader().customContextMenuRequested.connect(
             self._on_header_context_menu)
 
-        # Show wait cursor while sort runs (can take a moment on large lists)
-        self.horizontalHeader().sectionClicked.connect(self._on_sort_started)
-
         # Default column widths (tuned for the standard layout)
         self._default_widths = {
             0: 280,   # Title (stretch fills remaining)
@@ -457,12 +463,6 @@ class TrackTableView(QTableView):
             14: 250,  # Path
             15: 200,  # Relative Path
         }
-
-    def _on_sort_started(self, _section):
-        """Show wait cursor immediately; restore after sort completes."""
-        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
-        QApplication.processEvents()          # flush so cursor shows now
-        QTimer.singleShot(0, QApplication.restoreOverrideCursor)
 
     def setModel(self, model):
         super().setModel(model)
