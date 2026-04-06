@@ -119,12 +119,21 @@ class TrackTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._tracks = []        # reference to the backend's playlist list
         self._now_playing_idx = None  # playlist index of currently playing track
+        self._sort_cache = None  # list of pre-computed sort keys, or None
 
     def set_tracks(self, tracks):
         """Replace the backing data. tracks is a list of entry dicts."""
         self.beginResetModel()
         self._tracks = tracks
+        self._sort_cache = None
         self.endResetModel()
+
+    def build_sort_cache(self, col):
+        """Pre-compute sort keys for every row — called once before sort."""
+        self._sort_cache = [_sort_value(e, col) for e in self._tracks]
+
+    def clear_sort_cache(self):
+        self._sort_cache = None
 
     # ── Drag support (drag OUT only — no drop / reorder) ─
 
@@ -200,7 +209,9 @@ class TrackTableModel(QAbstractTableModel):
             return entry.get('_playlist_idx')
 
         elif role == Qt.UserRole + 1:
-            # Return raw sort value
+            # Return cached sort key if available, else compute on the fly
+            if self._sort_cache is not None and row < len(self._sort_cache):
+                return self._sort_cache[row]
             return _sort_value(entry, col)
 
         return None
@@ -272,8 +283,14 @@ class TrackFilterProxy(QSortFilterProxyModel):
         QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
         QApplication.processEvents()
         try:
+            # Pre-compute sort keys once (avoids 75K+ Python calls during sort)
+            src = self.sourceModel()
+            if src:
+                src.build_sort_cache(column)
             super().sort(column, order)
         finally:
+            if src:
+                src.clear_sort_cache()
             QApplication.restoreOverrideCursor()
             if header:
                 header.setSectionsClickable(True)
