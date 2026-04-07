@@ -292,6 +292,8 @@ class MainWindow(QMainWindow):
         self._right_splitter.addWidget(self._play_log)
 
         self._right_splitter.setSizes([350, 250])
+        self._right_splitter.setCollapsible(0, False)
+        self._right_splitter.setCollapsible(1, False)
 
         # Volume strip — far right edge
         self._volume_strip = VolumeStrip(self)
@@ -320,11 +322,22 @@ class MainWindow(QMainWindow):
         self._main_splitter.addWidget(self._center)
         self._main_splitter.addWidget(self._right_splitter)
         self._main_splitter.addWidget(vol_container)
-        self._main_splitter.setSizes([120, 850, 280, 260])
+        self._main_splitter.setSizes([120, 900, 280, 90])
         self._main_splitter.setStretchFactor(0, 0)
         self._main_splitter.setStretchFactor(1, 1)
         self._main_splitter.setStretchFactor(2, 0)
         self._main_splitter.setStretchFactor(3, 0)
+
+        # Prevent any section from collapsing to zero on drag
+        for i in range(self._main_splitter.count()):
+            self._main_splitter.setCollapsible(i, False)
+
+        # Sensible minimum widths so panels can't vanish
+        self._sidebar.setMinimumWidth(80)
+        self._center.setMinimumWidth(300)
+        self._right_splitter.setMinimumWidth(160)
+        vol_container.setMinimumWidth(vol_container.sizeHint().width() or 88)
+        vol_container.setMaximumWidth(vol_container.sizeHint().width() or 88)
 
         # Defer full widget repainting until the handle is released
         # (prevents expensive continuous re-layouts on Windows)
