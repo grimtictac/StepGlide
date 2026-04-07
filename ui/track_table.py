@@ -472,6 +472,8 @@ class TrackTableView(QTableView):
         self.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
         self.horizontalHeader().customContextMenuRequested.connect(
             self._on_header_context_menu)
+        self.horizontalHeader().sectionHandleDoubleClicked.connect(
+            lambda _: self._rebalance_columns())
 
         # Default column widths (tuned for the standard layout)
         self._default_widths = {
@@ -493,6 +495,21 @@ class TrackTableView(QTableView):
             15: 200,  # Relative Path
         }
 
+        # Minimum column widths for default columns (pixels)
+        self._min_col_widths = {
+            0: 120,   # Title — needs room for text
+            3: 60,    # Genre
+            4: 45,    # Length
+            5: 40,    # Rating
+            6: 80,    # Comment
+            7: 80,    # Tags
+            8: 55,    # Liked By
+            10: 40,   # Plays
+            12: 65,   # Last Played
+        }
+        self._user_resizing_column = False
+        self._last_viewport_width = 0
+
     def setModel(self, model):
         super().setModel(model)
         # Give the proxy a reference to this view for sort-lock
@@ -503,10 +520,81 @@ class TrackTableView(QTableView):
             self.setColumnWidth(col, width)
         # Apply default column visibility
         self.set_visible_columns(list(DEFAULT_VISIBLE_COLUMNS))
+        # Fit default columns into the viewport width
+        self._rebalance_columns()
         # Connect selection
         sel_model = self.selectionModel()
         if sel_model:
             sel_model.selectionChanged.connect(self._on_selection_changed)
+
+    # ── Column rebalancing ────────────────────────────────
+
+    def _rebalance_columns(self):
+        """Proportionally shrink/grow visible default columns to fill the viewport.
+
+        Non-default columns (Artist, Album, Path, etc.) are left at their
+        original widths — they are intentionally wide and the user accepts
+        horizontal scrolling when they enable them.
+        """
+        header = self.horizontalHeader()
+        available = self.viewport().width()
+        if available <= 0:
+            return
+
+        default_set = set()
+        for i, name in enumerate(ALL_COLUMNS):
+            if name in DEFAULT_VISIBLE_COLUMNS:
+                default_set.add(i)
+
+        # Partition visible columns into default vs non-default
+        vis_default = []   # (col_index, current_width)
+        non_default_total = 0
+        for i in range(len(ALL_COLUMNS)):
+            if header.isSectionHidden(i):
+                continue
+            if i in default_set:
+                vis_default.append((i, self.columnWidth(i)))
+            else:
+                non_default_total += self.columnWidth(i)
+
+        if not vis_default:
+            return
+
+        # Space remaining for default columns
+        budget = available - non_default_total
+        if budget < 50:
+            return   # viewport too small to bother
+
+        current_total = sum(w for _, w in vis_default)
+        if current_total <= 0:
+            return
+
+        # Scale proportionally, clamping to minimums
+        scale = budget / current_total
+        new_widths = {}
+        used = 0
+        for col, w in vis_default:
+            min_w = self._min_col_widths.get(col, 40)
+            new_w = max(min_w, int(w * scale))
+            new_widths[col] = new_w
+            used += new_w
+
+        # Give any leftover pixels to Title (col 0) if visible
+        leftover = budget - used
+        if leftover > 0 and 0 in new_widths:
+            new_widths[0] += leftover
+        elif leftover > 0 and vis_default:
+            new_widths[vis_default[0][0]] += leftover
+
+        for col, w in new_widths.items():
+            self.setColumnWidth(col, w)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        vp_width = self.viewport().width()
+        if vp_width != self._last_viewport_width:
+            self._last_viewport_width = vp_width
+            self._rebalance_columns()
 
     def mouseDoubleClickEvent(self, event):
         index = self.indexAt(event.pos())
@@ -552,6 +640,7 @@ class TrackTableView(QTableView):
 
     def _toggle_column(self, col, visible):
         self.horizontalHeader().setSectionHidden(col, not visible)
+        self._rebalance_columns()
 
     def get_visible_columns(self):
         """Return list of visible column names."""
