@@ -1291,60 +1291,11 @@ class VolumePanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        # ── Toggle buttons (vertical column) ──
-        toggle_col = QVBoxLayout()
-        toggle_col.setSpacing(2)
-        toggle_col.setContentsMargins(0, 0, 0, 0)
-
-        self._btn_scroll = QPushButton()
-        self._btn_scroll.setIcon(qta.icon('mdi6.mouse', color=COLORS['fg']))
-        self._btn_scroll.setFixedSize(24, 32)
-        self._btn_scroll.setIconSize(self._btn_scroll.size() * 0.65)
-        self._btn_scroll.setCheckable(True)
-        self._btn_scroll.setChecked(True)
-        self._btn_scroll.setToolTip('Enable scroll-wheel fade')
-        self._btn_scroll.setStyleSheet(self._toggle_css())
-        self._btn_scroll.toggled.connect(self._on_scroll_toggled)
-        toggle_col.addWidget(self._btn_scroll)
-
-        self._btn_pull = QPushButton()
-        self._btn_pull.setIcon(
-            qta.icon('mdi6.arrow-down-bold', color=COLORS['fg']))
-        self._btn_pull.setFixedSize(24, 32)
-        self._btn_pull.setIconSize(self._btn_pull.size() * 0.65)
-        self._btn_pull.setCheckable(True)
-        self._btn_pull.setChecked(True)
-        self._btn_pull.setToolTip('Enable pull-fader')
-        self._btn_pull.setStyleSheet(self._toggle_css())
-        self._btn_pull.toggled.connect(self._on_pull_toggled)
-        toggle_col.addWidget(self._btn_pull)
-
-        toggle_col.addStretch()
-        layout.addLayout(toggle_col)
-
         # ── Volume strip (always visible) ──
         layout.addWidget(self._vs)
 
         # ── Pull fader (always visible) ──
         layout.addWidget(self._pull_fader)
-
-    def _on_scroll_toggled(self, checked):
-        """Enable/disable scroll-wheel input. Does NOT stop a running fade."""
-        self._vs._scroll_input_enabled = checked
-
-    def _on_pull_toggled(self, checked):
-        """Enable/disable pull-fader interaction. Does NOT stop a running fade."""
-        self._pull_fader.setEnabled(checked)
-
-    @staticmethod
-    def _toggle_css():
-        return (
-            f'QPushButton {{ border: none; border-radius: 3px; '
-            f'background: transparent; }}'
-            f'QPushButton:checked {{ background: {COLORS["bg_mid"]}; '
-            f'border: 1px solid {COLORS["border"]}; }}'
-            f'QPushButton:hover {{ background: {COLORS["bg_light"]}; }}'
-        )
 
     @property
     def volume_strip(self):
