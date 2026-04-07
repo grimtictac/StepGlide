@@ -41,9 +41,9 @@ class PlayLogPanel(QWidget):
         layout.setContentsMargins(8, 8, 8, 4)
         layout.setSpacing(4)
 
-        # Voting strip: [👍] [voter combo ▾] [👎]
+        # Voting strip: [voter combo] [thumbs-down] [thumbs-up]
         vote_row = QHBoxLayout()
-        vote_row.setContentsMargins(0, 0, 0, 0)
+        vote_row.setContentsMargins(0, 0, 0, 6)
         vote_row.setSpacing(4)
 
         _vote_btn_css = (
@@ -51,28 +51,13 @@ class PlayLogPanel(QWidget):
             '  border: 1px solid #555; border-radius: 3px; }'
             'QPushButton:hover { background-color: #444; }')
 
-        btn_like = QPushButton()
-        btn_like.setIcon(qta.icon('mdi6.thumb-up', color=COLORS['yellow']))
-        btn_like.setFixedSize(28, 24)
-        btn_like.setIconSize(btn_like.size() * 0.6)
-        btn_like.setToolTip('Like selected track')
-        btn_like.setStyleSheet(_vote_btn_css)
-        btn_like.clicked.connect(lambda: self._do_vote(+1))
-        vote_row.addWidget(btn_like)
-
         self._voter_combo = QComboBox()
         self._voter_combo.setEditable(True)
         self._voter_combo.setInsertPolicy(QComboBox.NoInsert)
         self._voter_combo.setToolTip('Voter name (type or pick)')
         self._voter_combo.lineEdit().setPlaceholderText('anonymous')
         self._voter_combo.setStyleSheet(
-            'QComboBox { padding: 2px 4px; }'
-            'QComboBox::drop-down { subcontrol-origin: padding;'
-            '  subcontrol-position: center right; width: 16px; border: none; }'
-            'QComboBox::down-arrow { width: 0; height: 0;'
-            '  border-left: 4px solid transparent;'
-            '  border-right: 4px solid transparent;'
-            '  border-top: 5px solid #999; }')
+            'QComboBox { padding: 2px 4px; }')
         vote_row.addWidget(self._voter_combo, stretch=1)
 
         btn_dislike = QPushButton()
@@ -83,6 +68,15 @@ class PlayLogPanel(QWidget):
         btn_dislike.setStyleSheet(_vote_btn_css)
         btn_dislike.clicked.connect(lambda: self._do_vote(-1))
         vote_row.addWidget(btn_dislike)
+
+        btn_like = QPushButton()
+        btn_like.setIcon(qta.icon('mdi6.thumb-up', color=COLORS['yellow']))
+        btn_like.setFixedSize(28, 24)
+        btn_like.setIconSize(btn_like.size() * 0.6)
+        btn_like.setToolTip('Like selected track')
+        btn_like.setStyleSheet(_vote_btn_css)
+        btn_like.clicked.connect(lambda: self._do_vote(+1))
+        vote_row.addWidget(btn_like)
 
         layout.addLayout(vote_row)
 
