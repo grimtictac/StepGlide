@@ -6,7 +6,7 @@ from datetime import datetime, date as date_cls
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel, QMenu,
+    QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QMenu,
     QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 import qtawesome as qta
@@ -38,37 +38,27 @@ class PlayLogPanel(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 0)
+        layout.setContentsMargins(8, 8, 8, 4)
         layout.setSpacing(4)
 
-        # Voting strip: [👍] [👎] [voter combo] [rating label]
+        # Voting strip: [👍] [voter combo ▾] [👎]
         vote_row = QHBoxLayout()
         vote_row.setContentsMargins(0, 0, 0, 0)
-        vote_row.setSpacing(6)
+        vote_row.setSpacing(4)
+
+        _vote_btn_css = (
+            'QPushButton { background: transparent;'
+            '  border: 1px solid #555; border-radius: 3px; }'
+            'QPushButton:hover { background-color: #444; }')
 
         btn_like = QPushButton()
-        btn_like.setIcon(qta.icon('mdi6.thumb-up', color=COLORS['green_text']))
-        btn_like.setFixedSize(30, 24)
-        btn_like.setIconSize(btn_like.size() * 0.55)
+        btn_like.setIcon(qta.icon('mdi6.thumb-up', color=COLORS['yellow']))
+        btn_like.setFixedSize(28, 24)
+        btn_like.setIconSize(btn_like.size() * 0.6)
         btn_like.setToolTip('Like selected track')
-        btn_like.setStyleSheet(
-            'QPushButton { background-color: #1a3a1a;'
-            '  border: 1px solid #27ae60; border-radius: 3px; }'
-            'QPushButton:hover { background-color: #27ae60; }')
+        btn_like.setStyleSheet(_vote_btn_css)
         btn_like.clicked.connect(lambda: self._do_vote(+1))
         vote_row.addWidget(btn_like)
-
-        btn_dislike = QPushButton()
-        btn_dislike.setIcon(qta.icon('mdi6.thumb-down', color=COLORS['red_text']))
-        btn_dislike.setFixedSize(30, 24)
-        btn_dislike.setIconSize(btn_dislike.size() * 0.55)
-        btn_dislike.setToolTip('Dislike selected track')
-        btn_dislike.setStyleSheet(
-            'QPushButton { background-color: #3a1a1a;'
-            '  border: 1px solid #c0392b; border-radius: 3px; }'
-            'QPushButton:hover { background-color: #c0392b; }')
-        btn_dislike.clicked.connect(lambda: self._do_vote(-1))
-        vote_row.addWidget(btn_dislike)
 
         self._voter_combo = QComboBox()
         self._voter_combo.setEditable(True)
@@ -76,17 +66,23 @@ class PlayLogPanel(QWidget):
         self._voter_combo.setToolTip('Voter name (type or pick)')
         self._voter_combo.lineEdit().setPlaceholderText('anonymous')
         self._voter_combo.setStyleSheet(
-            'QComboBox { padding: 2px 4px; min-height: 20px; }'
-            'QComboBox::drop-down { border: none; width: 18px; }'
-            'QComboBox::down-arrow { image: none; border-left: 4px solid transparent;'
-            '  border-right: 4px solid transparent; border-top: 5px solid #aaaaaa;'
-            '  margin-right: 4px; }')
+            'QComboBox { padding: 2px 4px; }'
+            'QComboBox::drop-down { subcontrol-origin: padding;'
+            '  subcontrol-position: center right; width: 16px; border: none; }'
+            'QComboBox::down-arrow { width: 0; height: 0;'
+            '  border-left: 4px solid transparent;'
+            '  border-right: 4px solid transparent;'
+            '  border-top: 5px solid #999; }')
         vote_row.addWidget(self._voter_combo, stretch=1)
 
-        self._lbl_rating = QLabel('')
-        self._lbl_rating.setStyleSheet(
-            'font-size: 11px; font-weight: bold; padding: 0 4px;')
-        vote_row.addWidget(self._lbl_rating)
+        btn_dislike = QPushButton()
+        btn_dislike.setIcon(qta.icon('mdi6.thumb-down', color=COLORS['yellow']))
+        btn_dislike.setFixedSize(28, 24)
+        btn_dislike.setIconSize(btn_dislike.size() * 0.6)
+        btn_dislike.setToolTip('Dislike selected track')
+        btn_dislike.setStyleSheet(_vote_btn_css)
+        btn_dislike.clicked.connect(lambda: self._do_vote(-1))
+        vote_row.addWidget(btn_dislike)
 
         layout.addLayout(vote_row)
 
@@ -235,29 +231,5 @@ class PlayLogPanel(QWidget):
         self.vote_requested.emit(file_path, vote, voter)
 
     def _on_selection_changed(self, current, _previous):
-        """Update the rating label when a different play-log entry is selected."""
-        self._update_rating_label()
-
-    def _update_rating_label(self):
-        """Show the rating for the currently selected track."""
-        file_path = self._selected_file_path()
-        if file_path is None:
-            self._lbl_rating.setText('')
-            return
-        pl_idx = self._path_to_idx.get(file_path)
-        if pl_idx is None:
-            self._lbl_rating.setText('')
-            return
-        rating = self._playlist[pl_idx].get('rating', 0) if self._playlist else 0
-        if rating > 0:
-            self._lbl_rating.setText(f'+{rating}')
-            self._lbl_rating.setStyleSheet(
-                'font-size: 11px; font-weight: bold; color: #4caf50; padding: 0 4px;')
-        elif rating < 0:
-            self._lbl_rating.setText(str(rating))
-            self._lbl_rating.setStyleSheet(
-                'font-size: 11px; font-weight: bold; color: #f44336; padding: 0 4px;')
-        else:
-            self._lbl_rating.setText('0')
-            self._lbl_rating.setStyleSheet(
-                'font-size: 11px; font-weight: bold; color: #888888; padding: 0 4px;')
+        """Placeholder for future selection-change handling."""
+        pass

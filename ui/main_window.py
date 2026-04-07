@@ -1186,7 +1186,6 @@ class MainWindow(QMainWindow):
 
         self._track_model.update_row(pl_idx)
         self._play_log.set_voters(self.all_voters)
-        self._play_log._update_rating_label()
         self._search_bar.set_voters(self.all_voters)
 
     # ── Equalizer ────────────────────────────────────────
