@@ -108,7 +108,7 @@ class TickSlider(QSlider):
 
             from PySide6.QtGui import QFont
             label_font = QFont()
-            label_font.setPixelSize(self._label_font_size)
+            label_font.setPointSize(max(1, self._label_font_size))
 
             for i in range(num_ticks + 1):
                 val = self.minimum() + i * interval
@@ -292,7 +292,7 @@ class GradientVolumeSlider(TickSlider):
 
         from PySide6.QtGui import QFont
         label_font = QFont()
-        label_font.setPixelSize(self._label_font_size)
+        label_font.setPointSize(max(1, self._label_font_size))
 
         for i in range(num_ticks + 1):
             val = self.minimum() + i * interval
