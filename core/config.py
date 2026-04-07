@@ -59,6 +59,7 @@ class AppConfig:
         self.smart_playlists = {}  # name → {'rules': [...], 'match': 'all'|'any'}
         self.tooltip_texts = dict(DEFAULT_TOOLTIPS)
         self.queue_btn_throb_enabled = True
+        self.speed_indicator_visible = True
         self.saved_voter = ''
         self.visible_columns = None  # list or None
 
@@ -176,6 +177,8 @@ class AppConfig:
         if iface_el is not None:
             val = iface_el.get('queue_btn_throb', 'true')
             self.queue_btn_throb_enabled = val.lower() != 'false'
+            val2 = iface_el.get('speed_indicator', 'true')
+            self.speed_indicator_visible = val2.lower() != 'false'
             self.saved_voter = iface_el.get('voter', '')
 
         # Visible columns
@@ -299,6 +302,7 @@ class AppConfig:
         # Interface settings
         ET.SubElement(root, 'interface',
                       queue_btn_throb=str(self.queue_btn_throb_enabled).lower(),
+                      speed_indicator=str(self.speed_indicator_visible).lower(),
                       voter=voter_name or self.saved_voter)
 
         # Visible columns

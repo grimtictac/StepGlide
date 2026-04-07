@@ -42,6 +42,7 @@ class SettingsDialog(QDialog):
         self._working_durations = [list(d) for d in config.length_filter_durations]
         self._working_tooltips = dict(config.tooltip_texts)
         self._working_queue_throb = config.queue_btn_throb_enabled
+        self._working_speed_indicator = config.speed_indicator_visible
 
         # Volume fade working copies
         self._wk_fade_step = config.fade_step
@@ -546,6 +547,17 @@ class SettingsDialog(QDialog):
         self._chk_queue_throb.setChecked(self._working_queue_throb)
         rl.addWidget(self._chk_queue_throb)
         layout.addWidget(row)
+
+        row2 = QWidget()
+        row2.setStyleSheet(f'background-color: {COLORS["bg_mid"]}; border-radius: 4px;')
+        rl2 = QHBoxLayout(row2)
+        rl2.setContentsMargins(10, 10, 10, 10)
+        rl2.addWidget(QLabel('Show momentum speed indicator bars'))
+        rl2.addStretch()
+        self._chk_speed_indicator = QCheckBox()
+        self._chk_speed_indicator.setChecked(self._working_speed_indicator)
+        rl2.addWidget(self._chk_speed_indicator)
+        layout.addWidget(row2)
 
         layout.addStretch()
         return page
@@ -1060,6 +1072,7 @@ class SettingsDialog(QDialog):
 
         # Interface
         c.queue_btn_throb_enabled = self._chk_queue_throb.isChecked()
+        c.speed_indicator_visible = self._chk_speed_indicator.isChecked()
 
         # Volume fade
         c.fade_step = self._wk_fade_step

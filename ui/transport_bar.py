@@ -514,15 +514,12 @@ class VolumeStrip(QWidget):
 
         slider_row.addLayout(speed_col)
 
-        # Volume slider (center) — with percent labels
-        _vol_labels = {0: '0', 20: '20', 40: '40', 60: '60', 80: '80', 100: '100'}
-        self.volume_slider = GradientVolumeSlider(
-            Qt.Vertical, tick_labels=_vol_labels, label_side='right')
+        # Volume slider (center) — no tick marks
+        self.volume_slider = GradientVolumeSlider(Qt.Vertical)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
         self.volume_slider.setToolTip('Volume')
-        self.volume_slider.setTickPosition(QSlider.TicksLeft)
-        self.volume_slider.setTickInterval(10)
+        self.volume_slider.setTickPosition(QSlider.NoTicks)
         self.volume_slider._label_font_size = 6
         self.volume_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self.volume_slider.setFixedWidth(50)
@@ -974,6 +971,15 @@ class VolumeStrip(QWidget):
         self.set_vel_low(config.fade_vel_low)
         self.set_vel_high(config.fade_vel_high)
         self.set_tick_threshold(config.fade_tick_threshold)
+        self.set_speed_bars_visible(
+            getattr(config, 'speed_indicator_visible', True))
+
+    def set_speed_bars_visible(self, visible: bool):
+        """Show or hide the momentum speed/boost gauges and labels."""
+        for w in (self._speed_bar_up, self._speed_bar_dn,
+                  self._boost_bar_up, self._boost_bar_dn,
+                  self._speed_lbl, self._vel_lbl, self._boost_lbl):
+            w.setVisible(visible)
 
 
 # ═════════════════════════════════════════════════════════
@@ -1106,8 +1112,7 @@ class PullFader(QWidget):
             Qt.Vertical, label_side='right')
         self._slider.setRange(0, 100)
         self._slider.setValue(100)
-        self._slider.setTickPosition(QSlider.TicksLeft)
-        self._slider.setTickInterval(10)
+        self._slider.setTickPosition(QSlider.NoTicks)
         self._slider._label_font_size = 6
         self._slider.setFixedWidth(48)
         self._slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
