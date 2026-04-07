@@ -792,6 +792,10 @@ class MainWindow(QMainWindow):
             entry['last_played'] = stats[2]
         self._track_model.update_row(self.current_index)
         self._play_log.refresh()
+        # Auto-select the just-played track in the play log
+        if self.current_index is not None:
+            path = self.playlist[self.current_index]['path']
+            self._play_log.select_track(path)
 
     # ── Playback controls ────────────────────────────────
 

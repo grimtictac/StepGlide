@@ -2,7 +2,7 @@
 Play log panel — shows recent play history grouped by date.
 """
 
-from datetime import datetime
+from datetime import datetime, date as date_cls
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -58,8 +58,8 @@ class PlayLogPanel(QWidget):
 
         # Voting strip: [👍] [👎] [voter combo] [rating label]
         vote_row = QHBoxLayout()
-        vote_row.setContentsMargins(4, 0, 4, 0)
-        vote_row.setSpacing(4)
+        vote_row.setContentsMargins(8, 2, 4, 2)
+        vote_row.setSpacing(6)
 
         btn_like = QPushButton()
         btn_like.setIcon(qta.icon('mdi6.thumb-up', color=COLORS['green_text']))
@@ -87,10 +87,11 @@ class PlayLogPanel(QWidget):
 
         self._voter_combo = QComboBox()
         self._voter_combo.setEditable(True)
-        self._voter_combo.setFixedWidth(100)
-        self._voter_combo.setToolTip('Voter name')
+        self._voter_combo.setInsertPolicy(QComboBox.NoInsert)
+        self._voter_combo.setMinimumWidth(80)
+        self._voter_combo.setToolTip('Voter name (type or pick)')
         self._voter_combo.lineEdit().setPlaceholderText('anonymous')
-        vote_row.addWidget(self._voter_combo)
+        vote_row.addWidget(self._voter_combo, stretch=1)
 
         self._lbl_rating = QLabel('')
         self._lbl_rating.setStyleSheet(
@@ -102,12 +103,12 @@ class PlayLogPanel(QWidget):
 
         # Tree widget (date-grouped)
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(['Time', 'Title', 'Genre'])
-        self._tree.setRootIsDecorated(True)
+        self._tree.setHeaderLabels(['Genre', 'Title'])
+        self._tree.setRootIsDecorated(False)
+        self._tree.setIndentation(12)
         self._tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self._tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
-        self._tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_right_click)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
@@ -136,6 +137,17 @@ class PlayLogPanel(QWidget):
         if self._db_ref:
             self.load(self._db_ref)
 
+    def select_track(self, file_path):
+        """Select the first (most recent) entry matching file_path."""
+        for i in range(self._tree.topLevelItemCount()):
+            parent = self._tree.topLevelItem(i)
+            for j in range(parent.childCount()):
+                child = parent.child(j)
+                if child.data(0, Qt.UserRole) == file_path:
+                    self._tree.setCurrentItem(child)
+                    self._tree.scrollToItem(child)
+                    return
+
     def _request_refresh(self):
         self.refresh()
 
@@ -144,25 +156,25 @@ class PlayLogPanel(QWidget):
     def _rebuild(self):
         self._tree.clear()
 
+        today_str = date_cls.today().strftime('%Y-%m-%d')
+
         # Group by date
         date_nodes = {}   # date_str → QTreeWidgetItem
         for track_id, file_path, title, genre, played_at in self._log_entries:
             try:
                 dt = datetime.fromisoformat(played_at)
                 date_str = dt.strftime('%Y-%m-%d')
-                time_str = dt.strftime('%H:%M')
             except Exception:
                 date_str = str(played_at)[:10]
-                time_str = ''
 
             if date_str not in date_nodes:
-                parent = QTreeWidgetItem([f'▸ {date_str}', '', ''])
+                parent = QTreeWidgetItem([date_str, ''])
                 parent.setFlags(parent.flags() & ~Qt.ItemIsSelectable)
-                parent.setExpanded(len(date_nodes) == 0)  # expand first date
+                parent.setExpanded(date_str == today_str)
                 self._tree.addTopLevelItem(parent)
                 date_nodes[date_str] = parent
 
-            child = QTreeWidgetItem([time_str, title or '?', genre or ''])
+            child = QTreeWidgetItem([genre or '', title or '?'])
             child.setData(0, Qt.UserRole, file_path)
             child.setData(1, Qt.UserRole, title or '?')
             date_nodes[date_str].addChild(child)
