@@ -1432,7 +1432,7 @@ class TransportBar(QWidget):
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 4, 8, 4)
+        outer.setContentsMargins(8, 2, 8, 2)
         outer.setSpacing(2)
 
         # ── Row 1: transport buttons + scrub + time ──────
@@ -1505,13 +1505,9 @@ class TransportBar(QWidget):
         self.lbl_time_total.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 11px;')
         row1.addWidget(self.lbl_time_total)
 
-        outer.addLayout(row1)
+        # ── Speed controls (inline in row 1) ────────────
+        row1.addSpacing(6)
 
-        # ── Row 2: speed controls ────────────────────────
-        row2 = QHBoxLayout()
-        row2.setSpacing(6)
-
-        # ── Speed controls ───────────────────────────────
         # Speed frame (highlighted when ≠ 1.0)
         self._speed_frame = QFrame()
         self._speed_frame.setFrameShape(QFrame.NoFrame)
@@ -1548,7 +1544,7 @@ class TransportBar(QWidget):
         self.btn_speed_reset.clicked.connect(self.speed_reset_clicked)
         speed_layout.addWidget(self.btn_speed_reset)
 
-        row2.addWidget(self._speed_frame)
+        row1.addWidget(self._speed_frame)
 
         # Auto-reset speed checkbox
         self.chk_auto_reset = QCheckBox('Auto-reset')
@@ -1556,10 +1552,9 @@ class TransportBar(QWidget):
         self.chk_auto_reset.setChecked(True)
         self.chk_auto_reset.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 10px;')
         self.chk_auto_reset.toggled.connect(self.auto_reset_speed_changed)
-        row2.addWidget(self.chk_auto_reset)
+        row1.addWidget(self.chk_auto_reset)
 
-        row2.addStretch()
-        outer.addLayout(row2)
+        outer.addLayout(row1)
 
     # ── Scrub helpers ────────────────────────────────────
 

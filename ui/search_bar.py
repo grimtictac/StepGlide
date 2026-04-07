@@ -4,7 +4,7 @@ Search / filter bar — search box + filter dropdowns for the track table.
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget,
+    QComboBox, QHBoxLayout, QLineEdit, QPushButton, QWidget,
 )
 
 from ui.theme import COLORS
@@ -80,7 +80,7 @@ class SearchFilterBar(QWidget):
 
     def _build_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setContentsMargins(8, 2, 8, 2)
         layout.setSpacing(6)
 
         # Search box
@@ -105,15 +105,18 @@ class SearchFilterBar(QWidget):
         date_opts = ['All', 'Today', 'This Week', 'This Month']
         self._first_played_cb = self._add_combo(layout, 'First Played', date_opts)
         self._first_played_cb.currentTextChanged.connect(
-            lambda v: self.first_played_changed.emit(v))
+            lambda v: self.first_played_changed.emit(
+                v if v != 'First Played: All' else 'All'))
 
         self._last_played_cb = self._add_combo(layout, 'Last Played', date_opts)
         self._last_played_cb.currentTextChanged.connect(
-            lambda v: self.last_played_changed.emit(v))
+            lambda v: self.last_played_changed.emit(
+                v if v != 'Last Played: All' else 'All'))
 
         self._file_created_cb = self._add_combo(layout, 'File Created', date_opts)
         self._file_created_cb.currentTextChanged.connect(
-            lambda v: self.file_created_changed.emit(v))
+            lambda v: self.file_created_changed.emit(
+                v if v != 'File Created: All' else 'All'))
 
         # Length filter
         self._length_cb = self._add_combo(layout, 'Length', ['All'])
@@ -128,13 +131,15 @@ class SearchFilterBar(QWidget):
 
     @staticmethod
     def _add_combo(layout, label, items):
-        lbl = QLabel(label + ':')
-        lbl.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 10px;')
-        layout.addWidget(lbl)
+        """Create a combo with the filter name baked into the first 'All' item."""
         cb = QComboBox()
-        cb.addItems(items)
+        for item in items:
+            if item == 'All':
+                cb.addItem(f'{label}: All')
+            else:
+                cb.addItem(item)
         cb.setFixedHeight(26)
-        cb.setMinimumWidth(70)
+        cb.setMinimumWidth(55)
         layout.addWidget(cb)
         return cb
 
@@ -148,7 +153,7 @@ class SearchFilterBar(QWidget):
         self.search_changed.emit(tokens)
 
     def _on_rating(self, text):
-        if text == 'All':
+        if text.endswith(': All'):
             self.rating_changed.emit(None)
         elif text.startswith('≥'):
             val = int(text.split('+')[1])
@@ -160,11 +165,11 @@ class SearchFilterBar(QWidget):
             self.rating_changed.emit(('=', 0))
 
     def _on_liked_by(self, text):
-        self.liked_by_changed.emit(None if text == 'All' else text)
+        self.liked_by_changed.emit(None if text.endswith(': All') else text)
 
     def _on_length(self, text):
         # Length options are set dynamically; parse "X–Y min" style labels
-        if text == 'All':
+        if text.endswith(': All'):
             self.length_changed.emit('All', None, None)
             return
         self.length_changed.emit(text, None, None)  # main window resolves
@@ -190,7 +195,7 @@ class SearchFilterBar(QWidget):
         """Populate the Liked By dropdown with voter names."""
         self._liked_by_cb.blockSignals(True)
         self._liked_by_cb.clear()
-        self._liked_by_cb.addItem('All')
+        self._liked_by_cb.addItem('Liked By: All')
         for v in sorted(voters):
             self._liked_by_cb.addItem(v)
         self._liked_by_cb.blockSignals(False)
@@ -199,7 +204,7 @@ class SearchFilterBar(QWidget):
         """Set length filter dropdown options. options is a list of label strings."""
         self._length_cb.blockSignals(True)
         self._length_cb.clear()
-        self._length_cb.addItem('All')
+        self._length_cb.addItem('Length: All')
         for opt in options:
             self._length_cb.addItem(opt)
         self._length_cb.blockSignals(False)

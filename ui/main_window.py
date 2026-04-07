@@ -137,7 +137,7 @@ class MainWindow(QMainWindow):
         now_playing_bar = QWidget()
         now_playing_bar.setStyleSheet(f'background-color: {COLORS["bg_dark"]};')
         np_layout = QHBoxLayout(now_playing_bar)
-        np_layout.setContentsMargins(12, 6, 12, 6)
+        np_layout.setContentsMargins(8, 4, 8, 4)
         self._lbl_now_playing = QLabel('Not Playing')
         self._lbl_now_playing.setStyleSheet('font-size: 18px; font-weight: bold;')
         np_layout.addWidget(self._lbl_now_playing)
@@ -155,7 +155,7 @@ class MainWindow(QMainWindow):
 
         btn_like = QPushButton()
         btn_like.setIcon(qta.icon('mdi6.thumb-up', color=COLORS['green_text']))
-        btn_like.setFixedSize(40, 32)
+        btn_like.setFixedSize(34, 28)
         btn_like.setIconSize(btn_like.size() * 0.55)
         btn_like.setToolTip('Like this track')
         btn_like.setStyleSheet(
@@ -167,7 +167,7 @@ class MainWindow(QMainWindow):
 
         btn_dislike = QPushButton()
         btn_dislike.setIcon(qta.icon('mdi6.thumb-down', color=COLORS['red_text']))
-        btn_dislike.setFixedSize(40, 32)
+        btn_dislike.setFixedSize(34, 28)
         btn_dislike.setIconSize(btn_dislike.size() * 0.55)
         btn_dislike.setToolTip('Dislike this track')
         btn_dislike.setStyleSheet(
@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
 
         self._voter_combo = QComboBox()
         self._voter_combo.setEditable(True)
-        self._voter_combo.setFixedWidth(110)
+        self._voter_combo.setFixedWidth(100)
         self._voter_combo.setToolTip('Voter name')
         self._voter_combo.lineEdit().setPlaceholderText('anonymous')
         np_layout.addWidget(self._voter_combo)
@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
         self._icon_eq_off = qta.icon('mdi6.equalizer', color=COLORS['fg'])
         self._icon_eq_on = qta.icon('mdi6.equalizer', color=COLORS['green_text'])
         self._btn_eq.setIcon(self._icon_eq_off)
-        self._btn_eq.setFixedSize(40, 32)
+        self._btn_eq.setFixedSize(34, 28)
         self._btn_eq.setIconSize(self._btn_eq.size() * 0.55)
         self._btn_eq.setToolTip('Equalizer')
         self._btn_eq.clicked.connect(self._show_eq_dialog)
@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         # Settings button
         btn_settings = QPushButton()
         btn_settings.setIcon(qta.icon('mdi6.cog', color=COLORS['fg']))
-        btn_settings.setFixedSize(40, 32)
+        btn_settings.setFixedSize(34, 28)
         btn_settings.setIconSize(btn_settings.size() * 0.55)
         btn_settings.setToolTip('Settings')
         btn_settings.clicked.connect(self._open_settings)
@@ -207,7 +207,7 @@ class MainWindow(QMainWindow):
         # Jump-to-playing button
         self.btn_jump = QPushButton()
         self.btn_jump.setIcon(qta.icon('mdi6.crosshairs-gps', color=COLORS['fg']))
-        self.btn_jump.setFixedSize(40, 32)
+        self.btn_jump.setFixedSize(34, 28)
         self.btn_jump.setIconSize(self.btn_jump.size() * 0.55)
         self.btn_jump.setToolTip('Jump to now playing track')
         self.btn_jump.clicked.connect(self._jump_to_playing)

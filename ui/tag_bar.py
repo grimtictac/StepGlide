@@ -85,8 +85,8 @@ class TagBar(QWidget):
             for tag in rows_dict[row_num]:
                 btn = QPushButton(tag.upper())
                 btn.setCheckable(True)
-                btn.setFixedHeight(22)
-                btn.setMinimumWidth(60)
+                btn.setFixedHeight(20)
+                btn.setMinimumWidth(40)
                 btn.setStyleSheet(self._btn_style(False))
                 btn.clicked.connect(lambda checked, t=tag: self._on_tag_clicked(t))
                 row_layout.addWidget(btn)
@@ -95,8 +95,8 @@ class TagBar(QWidget):
             # "ALL" button on the first row
             if first_row:
                 btn_all = QPushButton('ALL')
-                btn_all.setFixedHeight(22)
-                btn_all.setMinimumWidth(46)
+                btn_all.setFixedHeight(20)
+                btn_all.setMinimumWidth(36)
                 btn_all.setStyleSheet(self._all_btn_style(True))
                 btn_all.clicked.connect(self._on_all_clicked)
                 row_layout.addWidget(btn_all)
@@ -134,7 +134,7 @@ class TagBar(QWidget):
                 f'  background-color: {COLORS["accent"]}; '
                 f'  color: #ffffff; '
                 '  border: 1px solid #555555; border-radius: 3px; '
-                '  font-size: 9px; font-weight: bold; padding: 1px 6px; '
+                '  font-size: 9px; font-weight: bold; padding: 1px 4px; '
                 '}'
             )
         return (
@@ -142,7 +142,7 @@ class TagBar(QWidget):
             '  background-color: transparent; '
             f'  color: {COLORS["fg"]}; '
             '  border: 1px solid #555555; border-radius: 3px; '
-            '  font-size: 9px; font-weight: bold; padding: 1px 6px; '
+            '  font-size: 9px; font-weight: bold; padding: 1px 4px; '
             '}'
             'QPushButton:hover { background-color: #3b3b3b; }'
         )
@@ -155,7 +155,7 @@ class TagBar(QWidget):
                 '  background-color: transparent; '
                 f'  color: {COLORS["fg_dim"]}; '
                 '  border: 1px solid #555555; border-radius: 3px; '
-                '  font-size: 9px; font-weight: bold; padding: 1px 6px; '
+                '  font-size: 9px; font-weight: bold; padding: 1px 4px; '
                 '}'
             )
         return (
@@ -163,7 +163,7 @@ class TagBar(QWidget):
             '  background-color: transparent; '
             f'  color: {COLORS["accent"]}; '
             f'  border: 1px solid {COLORS["accent"]}; border-radius: 3px; '
-            '  font-size: 9px; font-weight: bold; padding: 1px 6px; '
+            '  font-size: 9px; font-weight: bold; padding: 1px 4px; '
             '}'
             'QPushButton:hover { background-color: #3b3b3b; }'
         )
