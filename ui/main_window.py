@@ -11,7 +11,7 @@ import qtawesome as qta
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
+    QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
     QMenu, QMessageBox, QProgressBar, QPushButton, QSplitter, QStatusBar,
     QVBoxLayout, QWidget,
 )
@@ -147,43 +147,6 @@ class MainWindow(QMainWindow):
         np_layout.addWidget(self._lbl_genre)
         np_layout.addStretch()
 
-        # Rating display + vote buttons + voter selector
-        self._lbl_rating = QLabel('')
-        self._lbl_rating.setStyleSheet(
-            'font-size: 13px; font-weight: bold; padding: 0 6px;')
-        np_layout.addWidget(self._lbl_rating)
-
-        btn_like = QPushButton()
-        btn_like.setIcon(qta.icon('mdi6.thumb-up', color=COLORS['green_text']))
-        btn_like.setFixedSize(34, 28)
-        btn_like.setIconSize(btn_like.size() * 0.55)
-        btn_like.setToolTip('Like this track')
-        btn_like.setStyleSheet(
-            'QPushButton { background-color: #1a3a1a;'
-            '  border: 1px solid #27ae60; border-radius: 4px; }'
-            'QPushButton:hover { background-color: #27ae60; }')
-        btn_like.clicked.connect(lambda: self._vote(+1))
-        np_layout.addWidget(btn_like)
-
-        btn_dislike = QPushButton()
-        btn_dislike.setIcon(qta.icon('mdi6.thumb-down', color=COLORS['red_text']))
-        btn_dislike.setFixedSize(34, 28)
-        btn_dislike.setIconSize(btn_dislike.size() * 0.55)
-        btn_dislike.setToolTip('Dislike this track')
-        btn_dislike.setStyleSheet(
-            'QPushButton { background-color: #3a1a1a;'
-            '  border: 1px solid #c0392b; border-radius: 4px; }'
-            'QPushButton:hover { background-color: #c0392b; }')
-        btn_dislike.clicked.connect(lambda: self._vote(-1))
-        np_layout.addWidget(btn_dislike)
-
-        self._voter_combo = QComboBox()
-        self._voter_combo.setEditable(True)
-        self._voter_combo.setFixedWidth(100)
-        self._voter_combo.setToolTip('Voter name')
-        self._voter_combo.lineEdit().setPlaceholderText('anonymous')
-        np_layout.addWidget(self._voter_combo)
-
         # EQ button
         self._btn_eq = QPushButton()
         self._icon_eq_off = qta.icon('mdi6.equalizer', color=COLORS['fg'])
@@ -289,6 +252,7 @@ class MainWindow(QMainWindow):
         self._play_log.add_to_queue_requested.connect(
             lambda idx: self._queue_panel.add(idx))
         self._play_log.jump_to_track.connect(self._jump_to_track_index)
+        self._play_log.vote_requested.connect(self._vote_from_log)
         self._right_splitter.addWidget(self._play_log)
 
         self._right_splitter.setSizes([350, 250])
@@ -488,7 +452,6 @@ class MainWindow(QMainWindow):
 
         # Populate search bar dropdowns
         self._search_bar.set_voters(self.all_voters)
-        self._refresh_voter_combo()
         if hasattr(self.config, 'length_filter_durations') and self.config.length_filter_durations:
             opts = [label for label, lo, hi in self.config.length_filter_durations]
             self._search_bar.set_length_options(opts)
@@ -516,6 +479,8 @@ class MainWindow(QMainWindow):
 
         # Load play log
         self._play_log.set_path_map(self._path_to_idx)
+        self._play_log.set_playlist(self.playlist)
+        self._play_log.set_voters(self.all_voters)
         self._play_log.set_db(self.db)
         self._play_log.load(self.db)
 
@@ -813,7 +778,6 @@ class MainWindow(QMainWindow):
         else:
             self._lbl_now_playing.setText('Not Playing')
             self._lbl_genre.setText('')
-        self._update_rating_display()
 
     def _record_play_immediate(self):
         """Record the play for the current track and update the table row."""
@@ -1193,17 +1157,16 @@ class MainWindow(QMainWindow):
         self._track_model.set_tracks(self.playlist)
         self._update_track_count()
 
-    # ── Voting ───────────────────────────────────────────
+    # ── Voting (from play log) ───────────────────────────
 
-    def _vote(self, vote):
-        """Record a +1 (like) or -1 (dislike) vote for the current track."""
-        if self.current_index is None:
-            QMessageBox.information(self, 'No Track', 'No track is currently playing.')
+    def _vote_from_log(self, file_path, vote, voter):
+        """Record a vote for a track selected in the play log."""
+        pl_idx = self._path_to_idx.get(file_path)
+        if pl_idx is None:
             return
-        entry = self.playlist[self.current_index]
-        voter = self._voter_combo.currentText().strip()
+        entry = self.playlist[pl_idx]
 
-        success, msg = self.db.record_vote(entry['path'], vote, voter)
+        success, msg = self.db.record_vote(file_path, vote, voter)
         if not success:
             QMessageBox.information(self, 'Already Voted', msg)
             return
@@ -1217,41 +1180,10 @@ class MainWindow(QMainWindow):
             else:
                 entry.setdefault('disliked_by', set()).add(voter)
 
-        self._track_model.update_row(self.current_index)
-        self._update_rating_display()
-        self._refresh_voter_combo()
+        self._track_model.update_row(pl_idx)
+        self._play_log.set_voters(self.all_voters)
+        self._play_log._update_rating_label()
         self._search_bar.set_voters(self.all_voters)
-
-    def _update_rating_display(self):
-        """Update the rating label in the now-playing bar."""
-        if self.current_index is None:
-            self._lbl_rating.setText('')
-            return
-        rating = self.playlist[self.current_index].get('rating', 0)
-        if rating > 0:
-            self._lbl_rating.setText(f'+{rating}')
-            self._lbl_rating.setStyleSheet(
-                'font-size: 13px; font-weight: bold; color: #4caf50; padding: 0 6px;')
-        elif rating < 0:
-            self._lbl_rating.setText(str(rating))
-            self._lbl_rating.setStyleSheet(
-                'font-size: 13px; font-weight: bold; color: #f44336; padding: 0 6px;')
-        else:
-            self._lbl_rating.setText('0')
-            self._lbl_rating.setStyleSheet(
-                'font-size: 13px; font-weight: bold; color: #888888; padding: 0 6px;')
-
-    def _refresh_voter_combo(self):
-        """Rebuild the voter dropdown with current voter names."""
-        current = self._voter_combo.currentText()
-        self._voter_combo.clear()
-        self._voter_combo.addItem('')  # anonymous
-        for name in sorted(self.all_voters):
-            self._voter_combo.addItem(name)
-        # Restore selection
-        idx = self._voter_combo.findText(current)
-        if idx >= 0:
-            self._voter_combo.setCurrentIndex(idx)
 
     # ── Equalizer ────────────────────────────────────────
 
