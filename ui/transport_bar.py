@@ -158,9 +158,9 @@ class GradientVolumeSlider(TickSlider):
 
     _GROOVE_WIDTH = 10
     _GROOVE_RADIUS = 5
-    _HANDLE_HEIGHT = 24
-    _HANDLE_WIDTH = 28
-    _HANDLE_RADIUS = 6
+    _HANDLE_HEIGHT = 20
+    _HANDLE_WIDTH = 22
+    _HANDLE_RADIUS = 5
 
     def __init__(self, orientation=Qt.Vertical, parent=None, **kw):
         super().__init__(orientation, parent, **kw)
@@ -327,7 +327,7 @@ class GradientVolumeSlider(TickSlider):
 
 
 # ── Gauge stylesheets (vertical orientation) ─────────────
-_GAUGE_WIDTH = 10
+_GAUGE_WIDTH = 6
 
 # Speed gauge — fills upward (green→yellow→red, bottom-to-top)
 _SPEED_BAR_UP_CSS = '''
@@ -421,7 +421,7 @@ class VolumeStrip(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(76)
+        self.setFixedWidth(52)
 
         # ── Tunable parameters (driven by FadeTuningPanel) ──
         self._fade_step = 1           # volume units per tick
@@ -457,8 +457,8 @@ class VolumeStrip(QWidget):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 8, 4, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(2)
         layout.setAlignment(Qt.AlignHCenter)
 
         # Mute button at top
@@ -481,7 +481,7 @@ class VolumeStrip(QWidget):
 
         # ── Slider row: [speed col] [volume slider] [boost col] ──
         slider_row = QHBoxLayout()
-        slider_row.setSpacing(3)
+        slider_row.setSpacing(1)
         slider_row.setContentsMargins(0, 0, 0, 0)
 
         # Helper to create one half-height gauge bar
@@ -522,7 +522,7 @@ class VolumeStrip(QWidget):
         self.volume_slider.setTickPosition(QSlider.NoTicks)
         self.volume_slider._label_font_size = 6
         self.volume_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        self.volume_slider.setFixedWidth(36)
+        self.volume_slider.setFixedWidth(24)
         # Minimal stylesheet — geometry only; painting is done in paintEvent
         self.volume_slider.setStyleSheet(f'''
             QSlider::groove:vertical {{
@@ -533,8 +533,8 @@ class VolumeStrip(QWidget):
             QSlider::handle:vertical {{
                 background: transparent;
                 height: 20px;
-                width: 22px;
-                margin: 0 -6px;
+                width: 18px;
+                margin: 0 -4px;
             }}
             QSlider::sub-page:vertical {{
                 background: transparent;
@@ -567,7 +567,7 @@ class VolumeStrip(QWidget):
 
         # Labels under the bars
         bar_labels = QHBoxLayout()
-        bar_labels.setSpacing(3)
+        bar_labels.setSpacing(1)
         bar_labels.setContentsMargins(0, 0, 0, 0)
 
         self._speed_lbl = QLabel('—')
@@ -1002,8 +1002,8 @@ _PULL_FADER_CSS = '''
         background: {fg};
         border: 2px solid {accent};
         height: 18px;
-        width: 20px;
-        margin: 0 -5px;
+        width: 18px;
+        margin: 0 -4px;
         border-radius: 5px;
     }}
     QSlider::handle:vertical:hover {{
@@ -1051,7 +1051,7 @@ class PullFader(QWidget):
     def __init__(self, volume_strip: 'VolumeStrip', parent=None):
         super().__init__(parent)
         self._vs = volume_strip
-        self.setFixedWidth(62)
+        self.setFixedWidth(36)
 
         # Pull-fader own tunable parameters (independent of scroll-fade)
         self._min_interval_ms = 20    # fastest fade (full pull)
@@ -1096,8 +1096,8 @@ class PullFader(QWidget):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 8, 4, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(2)
         layout.setAlignment(Qt.AlignHCenter)
 
         # Label
@@ -1114,7 +1114,7 @@ class PullFader(QWidget):
         self._slider.setValue(100)
         self._slider.setTickPosition(QSlider.NoTicks)
         self._slider._label_font_size = 6
-        self._slider.setFixedWidth(36)
+        self._slider.setFixedWidth(24)
         self._slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._slider.setStyleSheet(_PULL_FADER_CSS)
         self._slider.setToolTip(
@@ -1289,7 +1289,7 @@ class VolumePanel(QWidget):
     def _build_ui(self):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(0)
 
         # ── Volume strip (always visible) ──
         layout.addWidget(self._vs)
