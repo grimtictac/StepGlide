@@ -38,8 +38,8 @@ class PlayLogPanel(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 0)
-        layout.setSpacing(2)
+        layout.setContentsMargins(6, 6, 6, 0)
+        layout.setSpacing(4)
 
         # Voting strip: [👍] [👎] [voter combo] [rating label]
         vote_row = QHBoxLayout()
@@ -73,9 +73,14 @@ class PlayLogPanel(QWidget):
         self._voter_combo = QComboBox()
         self._voter_combo.setEditable(True)
         self._voter_combo.setInsertPolicy(QComboBox.NoInsert)
-        self._voter_combo.setFixedHeight(24)
         self._voter_combo.setToolTip('Voter name (type or pick)')
         self._voter_combo.lineEdit().setPlaceholderText('anonymous')
+        self._voter_combo.setStyleSheet(
+            'QComboBox { padding: 2px 4px; min-height: 20px; }'
+            'QComboBox::drop-down { border: none; width: 18px; }'
+            'QComboBox::down-arrow { image: none; border-left: 4px solid transparent;'
+            '  border-right: 4px solid transparent; border-top: 5px solid #aaaaaa;'
+            '  margin-right: 4px; }')
         vote_row.addWidget(self._voter_combo, stretch=1)
 
         self._lbl_rating = QLabel('')
