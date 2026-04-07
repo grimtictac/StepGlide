@@ -4,7 +4,8 @@ Search / filter bar — search box + filter dropdowns for the track table.
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLineEdit, QPushButton, QWidget,
+    QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout,
+    QWidget,
 )
 
 from ui.theme import COLORS
@@ -105,18 +106,15 @@ class SearchFilterBar(QWidget):
         date_opts = ['All', 'Today', 'This Week', 'This Month']
         self._first_played_cb = self._add_combo(layout, 'First Played', date_opts)
         self._first_played_cb.currentTextChanged.connect(
-            lambda v: self.first_played_changed.emit(
-                v if v != 'First Played: All' else 'All'))
+            lambda v: self.first_played_changed.emit(v))
 
         self._last_played_cb = self._add_combo(layout, 'Last Played', date_opts)
         self._last_played_cb.currentTextChanged.connect(
-            lambda v: self.last_played_changed.emit(
-                v if v != 'Last Played: All' else 'All'))
+            lambda v: self.last_played_changed.emit(v))
 
         self._file_created_cb = self._add_combo(layout, 'File Created', date_opts)
         self._file_created_cb.currentTextChanged.connect(
-            lambda v: self.file_created_changed.emit(
-                v if v != 'File Created: All' else 'All'))
+            lambda v: self.file_created_changed.emit(v))
 
         # Length filter
         self._length_cb = self._add_combo(layout, 'Length', ['All'])
@@ -131,16 +129,20 @@ class SearchFilterBar(QWidget):
 
     @staticmethod
     def _add_combo(layout, label, items):
-        """Create a combo with the filter name baked into the first 'All' item."""
+        """Create a label-above-combo pair and add to the parent layout."""
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+        lbl = QLabel(label)
+        lbl.setAlignment(Qt.AlignCenter)
+        lbl.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 9px;')
+        col.addWidget(lbl)
         cb = QComboBox()
-        for item in items:
-            if item == 'All':
-                cb.addItem(f'{label}: All')
-            else:
-                cb.addItem(item)
-        cb.setFixedHeight(26)
+        cb.addItems(items)
+        cb.setFixedHeight(22)
         cb.setMinimumWidth(55)
-        layout.addWidget(cb)
+        col.addWidget(cb)
+        layout.addLayout(col)
         return cb
 
     # ── Slots ────────────────────────────────────────────
@@ -153,7 +155,7 @@ class SearchFilterBar(QWidget):
         self.search_changed.emit(tokens)
 
     def _on_rating(self, text):
-        if text.endswith(': All'):
+        if text == 'All':
             self.rating_changed.emit(None)
         elif text.startswith('≥'):
             val = int(text.split('+')[1])
@@ -165,11 +167,11 @@ class SearchFilterBar(QWidget):
             self.rating_changed.emit(('=', 0))
 
     def _on_liked_by(self, text):
-        self.liked_by_changed.emit(None if text.endswith(': All') else text)
+        self.liked_by_changed.emit(None if text == 'All' else text)
 
     def _on_length(self, text):
         # Length options are set dynamically; parse "X–Y min" style labels
-        if text.endswith(': All'):
+        if text == 'All':
             self.length_changed.emit('All', None, None)
             return
         self.length_changed.emit(text, None, None)  # main window resolves
@@ -195,7 +197,7 @@ class SearchFilterBar(QWidget):
         """Populate the Liked By dropdown with voter names."""
         self._liked_by_cb.blockSignals(True)
         self._liked_by_cb.clear()
-        self._liked_by_cb.addItem('Liked By: All')
+        self._liked_by_cb.addItem('All')
         for v in sorted(voters):
             self._liked_by_cb.addItem(v)
         self._liked_by_cb.blockSignals(False)
@@ -204,7 +206,7 @@ class SearchFilterBar(QWidget):
         """Set length filter dropdown options. options is a list of label strings."""
         self._length_cb.blockSignals(True)
         self._length_cb.clear()
-        self._length_cb.addItem('Length: All')
+        self._length_cb.addItem('All')
         for opt in options:
             self._length_cb.addItem(opt)
         self._length_cb.blockSignals(False)
