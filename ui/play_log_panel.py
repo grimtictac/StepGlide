@@ -38,27 +38,12 @@ class PlayLogPanel(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(4, 4, 4, 0)
         layout.setSpacing(2)
-
-        # Header
-        header = QHBoxLayout()
-        self._title_lbl = QLabel('Play Log')
-        self._title_lbl.setStyleSheet(
-            f'color: {COLORS["fg_dim"]}; font-weight: bold; font-size: 12px;')
-        header.addWidget(self._title_lbl)
-        header.addStretch()
-
-        btn_refresh = QPushButton('⟳')
-        btn_refresh.setFixedSize(28, 24)
-        btn_refresh.setToolTip('Refresh play log')
-        btn_refresh.clicked.connect(self._request_refresh)
-        header.addWidget(btn_refresh)
-        layout.addLayout(header)
 
         # Voting strip: [👍] [👎] [voter combo] [rating label]
         vote_row = QHBoxLayout()
-        vote_row.setContentsMargins(8, 2, 4, 2)
+        vote_row.setContentsMargins(0, 0, 0, 0)
         vote_row.setSpacing(6)
 
         btn_like = QPushButton()
@@ -88,7 +73,7 @@ class PlayLogPanel(QWidget):
         self._voter_combo = QComboBox()
         self._voter_combo.setEditable(True)
         self._voter_combo.setInsertPolicy(QComboBox.NoInsert)
-        self._voter_combo.setMinimumWidth(80)
+        self._voter_combo.setFixedHeight(24)
         self._voter_combo.setToolTip('Voter name (type or pick)')
         self._voter_combo.lineEdit().setPlaceholderText('anonymous')
         vote_row.addWidget(self._voter_combo, stretch=1)
@@ -98,7 +83,6 @@ class PlayLogPanel(QWidget):
             'font-size: 11px; font-weight: bold; padding: 0 4px;')
         vote_row.addWidget(self._lbl_rating)
 
-        vote_row.addStretch()
         layout.addLayout(vote_row)
 
         # Tree widget (date-grouped)
@@ -148,9 +132,6 @@ class PlayLogPanel(QWidget):
                     self._tree.scrollToItem(child)
                     return
 
-    def _request_refresh(self):
-        self.refresh()
-
     # ── Rebuild tree ─────────────────────────────────────
 
     def _rebuild(self):
@@ -178,8 +159,6 @@ class PlayLogPanel(QWidget):
             child.setData(0, Qt.UserRole, file_path)
             child.setData(1, Qt.UserRole, title or '?')
             date_nodes[date_str].addChild(child)
-
-        self._title_lbl.setText(f'Play Log ({len(self._log_entries)})')
 
     # ── Context menu ─────────────────────────────────────
 
