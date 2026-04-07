@@ -485,15 +485,6 @@ class MainWindow(QMainWindow):
         self._sidebar.set_playlist_data(
             self.config.playlists, self.config.smart_playlists)
 
-        # Collect tags used on any track and merge into config.all_tags
-        # so the tag bar appears even if the XML doesn't list them yet
-        db_tags = set()
-        for entry in self.playlist:
-            for t in entry.get('tags', []):
-                db_tags.add(t)
-        if db_tags - self.config.all_tags:
-            self.config.all_tags |= db_tags
-
         if self.config.all_tags:
             self._sidebar.set_all_tags(self.config.all_tags)
 
