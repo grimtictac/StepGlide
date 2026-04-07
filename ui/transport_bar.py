@@ -156,8 +156,8 @@ class GradientVolumeSlider(TickSlider):
     "reveal" changes.
     """
 
-    _GROOVE_WIDTH = 14
-    _GROOVE_RADIUS = 7
+    _GROOVE_WIDTH = 10
+    _GROOVE_RADIUS = 5
     _HANDLE_HEIGHT = 24
     _HANDLE_WIDTH = 28
     _HANDLE_RADIUS = 6
@@ -421,7 +421,7 @@ class VolumeStrip(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(96)
+        self.setFixedWidth(76)
 
         # ── Tunable parameters (driven by FadeTuningPanel) ──
         self._fade_step = 1           # volume units per tick
@@ -466,7 +466,7 @@ class VolumeStrip(QWidget):
         self._icon_vol_off = qta.icon('mdi6.volume-off', color=COLORS['red_text'])
         self.btn_mute = QPushButton()
         self.btn_mute.setIcon(self._icon_vol_high)
-        self.btn_mute.setFixedSize(40, 36)
+        self.btn_mute.setFixedSize(32, 32)
         self.btn_mute.setIconSize(self.btn_mute.size() * 0.6)
         self.btn_mute.setToolTip('Mute / Unmute')
         self.btn_mute.clicked.connect(self._on_mute_clicked)
@@ -522,19 +522,19 @@ class VolumeStrip(QWidget):
         self.volume_slider.setTickPosition(QSlider.NoTicks)
         self.volume_slider._label_font_size = 6
         self.volume_slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        self.volume_slider.setFixedWidth(50)
+        self.volume_slider.setFixedWidth(36)
         # Minimal stylesheet — geometry only; painting is done in paintEvent
         self.volume_slider.setStyleSheet(f'''
             QSlider::groove:vertical {{
-                width: 14px;
-                border-radius: 7px;
+                width: 10px;
+                border-radius: 5px;
                 background: transparent;
             }}
             QSlider::handle:vertical {{
                 background: transparent;
-                height: 24px;
-                width: 28px;
-                margin: 0 -7px;
+                height: 20px;
+                width: 22px;
+                margin: 0 -6px;
             }}
             QSlider::sub-page:vertical {{
                 background: transparent;
@@ -593,7 +593,7 @@ class VolumeStrip(QWidget):
         # Gear button at the bottom
         self._btn_gear = QPushButton()
         self._btn_gear.setIcon(qta.icon('mdi6.cog', color=COLORS['fg_dim']))
-        self._btn_gear.setFixedSize(32, 28)
+        self._btn_gear.setFixedSize(28, 24)
         self._btn_gear.setIconSize(self._btn_gear.size() * 0.6)
         self._btn_gear.setToolTip('Volume & fade settings')
         self._btn_gear.setStyleSheet('border: none;')
@@ -988,8 +988,8 @@ class VolumeStrip(QWidget):
 
 _PULL_FADER_CSS = '''
     QSlider::groove:vertical {{
-        width: 12px;
-        border-radius: 6px;
+        width: 10px;
+        border-radius: 5px;
         background: qlineargradient(
             x1:0, y1:0, x2:0, y2:1,
             stop:0.00 {bg_dark},
@@ -1001,9 +1001,9 @@ _PULL_FADER_CSS = '''
     QSlider::handle:vertical {{
         background: {fg};
         border: 2px solid {accent};
-        height: 20px;
-        width: 24px;
-        margin: 0 -6px;
+        height: 18px;
+        width: 20px;
+        margin: 0 -5px;
         border-radius: 5px;
     }}
     QSlider::handle:vertical:hover {{
@@ -1016,11 +1016,11 @@ _PULL_FADER_CSS = '''
     }}
     QSlider::sub-page:vertical {{
         background: transparent;
-        border-radius: 6px;
+        border-radius: 5px;
     }}
     QSlider::add-page:vertical {{
         background: transparent;
-        border-radius: 6px;
+        border-radius: 5px;
     }}
 '''.format(
     bg_dark=COLORS['bg'], cyan_dim='#1a4a5a',
@@ -1051,7 +1051,7 @@ class PullFader(QWidget):
     def __init__(self, volume_strip: 'VolumeStrip', parent=None):
         super().__init__(parent)
         self._vs = volume_strip
-        self.setFixedWidth(82)
+        self.setFixedWidth(62)
 
         # Pull-fader own tunable parameters (independent of scroll-fade)
         self._min_interval_ms = 20    # fastest fade (full pull)
@@ -1114,7 +1114,7 @@ class PullFader(QWidget):
         self._slider.setValue(100)
         self._slider.setTickPosition(QSlider.NoTicks)
         self._slider._label_font_size = 6
-        self._slider.setFixedWidth(48)
+        self._slider.setFixedWidth(36)
         self._slider.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
         self._slider.setStyleSheet(_PULL_FADER_CSS)
         self._slider.setToolTip(
