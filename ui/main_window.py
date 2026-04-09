@@ -99,9 +99,6 @@ class MainWindow(QMainWindow):
         self._poll_timer.timeout.connect(self._poll)
         self._poll_timer.start()
 
-        # ── Load data ────────────────────────────────────
-        self._load_tracks()
-
         # ── Keyboard shortcuts ───────────────────────────
         self._bind_shortcuts()
 
@@ -110,6 +107,9 @@ class MainWindow(QMainWindow):
 
         # ── Accept drag-and-drop from file manager ───────
         self.setAcceptDrops(True)
+
+        # ── Defer heavy data loading so the window paints first ──
+        QTimer.singleShot(0, self._load_tracks)
 
     def _build_ui(self):
         """Construct the main layout with splitters."""

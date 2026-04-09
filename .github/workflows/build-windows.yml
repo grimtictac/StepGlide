@@ -37,7 +37,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --onefile --windowed --name MusicPlayer ^
+          pyinstaller --onedir --windowed --name MusicPlayer ^
             --hidden-import PySide6.QtCore ^
             --hidden-import PySide6.QtGui ^
             --hidden-import PySide6.QtWidgets ^
@@ -48,8 +48,12 @@ jobs:
             main.py
         shell: cmd
 
+      - name: Zip output folder
+        shell: pwsh
+        run: Compress-Archive -Path dist\MusicPlayer\* -DestinationPath dist\MusicPlayer-Windows.zip
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MusicPlayer-Windows
-          path: dist/MusicPlayer.exe
+          path: dist/MusicPlayer-Windows.zip
