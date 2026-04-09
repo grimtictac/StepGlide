@@ -1,0 +1,55 @@
+name: Build Windows Executable
+
+on:
+  workflow_dispatch:          # manual trigger from GitHub UI
+  push:
+    tags:
+      - 'v*'                 # auto-build on version tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install VLC
+        shell: pwsh
+        run: |
+          # Download and silently install VLC (needed for libvlc.dll)
+          $url = "https://get.videolan.org/vlc/3.0.20/win64/vlc-3.0.20-win64.exe"
+          Invoke-WebRequest -Uri $url -OutFile vlc-installer.exe
+          Start-Process -Wait -FilePath .\vlc-installer.exe -ArgumentList '/S'
+          # Add VLC to PATH so python-vlc can find libvlc
+          echo "C:\Program Files\VideoLAN\VLC" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: |
+          pyinstaller --onefile --windowed --name MusicPlayer ^
+            --hidden-import PySide6.QtCore ^
+            --hidden-import PySide6.QtGui ^
+            --hidden-import PySide6.QtWidgets ^
+            --hidden-import vlc ^
+            --hidden-import qtawesome ^
+            --hidden-import mutagen ^
+            --collect-data qtawesome ^
+            main.py
+        shell: cmd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicPlayer-Windows
+          path: dist/MusicPlayer.exe
