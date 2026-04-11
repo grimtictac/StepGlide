@@ -455,7 +455,7 @@ class TrackTableView(QTableView):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAlternatingRowColors(True)
+        self.setAlternatingRowColors(False)
         self.setSelectionBehavior(QTableView.SelectRows)
         self.setSelectionMode(QTableView.ExtendedSelection)
         self.setShowGrid(False)
