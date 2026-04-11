@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from PySide6.QtWidgets import QApplication
 
 from ui.splash import SplashScreen
+from ui.theme import ComboArrowStyle
 from core.config import AppConfig
 from core.database import Database
 
@@ -22,6 +23,7 @@ from core.database import Database
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName('Python Music Player')
+    app.setStyle(ComboArrowStyle())
 
     # ── Show splash screen ───────────────────────────────
     splash = SplashScreen()

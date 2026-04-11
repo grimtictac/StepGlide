@@ -2,6 +2,11 @@
 Dark theme QSS stylesheet for the music player.
 """
 
+from PySide6.QtCore import QRect, Qt
+from PySide6.QtGui import QColor, QPainter, QPolygonF
+from PySide6.QtWidgets import QProxyStyle, QStyle, QStyleOption
+from PySide6.QtCore import QPointF
+
 DARK_THEME = """
 /* ── Global ─────────────────────────────────── */
 QMainWindow, QWidget {
@@ -81,7 +86,7 @@ QTableView {
     selection-color: #ffffff;
 }
 QTableView::item {
-    padding: 4px 8px;
+    padding: 4px 22px 4px 8px;
     border: none;
 }
 QTableView::item:hover {
@@ -125,7 +130,7 @@ QListView, QListWidget {
     selection-color: #ffffff;
 }
 QListWidget::item {
-    padding: 4px 8px;
+    padding: 4px 22px 4px 8px;
 }
 QListWidget::item:hover {
     background-color: #353535;
@@ -214,7 +219,7 @@ QLineEdit {
     color: #dce4ee;
     border: 1px solid #444444;
     border-radius: 4px;
-    padding: 4px 8px;
+    padding: 4px 22px 4px 8px;
     selection-background-color: #1f6aa5;
 }
 QLineEdit:focus {
@@ -227,15 +232,17 @@ QComboBox {
     color: #dce4ee;
     border: 1px solid #555555;
     border-radius: 4px;
-    padding: 4px 8px;
+    padding: 4px 22px 4px 8px;
     min-height: 24px;
 }
 QComboBox:hover {
     border-color: #1f6aa5;
 }
 QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 18px;
     border: none;
-    width: 20px;
 }
 QComboBox QAbstractItemView {
     background-color: #2b2b2b;
@@ -303,7 +310,7 @@ QToolTip {
     background-color: #333333;
     color: #eeeeee;
     border: 1px solid #555555;
-    padding: 4px 8px;
+    padding: 4px 22px 4px 8px;
     font-size: 10px;
 }
 
@@ -347,3 +354,31 @@ COLORS = {
     'now_playing_bg': '#1a3a1a',
     'now_playing_fg': '#5dff5d',
 }
+
+
+class ComboArrowStyle(QProxyStyle):
+    """Proxy style that paints a small triangle for QComboBox drop-down arrows.
+
+    Qt's stylesheet engine drops the native arrow once QComboBox is styled
+    with custom background/border, and CSS-only fixes are unreliable across
+    platforms.  This proxy intercepts the arrow paint and draws a simple
+    filled triangle.
+    """
+
+    def drawPrimitive(self, element, option, painter, widget=None):
+        if element == QStyle.PE_IndicatorArrowDown:
+            painter.save()
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor('#999999'))
+            r = option.rect
+            cx, cy = r.center().x(), r.center().y()
+            tri = QPolygonF([
+                QPointF(cx - 4, cy - 2),
+                QPointF(cx + 4, cy - 2),
+                QPointF(cx, cy + 3),
+            ])
+            painter.drawPolygon(tri)
+            painter.restore()
+            return
+        super().drawPrimitive(element, option, painter, widget)
