@@ -56,8 +56,6 @@ class PlayLogPanel(QWidget):
         self._voter_combo.setInsertPolicy(QComboBox.NoInsert)
         self._voter_combo.setToolTip('Voter name (type or pick)')
         self._voter_combo.lineEdit().setPlaceholderText('anonymous')
-        self._voter_combo.setStyleSheet(
-            'QComboBox { padding: 2px 4px; }')
         vote_row.addWidget(self._voter_combo, stretch=1)
 
         btn_dislike = QPushButton()
