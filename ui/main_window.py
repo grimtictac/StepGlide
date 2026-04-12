@@ -77,7 +77,7 @@ class MainWindow(QMainWindow):
 
         # Volume / mute
         self._muted = False
-        self._pre_mute_vol = 80
+        self._pre_mute_vol = 100
 
         # Preview
         self._preview_dialog = None
@@ -1095,13 +1095,13 @@ class MainWindow(QMainWindow):
         banner.show()
 
         def _on_banner_click(key):
-            # Unmute and reset volume
-            self._muted = False
-            self._volume_strip.set_mute_icon(False)
-            self._volume_strip.start_timed_fade_up(100, duration_s=1.0)
-            self._volume_strip.volume_slider.flash_glow(1000)
             if key == 'next':
                 self._debug_log('INFO', 'Fade banner → playing next track')
+                # Unmute and reset volume so the next track is audible
+                self._muted = False
+                self._volume_strip.set_mute_icon(False)
+                self._volume_strip.set_volume(100)
+                self._vlc_mp().audio_set_volume(100)
                 self._next_track()
 
         banner.button_clicked.connect(_on_banner_click)

@@ -1269,17 +1269,20 @@ class PullFader(QWidget):
     def _on_released(self):
         """User released the pull fader.
 
-        - If volume hit zero while pulling → snap fader back and reset.
+        - If volume hit zero while pulling → snap fader back, reset volume.
         - If volume > 0 → leave fader in place, fade continues at last speed.
         """
         self._user_holding = False
 
         cur_vol = self._vs.volume_slider.value()
         if cur_vol <= 0:
-            # Volume already at zero — snap back and clear
+            # Volume at zero — snap back and restore volume to max
             self._snap_back()
+            self._vs.set_volume(100)
+            self._vs.volume_changed.emit(100)
+            self._vs.volume_slider.flash_glow(1000)
             self.debug_log.emit('DEBUG',
-                                'Pull-fader: released at zero → snapped back')
+                                'Pull-fader: released at zero → volume reset to 100')
         else:
             # Fade continues at the locked-in speed — don't stop or snap
             self.debug_log.emit('DEBUG',
