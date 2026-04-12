@@ -1429,10 +1429,10 @@ class TransportBar(QWidget):
     # ── Build ────────────────────────────────────────────
 
     def _build_ui(self):
-        self.setFixedHeight(34)
+        self.setFixedHeight(38)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 0, 8, 0)
+        outer.setContentsMargins(8, 2, 8, 2)
         outer.setSpacing(0)
 
         # ── Row 1: transport buttons + scrub + time ──────
@@ -1489,7 +1489,14 @@ class TransportBar(QWidget):
         row1.addWidget(self.lbl_time_total)
 
         # ── Speed controls (inline in row 1) ────────────
-        row1.addSpacing(6)
+        # Visual separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setStyleSheet(f'color: {COLORS["border"]};')
+        sep.setFixedHeight(24)
+        row1.addSpacing(4)
+        row1.addWidget(sep)
+        row1.addSpacing(4)
 
         # Speed frame (highlighted when ≠ 1.0)
         self._speed_frame = QFrame()
@@ -1520,9 +1527,10 @@ class TransportBar(QWidget):
         self.btn_speed_up.clicked.connect(self.speed_up_clicked)
         speed_layout.addWidget(self.btn_speed_up)
 
-        self.btn_speed_reset = QPushButton('1×')
-        self.btn_speed_reset.setFixedSize(28, 22)
-        self.btn_speed_reset.setStyleSheet('font-size: 11px; font-weight: bold;')
+        self.btn_speed_reset = QPushButton()
+        self.btn_speed_reset.setIcon(qta.icon('mdi6.refresh', color=COLORS['fg']))
+        self.btn_speed_reset.setFixedSize(24, 22)
+        self.btn_speed_reset.setIconSize(self.btn_speed_reset.size() * 0.6)
         self.btn_speed_reset.setToolTip('Reset speed to 1×')
         self.btn_speed_reset.clicked.connect(self.speed_reset_clicked)
         speed_layout.addWidget(self.btn_speed_reset)

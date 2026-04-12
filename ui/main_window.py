@@ -149,26 +149,6 @@ class MainWindow(QMainWindow):
         np_layout.addWidget(self._lbl_now_playing)
         np_layout.addStretch()
 
-        # EQ button
-        self._btn_eq = QPushButton()
-        self._icon_eq_off = qta.icon('mdi6.equalizer', color=COLORS['fg'])
-        self._icon_eq_on = qta.icon('mdi6.equalizer', color=COLORS['green_text'])
-        self._btn_eq.setIcon(self._icon_eq_off)
-        self._btn_eq.setFixedSize(34, 28)
-        self._btn_eq.setIconSize(self._btn_eq.size() * 0.55)
-        self._btn_eq.setToolTip('Equalizer')
-        self._btn_eq.clicked.connect(self._show_eq_dialog)
-        np_layout.addWidget(self._btn_eq)
-
-        # Jump-to-playing button
-        self.btn_jump = QPushButton()
-        self.btn_jump.setIcon(qta.icon('mdi6.crosshairs-gps', color=COLORS['fg']))
-        self.btn_jump.setFixedSize(34, 28)
-        self.btn_jump.setIconSize(self.btn_jump.size() * 0.55)
-        self.btn_jump.setToolTip('Jump to now playing track')
-        self.btn_jump.clicked.connect(self._jump_to_playing)
-        np_layout.addWidget(self.btn_jump)
-
         center_layout.addWidget(now_playing_bar)
 
         # Full-width waveform scrub bar (sits above transport controls)
@@ -203,17 +183,44 @@ class MainWindow(QMainWindow):
             self._waveform_bar.hide()
             self._waveform_legend.hide()
         self._connect_transport()
+
+        # Jump-to-playing button (next to stop in transport row)
+        self.btn_jump = QPushButton()
+        self.btn_jump.setIcon(qta.icon('mdi6.crosshairs-gps', color=COLORS['fg']))
+        self.btn_jump.setFixedSize(34, 28)
+        self.btn_jump.setIconSize(self.btn_jump.size() * 0.55)
+        self.btn_jump.setToolTip('Jump to now playing track')
+        self.btn_jump.setStyleSheet('min-height: 0px; padding: 0px;')
+        self.btn_jump.clicked.connect(self._jump_to_playing)
+        self._transport._row1.insertWidget(2, self.btn_jump)  # after stop
+
+        # EQ button (next to speed controls in transport row)
+        self._btn_eq = QPushButton()
+        self._icon_eq_off = qta.icon('mdi6.equalizer', color=COLORS['fg'])
+        self._icon_eq_on = qta.icon('mdi6.equalizer', color=COLORS['green_text'])
+        self._btn_eq.setIcon(self._icon_eq_off)
+        self._btn_eq.setFixedSize(34, 28)
+        self._btn_eq.setIconSize(self._btn_eq.size() * 0.55)
+        self._btn_eq.setToolTip('Equalizer')
+        self._btn_eq.setStyleSheet('min-height: 0px; padding: 0px;')
+        self._btn_eq.clicked.connect(self._show_eq_dialog)
+        # Insert after auto-reset checkbox (end of speed section)
+        self._transport._row1.addWidget(self._btn_eq)
+
         center_layout.addWidget(self._transport)
 
-        # Search / filter bar
+        # Search / filter bar + tag bar (combined row)
+        filter_row = QWidget()
+        filter_row_layout = QHBoxLayout(filter_row)
+        filter_row_layout.setContentsMargins(0, 0, 0, 0)
+        filter_row_layout.setSpacing(4)
         self._search_bar = SearchFilterBar(self)
         self._connect_search_bar()
-        center_layout.addWidget(self._search_bar)
-
-        # Tag filter bar
+        filter_row_layout.addWidget(self._search_bar, stretch=1)
         self._tag_bar = TagBar(self)
         self._tag_bar.tags_changed.connect(self._on_tags_changed)
-        center_layout.addWidget(self._tag_bar)
+        filter_row_layout.addWidget(self._tag_bar)
+        center_layout.addWidget(filter_row)
 
         # Track table
         self._track_model = TrackTableModel(self)
@@ -1409,11 +1416,12 @@ class MainWindow(QMainWindow):
             self._btn_eq.setIcon(self._icon_eq_on)
             self._btn_eq.setStyleSheet(
                 'QPushButton { background-color: #1a3d1a;'
-                '  border: 1px solid #4caf50; border-radius: 4px; }'
+                '  border: 1px solid #4caf50; border-radius: 4px;'
+                '  min-height: 0px; padding: 0px; }'
                 'QPushButton:hover { background-color: #2a5a2a; }')
         else:
             self._btn_eq.setIcon(self._icon_eq_off)
-            self._btn_eq.setStyleSheet('')
+            self._btn_eq.setStyleSheet('min-height: 0px; padding: 0px;')
 
     # ── Settings ─────────────────────────────────────────
 
