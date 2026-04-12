@@ -135,6 +135,7 @@ class TagBar(QWidget):
                 f'  color: #ffffff; '
                 '  border: 1px solid #555555; border-radius: 3px; '
                 '  font-size: 9px; font-weight: bold; padding: 1px 4px; '
+                '  min-height: 0px; '
                 '}'
             )
         return (
@@ -143,6 +144,7 @@ class TagBar(QWidget):
             f'  color: {COLORS["fg"]}; '
             '  border: 1px solid #555555; border-radius: 3px; '
             '  font-size: 9px; font-weight: bold; padding: 1px 4px; '
+            '  min-height: 0px; '
             '}'
             'QPushButton:hover { background-color: #3b3b3b; }'
         )
@@ -156,6 +158,7 @@ class TagBar(QWidget):
                 f'  color: {COLORS["fg_dim"]}; '
                 '  border: 1px solid #555555; border-radius: 3px; '
                 '  font-size: 9px; font-weight: bold; padding: 1px 4px; '
+                '  min-height: 0px; '
                 '}'
             )
         return (
@@ -164,6 +167,7 @@ class TagBar(QWidget):
             f'  color: {COLORS["accent"]}; '
             f'  border: 1px solid {COLORS["accent"]}; border-radius: 3px; '
             '  font-size: 9px; font-weight: bold; padding: 1px 4px; '
+            '  min-height: 0px; '
             '}'
             'QPushButton:hover { background-color: #3b3b3b; }'
         )
