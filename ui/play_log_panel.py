@@ -130,8 +130,7 @@ class PlayLogPanel(QWidget):
 
     def _flash_item(self, item, duration_ms=1500, steps=15):
         """Briefly highlight *item* with a fading background glow."""
-        start_color = QColor(COLORS['accent'])
-        end_color = QColor('transparent')
+        base = QColor(COLORS['accent'])
         cols = self._tree.columnCount()
         step_interval = duration_ms // steps
         step_count = [0]
@@ -139,25 +138,26 @@ class PlayLogPanel(QWidget):
         def _tick():
             step_count[0] += 1
             t = step_count[0] / steps
-            r = int(start_color.red()   + t * (end_color.red()   - start_color.red()))
-            g = int(start_color.green() + t * (end_color.green() - start_color.green()))
-            b = int(start_color.blue()  + t * (end_color.blue()  - start_color.blue()))
-            a = int(start_color.alpha() + t * (end_color.alpha() - start_color.alpha()))
-            color = QColor(r, g, b, a)
+            # Keep the accent RGB, just fade the alpha toward 0
+            alpha = int(base.alpha() * (1.0 - t))
+            color = QColor(base.red(), base.green(), base.blue(), alpha)
             for c in range(cols):
                 item.setBackground(c, color)
             if step_count[0] >= steps:
-                timer.stop()
+                self._flash_timer.stop()
                 for c in range(cols):
                     item.setData(c, Qt.BackgroundRole, None)
 
-        timer = QTimer(self)
-        timer.setInterval(step_interval)
-        timer.timeout.connect(_tick)
+        # Stop any previous flash
+        if hasattr(self, '_flash_timer') and self._flash_timer.isActive():
+            self._flash_timer.stop()
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setInterval(step_interval)
+        self._flash_timer.timeout.connect(_tick)
         # Set initial highlight
         for c in range(cols):
-            item.setBackground(c, start_color)
-        timer.start()
+            item.setBackground(c, base)
+        self._flash_timer.start()
 
     # ── Rebuild tree ─────────────────────────────────────
 

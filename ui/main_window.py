@@ -140,13 +140,13 @@ class MainWindow(QMainWindow):
         now_playing_bar.setStyleSheet(f'background-color: {COLORS["bg_dark"]};')
         np_layout = QHBoxLayout(now_playing_bar)
         np_layout.setContentsMargins(8, 4, 8, 4)
+        self._lbl_genre = QLabel('')
+        self._lbl_genre.setStyleSheet(
+            f'color: {COLORS["cyan"]}; font-size: 15px; font-weight: bold; padding: 2px 6px;')
+        np_layout.addWidget(self._lbl_genre)
         self._lbl_now_playing = QLabel('Not Playing')
         self._lbl_now_playing.setStyleSheet('font-size: 18px; font-weight: bold;')
         np_layout.addWidget(self._lbl_now_playing)
-        self._lbl_genre = QLabel('')
-        self._lbl_genre.setStyleSheet(
-            f'color: {COLORS["cyan"]}; font-size: 11px; padding: 2px 6px;')
-        np_layout.addWidget(self._lbl_genre)
         np_layout.addStretch()
 
         # EQ button
