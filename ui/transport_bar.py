@@ -1461,6 +1461,7 @@ class TransportBar(QWidget):
         self.btn_stop.setFixedSize(36, 28)
         self.btn_stop.setIconSize(self.btn_stop.size() * 0.6)
         self.btn_stop.setToolTip('Stop')
+        self.btn_stop.setStyleSheet('min-height: 0px; padding: 0px;')
         self.btn_stop.clicked.connect(self.stop_clicked)
         row1.addWidget(self.btn_stop)
 
@@ -1510,6 +1511,7 @@ class TransportBar(QWidget):
         self.btn_speed_down.setFixedSize(24, 24)
         self.btn_speed_down.setIconSize(self.btn_speed_down.size() * 0.6)
         self.btn_speed_down.setToolTip('Decrease speed')
+        self.btn_speed_down.setStyleSheet('min-height: 0px; padding: 0px;')
         self.btn_speed_down.clicked.connect(self.speed_down_clicked)
         speed_layout.addWidget(self.btn_speed_down)
 
@@ -1524,6 +1526,7 @@ class TransportBar(QWidget):
         self.btn_speed_up.setFixedSize(24, 24)
         self.btn_speed_up.setIconSize(self.btn_speed_up.size() * 0.6)
         self.btn_speed_up.setToolTip('Increase speed')
+        self.btn_speed_up.setStyleSheet('min-height: 0px; padding: 0px;')
         self.btn_speed_up.clicked.connect(self.speed_up_clicked)
         speed_layout.addWidget(self.btn_speed_up)
 
@@ -1532,6 +1535,7 @@ class TransportBar(QWidget):
         self.btn_speed_reset.setFixedSize(24, 24)
         self.btn_speed_reset.setIconSize(self.btn_speed_reset.size() * 0.6)
         self.btn_speed_reset.setToolTip('Reset speed to 1×')
+        self.btn_speed_reset.setStyleSheet('min-height: 0px; padding: 0px;')
         self.btn_speed_reset.clicked.connect(self.speed_reset_clicked)
         speed_layout.addWidget(self.btn_speed_reset)
 
