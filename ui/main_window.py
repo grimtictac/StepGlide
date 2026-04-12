@@ -475,7 +475,8 @@ class MainWindow(QMainWindow):
             self._search_bar.set_length_options(opts)
 
         # Populate sidebar
-        self._sidebar.set_genre_data(self.genres, self.config.genre_groups)
+        self._sidebar.set_genre_data(
+            self.genres, self.config.genre_groups, self._genre_counts())
         self._sidebar.set_playlist_data(
             self.config.playlists, self.config.smart_playlists)
 
@@ -501,6 +502,14 @@ class MainWindow(QMainWindow):
         self._play_log.set_voters(self.all_voters)
         self._play_log.set_db(self.db)
         self._play_log.load(self.db)
+
+    def _genre_counts(self):
+        """Return {genre_name: track_count} from self.playlist."""
+        counts = {}
+        for entry in self.playlist:
+            g = entry.get('genre', 'Unknown')
+            counts[g] = counts.get(g, 0) + 1
+        return counts
 
     def _update_track_count(self):
         total = len(self.playlist)
@@ -1268,7 +1277,8 @@ class MainWindow(QMainWindow):
         self.genres.add(genre)
         self.db.update_track_field(entry['path'], 'genre', genre)
         self._track_model.update_row(idx)
-        self._sidebar.set_genre_data(self.genres, self.config.genre_groups)
+        self._sidebar.set_genre_data(self.genres, self.config.genre_groups,
+                                     self._genre_counts())
 
     def _ctx_edit_genre(self, idx):
         entry = self.playlist[idx]
@@ -1423,7 +1433,8 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             # Refresh UI elements that depend on config
             self._sidebar.set_genre_data(
-                sorted(self.genres), self.config.genre_groups)
+                sorted(self.genres), self.config.genre_groups,
+                self._genre_counts())
             self._tag_bar.set_tags(self.config.all_tags, self.config.tag_rows)
             if self.config.length_filter_durations:
                 opts = [label for label, lo, hi in self.config.length_filter_durations]
