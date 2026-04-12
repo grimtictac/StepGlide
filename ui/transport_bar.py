@@ -1429,6 +1429,8 @@ class TransportBar(QWidget):
     # ── Build ────────────────────────────────────────────
 
     def _build_ui(self):
+        self.setFixedHeight(34)
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 0, 8, 0)
         outer.setSpacing(0)
@@ -1447,7 +1449,8 @@ class TransportBar(QWidget):
         self.btn_play.setIconSize(self.btn_play.size() * 0.65)
         self.btn_play.setToolTip('Play / Pause')
         self.btn_play.setStyleSheet(
-            f'QPushButton {{ background-color: {COLORS["accent"]}; border-radius: 4px; }}'
+            f'QPushButton {{ background-color: {COLORS["accent"]}; border-radius: 4px;'
+            f' min-height: 0px; padding: 0px; }}'
             f'QPushButton:hover {{ background-color: {COLORS["accent_hover"]}; }}')
         self.btn_play.clicked.connect(self.play_pause_clicked)
         row1.addWidget(self.btn_play)
@@ -1631,12 +1634,14 @@ class TransportBar(QWidget):
         if playing:
             self.btn_play.setIcon(self._icon_pause)
             self.btn_play.setStyleSheet(
-                f'QPushButton {{ background-color: {COLORS["green"]}; border-radius: 4px; }}'
+                f'QPushButton {{ background-color: {COLORS["green"]}; border-radius: 4px;'
+                f' min-height: 0px; padding: 0px; }}'
                 f'QPushButton:hover {{ background-color: {COLORS["green_hover"]}; }}')
         else:
             self.btn_play.setIcon(self._icon_play)
             self.btn_play.setStyleSheet(
-                f'QPushButton {{ background-color: {COLORS["accent"]}; border-radius: 4px; }}'
+                f'QPushButton {{ background-color: {COLORS["accent"]}; border-radius: 4px;'
+                f' min-height: 0px; padding: 0px; }}'
                 f'QPushButton:hover {{ background-color: {COLORS["accent_hover"]}; }}')
 
     def set_speed_label(self, speed):
