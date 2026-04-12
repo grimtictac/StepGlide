@@ -77,78 +77,77 @@ class SearchFilterBar(QWidget):
         self._debounce_timer.setInterval(200)
         self._debounce_timer.timeout.connect(self._emit_search)
         self._combos = []  # list of (QComboBox, default_index) for highlight tracking
+        self._search = None  # set by create_search_widget
         self._build_ui()
 
-    def _build_ui(self):
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 2, 8, 2)
-        outer.setSpacing(2)
+    def create_search_widget(self, parent=None):
+        """Create and return a search row widget (label + input).
 
-        # ── Row 1: Search ────────────────────────────────
-        search_row = QHBoxLayout()
-        search_row.setSpacing(6)
+        The returned widget can be placed anywhere in the layout.
+        The debounce timer and search_changed signal are still managed here.
+        """
+        row = QWidget(parent)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(8, 2, 8, 2)
+        row_layout.setSpacing(6)
 
-        lbl_search = QLabel('Search')
-        lbl_search.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 11px;')
-        search_row.addWidget(lbl_search)
+        lbl = QLabel('Search')
+        lbl.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 11px;')
+        row_layout.addWidget(lbl)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText('artist:name, "quoted phrase"')
         self._search.setClearButtonEnabled(True)
         self._search.setMinimumWidth(200)
         self._search.textChanged.connect(self._on_search_text)
-        search_row.addWidget(self._search, stretch=1)
+        row_layout.addWidget(self._search, stretch=1)
 
-        outer.addLayout(search_row)
+        return row
 
-        # ── Row 2: Filter dropdowns ──────────────────────
-        filter_row = QHBoxLayout()
-        filter_row.setSpacing(6)
+    def _build_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setSpacing(6)
 
         # Rating filter
-        self._rating_cb = self._add_combo(filter_row, 'Rating', [
+        self._rating_cb = self._add_combo(layout, 'Rating', [
             'All', '≥ +1', '≥ +2', '≥ +3', '= 0', '≤ -1', '≤ -2',
         ])
         self._rating_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._rating_cb.currentTextChanged.connect(self._on_rating)
 
         # Liked By filter
-        self._liked_by_cb = self._add_combo(filter_row, 'Liked By', ['All'])
+        self._liked_by_cb = self._add_combo(layout, 'Liked By', ['All'])
         self._liked_by_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._liked_by_cb.currentTextChanged.connect(self._on_liked_by)
 
         # Date filters
         date_opts = ['All', 'Today', 'This Week', 'This Month']
-        self._first_played_cb = self._add_combo(filter_row, 'First Played', date_opts)
+        self._first_played_cb = self._add_combo(layout, 'First Played', date_opts)
         self._first_played_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._first_played_cb.currentTextChanged.connect(
             lambda v: self.first_played_changed.emit(v))
 
-        self._last_played_cb = self._add_combo(filter_row, 'Last Played', date_opts)
+        self._last_played_cb = self._add_combo(layout, 'Last Played', date_opts)
         self._last_played_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._last_played_cb.currentTextChanged.connect(
             lambda v: self.last_played_changed.emit(v))
 
-        self._file_created_cb = self._add_combo(filter_row, 'File Created', date_opts)
+        self._file_created_cb = self._add_combo(layout, 'File Created', date_opts)
         self._file_created_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._file_created_cb.currentTextChanged.connect(
             lambda v: self.file_created_changed.emit(v))
 
         # Length filter
-        self._length_cb = self._add_combo(filter_row, 'Length', ['All'])
+        self._length_cb = self._add_combo(layout, 'Length', ['All'])
         self._length_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._length_cb.currentTextChanged.connect(self._on_length)
-
-        filter_row.addStretch()
 
         # Reset button
         self._btn_reset = QPushButton('Reset')
         self._btn_reset.setFixedHeight(26)
         self._btn_reset.setToolTip('Reset all filters')
         self._btn_reset.clicked.connect(self._reset_all)
-        filter_row.addWidget(self._btn_reset)
-
-        outer.addLayout(filter_row)
+        layout.addWidget(self._btn_reset)
 
     def _add_combo(self, layout, label, items):
         """Create a label-above-combo pair and add to the parent layout."""
@@ -174,7 +173,8 @@ class SearchFilterBar(QWidget):
         self._debounce_timer.start()
 
     def _emit_search(self):
-        tokens = parse_search_tokens(self._search.text())
+        text = self._search.text() if self._search else ''
+        tokens = parse_search_tokens(text)
         self.search_changed.emit(tokens)
 
     def _on_rating(self, text):
@@ -224,7 +224,8 @@ class SearchFilterBar(QWidget):
             self._btn_reset.setStyleSheet('')
 
     def _reset_all(self):
-        self._search.clear()
+        if self._search:
+            self._search.clear()
         self._rating_cb.setCurrentIndex(0)
         self._liked_by_cb.setCurrentIndex(0)
         self._first_played_cb.setCurrentIndex(0)
@@ -238,8 +239,9 @@ class SearchFilterBar(QWidget):
 
     def focus_search(self):
         """Focus and select all text in the search box."""
-        self._search.setFocus()
-        self._search.selectAll()
+        if self._search:
+            self._search.setFocus()
+            self._search.selectAll()
 
     def set_voters(self, voters):
         """Populate the Liked By dropdown with voter names."""
