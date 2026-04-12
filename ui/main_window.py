@@ -1056,10 +1056,20 @@ class MainWindow(QMainWindow):
         self._lbl_genre.setText('')
 
     def _on_fade_hit_zero(self):
-        """Fade reached zero — stop playback and reset volume to max."""
-        self._debug_log('INFO', 'Fade hit zero → stopping and resetting volume')
-        self._stop()
-        self._volume_strip.set_volume(100)
+        """Fade reached zero — glow stop, pause, stop playback, reset volume."""
+        self._debug_log('INFO', 'Fade hit zero → staged stop & reset')
+
+        # Stage 1: Glow the stop button immediately (stays lit ~1.5 s)
+        self._transport.flash_stop_button(1500)
+
+        # Stage 2: After 1 s, stop playback + glow + reset volume
+        def _stage2():
+            self._stop()
+            self._volume_strip.set_volume(100)
+            self._vlc_mp().audio_set_volume(100)
+            self._volume_strip.volume_slider.flash_glow(1000)
+
+        QTimer.singleShot(1000, _stage2)
 
     @perf.track
     def _next_track(self):

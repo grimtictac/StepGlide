@@ -325,6 +325,37 @@ class GradientVolumeSlider(TickSlider):
 
         painter.end()
 
+    # ── Glow flash ───────────────────────────────────────
+
+    def flash_glow(self, duration_ms=1000):
+        """Temporarily tint the groove and handle cyan, then revert."""
+        # Save originals
+        orig_bottom = self._color_bottom
+        orig_mid = self._color_mid
+        orig_top = self._color_top
+        orig_handle = self._color_handle
+        orig_handle_hover = self._color_handle_hover
+
+        glow = QColor(COLORS['cyan_bright'])
+        glow_dim = QColor(COLORS['cyan'])
+
+        self._color_bottom = glow
+        self._color_mid = glow
+        self._color_top = glow
+        self._color_handle = glow
+        self._color_handle_hover = glow_dim
+        self.update()
+
+        def _revert():
+            self._color_bottom = orig_bottom
+            self._color_mid = orig_mid
+            self._color_top = orig_top
+            self._color_handle = orig_handle
+            self._color_handle_hover = orig_handle_hover
+            self.update()
+
+        QTimer.singleShot(duration_ms, _revert)
+
 
 # ── Gauge stylesheets (vertical orientation) ─────────────
 _GAUGE_WIDTH = 6
@@ -1728,3 +1759,20 @@ class TransportBar(QWidget):
         secs = int(ms / 1000)
         m, s = divmod(secs, 60)
         return f'{m}:{s:02d}'
+
+    def flash_stop_button(self, duration_ms=1000):
+        """Briefly glow the stop button with a cyan border."""
+        self.btn_stop.setStyleSheet(
+            f'min-height: 0px; padding: 0px;'
+            f' border: 2px solid {COLORS["cyan_bright"]};'
+            f' border-radius: 4px;'
+            f' background-color: #003040;')
+        self.btn_stop.setIcon(
+            qta.icon('mdi6.stop', color=COLORS['cyan_bright']))
+
+        def _revert():
+            self.btn_stop.setStyleSheet('min-height: 0px; padding: 0px;')
+            self.btn_stop.setIcon(
+                qta.icon('mdi6.stop', color=COLORS['fg']))
+
+        QTimer.singleShot(duration_ms, _revert)
