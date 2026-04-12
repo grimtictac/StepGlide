@@ -998,7 +998,7 @@ class MainWindow(QMainWindow):
             self.is_playing = False
             self._last_action = 'paused'
             self._transport.set_playing_state(False)
-            self._update_now_playing('Paused')
+            self._update_now_playing()
             return
 
         # Currently paused → resume
@@ -1051,7 +1051,7 @@ class MainWindow(QMainWindow):
         self.is_paused = False
         self._last_action = 'stopped'
         self._transport.reset_display()
-        self._update_now_playing('Stopped')
+        self._update_now_playing()
 
     @perf.track
     def _next_track(self):
