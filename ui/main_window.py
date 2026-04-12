@@ -1169,7 +1169,6 @@ class MainWindow(QMainWindow):
                 indices.append(pl_idx)
         return indices
 
-    @perf.track
     def _on_context_menu(self, playlist_idx, pos):
         """Show context menu on right-click in track table."""
         selected = self._get_selected_indices()
@@ -1247,6 +1246,8 @@ class MainWindow(QMainWindow):
         menu.addAction(r_lbl,
                        lambda idxs=selected: self._ctx_remove_tracks(idxs))
 
+        # menu.exec() blocks until the user picks an item or dismisses —
+        # deliberately NOT inside perf.track so we don't measure browse time.
         menu.exec(pos)
 
     # ── Context menu actions ─────────────────────────────
