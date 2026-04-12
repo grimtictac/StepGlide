@@ -1430,8 +1430,8 @@ class TransportBar(QWidget):
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 2, 8, 2)
-        outer.setSpacing(2)
+        outer.setContentsMargins(8, 0, 8, 0)
+        outer.setSpacing(0)
 
         # ── Row 1: transport buttons + scrub + time ──────
         row1 = QHBoxLayout()
@@ -1443,7 +1443,7 @@ class TransportBar(QWidget):
         self._icon_play = qta.icon('mdi6.play', color='white')
         self._icon_pause = qta.icon('mdi6.pause', color='white')
         self.btn_play.setIcon(self._icon_play)
-        self.btn_play.setFixedSize(48, 34)
+        self.btn_play.setFixedSize(44, 28)
         self.btn_play.setIconSize(self.btn_play.size() * 0.65)
         self.btn_play.setToolTip('Play / Pause')
         self.btn_play.setStyleSheet(
@@ -1455,7 +1455,7 @@ class TransportBar(QWidget):
         # Stop
         self.btn_stop = QPushButton()
         self.btn_stop.setIcon(qta.icon('mdi6.stop', color=COLORS['fg']))
-        self.btn_stop.setFixedSize(40, 34)
+        self.btn_stop.setFixedSize(36, 28)
         self.btn_stop.setIconSize(self.btn_stop.size() * 0.6)
         self.btn_stop.setToolTip('Stop')
         self.btn_stop.clicked.connect(self.stop_clicked)
@@ -1497,7 +1497,7 @@ class TransportBar(QWidget):
 
         self.btn_speed_down = QPushButton()
         self.btn_speed_down.setIcon(qta.icon('mdi6.minus', color=COLORS['fg']))
-        self.btn_speed_down.setFixedSize(28, 26)
+        self.btn_speed_down.setFixedSize(24, 22)
         self.btn_speed_down.setIconSize(self.btn_speed_down.size() * 0.6)
         self.btn_speed_down.setToolTip('Decrease speed')
         self.btn_speed_down.clicked.connect(self.speed_down_clicked)
@@ -1511,14 +1511,14 @@ class TransportBar(QWidget):
 
         self.btn_speed_up = QPushButton()
         self.btn_speed_up.setIcon(qta.icon('mdi6.plus', color=COLORS['fg']))
-        self.btn_speed_up.setFixedSize(28, 26)
+        self.btn_speed_up.setFixedSize(24, 22)
         self.btn_speed_up.setIconSize(self.btn_speed_up.size() * 0.6)
         self.btn_speed_up.setToolTip('Increase speed')
         self.btn_speed_up.clicked.connect(self.speed_up_clicked)
         speed_layout.addWidget(self.btn_speed_up)
 
         self.btn_speed_reset = QPushButton('1×')
-        self.btn_speed_reset.setFixedSize(32, 26)
+        self.btn_speed_reset.setFixedSize(28, 22)
         self.btn_speed_reset.setStyleSheet('font-size: 11px; font-weight: bold;')
         self.btn_speed_reset.setToolTip('Reset speed to 1×')
         self.btn_speed_reset.clicked.connect(self.speed_reset_clicked)
@@ -1612,9 +1612,9 @@ class TransportBar(QWidget):
             self.scrub_slider.setValue(0)
             self.scrub_slider.setToolTip('Seek')
             self.scrub_slider.setStyleSheet(
-                f'QSlider::groove:horizontal {{ height: 6px; background: {COLORS["bg_light"]}; border-radius: 3px; }}'
-                f'QSlider::handle:horizontal {{ width: 12px; margin: -4px 0; background: {COLORS["accent"]}; border-radius: 6px; }}'
-                f'QSlider::sub-page:horizontal {{ background: {COLORS["accent"]}; border-radius: 3px; }}'
+                f'QSlider::groove:horizontal {{ height: 10px; background: {COLORS["bg_light"]}; border-radius: 5px; }}'
+                f'QSlider::handle:horizontal {{ width: 16px; margin: -4px 0; background: {COLORS["accent"]}; border-radius: 8px; }}'
+                f'QSlider::sub-page:horizontal {{ background: {COLORS["accent"]}; border-radius: 5px; }}'
             )
             self.scrub_slider.sliderPressed.connect(self._on_scrub_pressed)
             self.scrub_slider.sliderMoved.connect(self._on_scrub_moved_tick)
