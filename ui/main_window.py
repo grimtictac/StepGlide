@@ -290,6 +290,10 @@ class MainWindow(QMainWindow):
             lambda: self._open_settings(tab='Volume'))
         self._volume_strip.apply_config(self.config)
 
+        # Sync VLC volume to slider's initial value at startup
+        self._vlc_mp().audio_set_volume(
+            self._volume_strip.volume_slider.value())
+
         self._volume_panel = VolumePanel(self._volume_strip, self)
         self._volume_panel.pull_fader.debug_log.connect(self._debug_log)
         self._volume_panel.pull_fader.apply_config(self.config)

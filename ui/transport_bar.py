@@ -549,7 +549,7 @@ class VolumeStrip(QWidget):
         # Volume slider (center) — no tick marks
         self.volume_slider = GradientVolumeSlider(Qt.Vertical)
         self.volume_slider.setRange(0, 100)
-        self.volume_slider.setValue(80)
+        self.volume_slider.setValue(100)
         self.volume_slider.setToolTip('Volume')
         self.volume_slider.setTickPosition(QSlider.NoTicks)
         self.volume_slider._label_font_size = 6
