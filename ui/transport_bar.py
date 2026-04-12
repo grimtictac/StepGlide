@@ -1429,7 +1429,7 @@ class TransportBar(QWidget):
     # ── Build ────────────────────────────────────────────
 
     def _build_ui(self):
-        self.setFixedHeight(38)
+        self.setFixedHeight(40)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 2, 8, 2)
@@ -1493,7 +1493,7 @@ class TransportBar(QWidget):
         sep = QFrame()
         sep.setFrameShape(QFrame.VLine)
         sep.setStyleSheet(f'color: {COLORS["border"]};')
-        sep.setFixedHeight(24)
+        sep.setFixedHeight(28)
         row1.addSpacing(4)
         row1.addWidget(sep)
         row1.addSpacing(4)
@@ -1507,7 +1507,7 @@ class TransportBar(QWidget):
 
         self.btn_speed_down = QPushButton()
         self.btn_speed_down.setIcon(qta.icon('mdi6.minus', color=COLORS['fg']))
-        self.btn_speed_down.setFixedSize(24, 22)
+        self.btn_speed_down.setFixedSize(24, 24)
         self.btn_speed_down.setIconSize(self.btn_speed_down.size() * 0.6)
         self.btn_speed_down.setToolTip('Decrease speed')
         self.btn_speed_down.clicked.connect(self.speed_down_clicked)
@@ -1521,7 +1521,7 @@ class TransportBar(QWidget):
 
         self.btn_speed_up = QPushButton()
         self.btn_speed_up.setIcon(qta.icon('mdi6.plus', color=COLORS['fg']))
-        self.btn_speed_up.setFixedSize(24, 22)
+        self.btn_speed_up.setFixedSize(24, 24)
         self.btn_speed_up.setIconSize(self.btn_speed_up.size() * 0.6)
         self.btn_speed_up.setToolTip('Increase speed')
         self.btn_speed_up.clicked.connect(self.speed_up_clicked)
@@ -1529,7 +1529,7 @@ class TransportBar(QWidget):
 
         self.btn_speed_reset = QPushButton()
         self.btn_speed_reset.setIcon(qta.icon('mdi6.refresh', color=COLORS['fg']))
-        self.btn_speed_reset.setFixedSize(24, 22)
+        self.btn_speed_reset.setFixedSize(24, 24)
         self.btn_speed_reset.setIconSize(self.btn_speed_reset.size() * 0.6)
         self.btn_speed_reset.setToolTip('Reset speed to 1×')
         self.btn_speed_reset.clicked.connect(self.speed_reset_clicked)

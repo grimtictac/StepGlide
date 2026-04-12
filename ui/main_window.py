@@ -209,18 +209,15 @@ class MainWindow(QMainWindow):
 
         center_layout.addWidget(self._transport)
 
-        # Search / filter bar + tag bar (combined row)
-        filter_row = QWidget()
-        filter_row_layout = QHBoxLayout(filter_row)
-        filter_row_layout.setContentsMargins(0, 0, 0, 0)
-        filter_row_layout.setSpacing(4)
+        # Search / filter bar (two internal rows: search + filter combos)
         self._search_bar = SearchFilterBar(self)
         self._connect_search_bar()
-        filter_row_layout.addWidget(self._search_bar, stretch=1)
+        center_layout.addWidget(self._search_bar)
+
+        # Tag filter bar
         self._tag_bar = TagBar(self)
         self._tag_bar.tags_changed.connect(self._on_tags_changed)
-        filter_row_layout.addWidget(self._tag_bar)
-        center_layout.addWidget(filter_row)
+        center_layout.addWidget(self._tag_bar)
 
         # Track table
         self._track_model = TrackTableModel(self)

@@ -59,8 +59,7 @@ def parse_search_tokens(raw):
 
 
 class SearchFilterBar(QWidget):
-    """Horizontal bar: [🔍 search] [Rating ▾] [Liked By ▾] [First Played ▾]
-    [Last Played ▾] [File Created ▾] [Length ▾] [Reset]"""
+    """Two-row bar: top row is search, bottom row is filter dropdowns + reset."""
 
     search_changed = Signal(list)         # list of (field_fn, term) tokens
     rating_changed = Signal(object)       # (op, val) or None
@@ -77,58 +76,81 @@ class SearchFilterBar(QWidget):
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.setInterval(200)
         self._debounce_timer.timeout.connect(self._emit_search)
+        self._combos = []  # list of (QComboBox, default_index) for highlight tracking
         self._build_ui()
 
     def _build_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 2, 8, 2)
-        layout.setSpacing(6)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 2, 8, 2)
+        outer.setSpacing(2)
 
-        # Search box
+        # ── Row 1: Search ────────────────────────────────
+        search_row = QHBoxLayout()
+        search_row.setSpacing(6)
+
+        lbl_search = QLabel('Search')
+        lbl_search.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 11px;')
+        search_row.addWidget(lbl_search)
+
         self._search = QLineEdit()
-        self._search.setPlaceholderText('Search… (artist:name, "quoted phrase")')
+        self._search.setPlaceholderText('artist:name, "quoted phrase"')
         self._search.setClearButtonEnabled(True)
         self._search.setMinimumWidth(200)
         self._search.textChanged.connect(self._on_search_text)
-        layout.addWidget(self._search, stretch=1)
+        search_row.addWidget(self._search, stretch=1)
+
+        outer.addLayout(search_row)
+
+        # ── Row 2: Filter dropdowns ──────────────────────
+        filter_row = QHBoxLayout()
+        filter_row.setSpacing(6)
 
         # Rating filter
-        self._rating_cb = self._add_combo(layout, 'Rating', [
+        self._rating_cb = self._add_combo(filter_row, 'Rating', [
             'All', '≥ +1', '≥ +2', '≥ +3', '= 0', '≤ -1', '≤ -2',
         ])
+        self._rating_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._rating_cb.currentTextChanged.connect(self._on_rating)
 
         # Liked By filter
-        self._liked_by_cb = self._add_combo(layout, 'Liked By', ['All'])
+        self._liked_by_cb = self._add_combo(filter_row, 'Liked By', ['All'])
+        self._liked_by_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._liked_by_cb.currentTextChanged.connect(self._on_liked_by)
 
         # Date filters
         date_opts = ['All', 'Today', 'This Week', 'This Month']
-        self._first_played_cb = self._add_combo(layout, 'First Played', date_opts)
+        self._first_played_cb = self._add_combo(filter_row, 'First Played', date_opts)
+        self._first_played_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._first_played_cb.currentTextChanged.connect(
             lambda v: self.first_played_changed.emit(v))
 
-        self._last_played_cb = self._add_combo(layout, 'Last Played', date_opts)
+        self._last_played_cb = self._add_combo(filter_row, 'Last Played', date_opts)
+        self._last_played_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._last_played_cb.currentTextChanged.connect(
             lambda v: self.last_played_changed.emit(v))
 
-        self._file_created_cb = self._add_combo(layout, 'File Created', date_opts)
+        self._file_created_cb = self._add_combo(filter_row, 'File Created', date_opts)
+        self._file_created_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._file_created_cb.currentTextChanged.connect(
             lambda v: self.file_created_changed.emit(v))
 
         # Length filter
-        self._length_cb = self._add_combo(layout, 'Length', ['All'])
+        self._length_cb = self._add_combo(filter_row, 'Length', ['All'])
+        self._length_cb.currentIndexChanged.connect(self._on_filter_state_changed)
         self._length_cb.currentTextChanged.connect(self._on_length)
 
-        # Reset button
-        btn_reset = QPushButton('Reset')
-        btn_reset.setFixedHeight(26)
-        btn_reset.setToolTip('Reset all filters')
-        btn_reset.clicked.connect(self._reset_all)
-        layout.addWidget(btn_reset)
+        filter_row.addStretch()
 
-    @staticmethod
-    def _add_combo(layout, label, items):
+        # Reset button
+        self._btn_reset = QPushButton('Reset')
+        self._btn_reset.setFixedHeight(26)
+        self._btn_reset.setToolTip('Reset all filters')
+        self._btn_reset.clicked.connect(self._reset_all)
+        filter_row.addWidget(self._btn_reset)
+
+        outer.addLayout(filter_row)
+
+    def _add_combo(self, layout, label, items):
         """Create a label-above-combo pair and add to the parent layout."""
         col = QVBoxLayout()
         col.setContentsMargins(0, 0, 0, 0)
@@ -143,6 +165,7 @@ class SearchFilterBar(QWidget):
         cb.setMinimumWidth(55)
         col.addWidget(cb)
         layout.addLayout(col)
+        self._combos.append((cb, lbl, 0))  # (combo, label_widget, default_index)
         return cb
 
     # ── Slots ────────────────────────────────────────────
@@ -176,6 +199,30 @@ class SearchFilterBar(QWidget):
             return
         self.length_changed.emit(text, None, None)  # main window resolves
 
+    def _on_filter_state_changed(self):
+        """Highlight combos that are not on their default value, and glow reset."""
+        any_active = False
+        for cb, lbl, default_idx in self._combos:
+            active = cb.currentIndex() != default_idx
+            if active:
+                any_active = True
+                lbl.setStyleSheet(
+                    f'color: {COLORS["cyan_bright"]}; font-size: 9px; font-weight: bold;')
+                cb.setStyleSheet(
+                    f'QComboBox {{ border: 1px solid {COLORS["cyan"]}; }}')
+            else:
+                lbl.setStyleSheet(
+                    f'color: {COLORS["fg_dim"]}; font-size: 9px;')
+                cb.setStyleSheet('')
+        if any_active:
+            self._btn_reset.setStyleSheet(
+                f'QPushButton {{ background-color: {COLORS["accent"]}; color: #ffffff;'
+                f'  border: 1px solid {COLORS["cyan"]}; border-radius: 3px;'
+                f'  font-weight: bold; }}'
+                f'QPushButton:hover {{ background-color: {COLORS["accent_hover"]}; }}')
+        else:
+            self._btn_reset.setStyleSheet('')
+
     def _reset_all(self):
         self._search.clear()
         self._rating_cb.setCurrentIndex(0)
@@ -184,6 +231,7 @@ class SearchFilterBar(QWidget):
         self._last_played_cb.setCurrentIndex(0)
         self._file_created_cb.setCurrentIndex(0)
         self._length_cb.setCurrentIndex(0)
+        self._on_filter_state_changed()
         self.filters_reset.emit()
 
     # ── Public API ───────────────────────────────────────
