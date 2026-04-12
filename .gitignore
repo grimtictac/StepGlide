@@ -18,6 +18,7 @@ music_player.db.*
 
 # Performance & debug logs
 perf_*.log
+perf_traces/
 debug_*.log
 
 # User config (machine-specific paths)
