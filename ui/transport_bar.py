@@ -590,6 +590,34 @@ class VolumeStrip(QWidget):
 
         layout.addLayout(bar_labels)
 
+        # ── Timed fade-out buttons (1s, 2s, 3s, 4s) ─────
+        fade_btn_row = QHBoxLayout()
+        fade_btn_row.setSpacing(1)
+        fade_btn_row.setContentsMargins(0, 2, 0, 0)
+
+        self._fade_out_buttons = []
+        _chevron_icons = [
+            'mdi6.chevron-down',
+            'mdi6.chevron-double-down',
+            'mdi6.chevron-triple-down',
+            'mdi6.arrow-collapse-down',
+        ]
+        for i, duration in enumerate([1, 2, 3, 4]):
+            btn = QPushButton()
+            btn.setIcon(qta.icon(_chevron_icons[i], color=COLORS['fg']))
+            btn.setFixedSize(12, 18)
+            btn.setIconSize(btn.size() * 0.7)
+            btn.setToolTip(f'Fade out over {duration}s')
+            btn.setStyleSheet(
+                f'QPushButton {{ min-height: 0px; padding: 0px;'
+                f' border: 1px solid {COLORS["border"]}; border-radius: 2px; }}'
+                f'QPushButton:hover {{ background-color: {COLORS["bg_light"]}; }}')
+            btn.clicked.connect(lambda checked, d=duration: self._start_timed_fade(d))
+            fade_btn_row.addWidget(btn)
+            self._fade_out_buttons.append(btn)
+
+        layout.addLayout(fade_btn_row)
+
         # Gear button at the bottom
         self._btn_gear = QPushButton()
         self._btn_gear.setIcon(qta.icon('mdi6.cog', color=COLORS['fg_dim']))
@@ -791,6 +819,17 @@ class VolumeStrip(QWidget):
         self._pending_interval = 0
         self._wheel_times.clear()
         self._emit_fade_state()
+
+    def _start_timed_fade(self, duration_s):
+        """Fade volume to zero over *duration_s* seconds."""
+        current = self.volume_slider.value()
+        if current <= 0:
+            return
+        speed = current / duration_s  # vol-units per second
+        self._log('DEBUG',
+                  f'Timed fade: {current}% → 0% over {duration_s}s '
+                  f'({speed:.1f} v/s)')
+        self.set_fade_speed(speed, -1)
 
     # ── Public: external speed injection (used by PullFader) ──
 
