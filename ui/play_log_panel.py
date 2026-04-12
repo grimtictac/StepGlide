@@ -122,31 +122,42 @@ class PlayLogPanel(QWidget):
             for j in range(parent.childCount()):
                 child = parent.child(j)
                 if child.data(0, Qt.UserRole) == file_path:
-                    self._tree.setCurrentItem(child)
                     self._tree.scrollToItem(child)
                     self._flash_item(child)
                     return
 
 
     def _flash_item(self, item, duration_ms=1500, steps=15):
-        """Briefly highlight *item* with a fading background glow."""
-        base = QColor(COLORS['accent'])
+        """Briefly highlight *item* with a bright foreground flash."""
+        flash_color = QColor(COLORS['cyan_bright'])
+        orig_colors = []
         cols = self._tree.columnCount()
+        for c in range(cols):
+            orig_colors.append(item.foreground(c).color() if item.foreground(c).style() != 0 else None)
         step_interval = duration_ms // steps
         step_count = [0]
 
         def _tick():
             step_count[0] += 1
             t = step_count[0] / steps
-            # Keep the accent RGB, just fade the alpha toward 0
-            alpha = int(base.alpha() * (1.0 - t))
-            color = QColor(base.red(), base.green(), base.blue(), alpha)
-            for c in range(cols):
-                item.setBackground(c, color)
             if step_count[0] >= steps:
-                self._flash_timer.stop()
+                # Restore original colours and select the item
                 for c in range(cols):
-                    item.setData(c, Qt.BackgroundRole, None)
+                    if orig_colors[c] is not None:
+                        item.setForeground(c, orig_colors[c])
+                    else:
+                        item.setData(c, Qt.ForegroundRole, None)
+                self._flash_timer.stop()
+                self._tree.setCurrentItem(item)
+                return
+            # Interpolate from flash_color back to white
+            end = QColor(COLORS['fg'])
+            r = int(flash_color.red()   + t * (end.red()   - flash_color.red()))
+            g = int(flash_color.green() + t * (end.green() - flash_color.green()))
+            b = int(flash_color.blue()  + t * (end.blue()  - flash_color.blue()))
+            color = QColor(r, g, b)
+            for c in range(cols):
+                item.setForeground(c, color)
 
         # Stop any previous flash
         if hasattr(self, '_flash_timer') and self._flash_timer.isActive():
@@ -154,9 +165,9 @@ class PlayLogPanel(QWidget):
         self._flash_timer = QTimer(self)
         self._flash_timer.setInterval(step_interval)
         self._flash_timer.timeout.connect(_tick)
-        # Set initial highlight
+        # Set initial flash colour
         for c in range(cols):
-            item.setBackground(c, base)
+            item.setForeground(c, flash_color)
         self._flash_timer.start()
 
     # ── Rebuild tree ─────────────────────────────────────
