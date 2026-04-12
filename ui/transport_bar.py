@@ -1414,8 +1414,6 @@ class TransportBar(QWidget):
     # Signals emitted to MainWindow
     play_pause_clicked = Signal()
     stop_clicked = Signal()
-    next_clicked = Signal()
-    prev_clicked = Signal()
     scrub_moved = Signal(float)          # 0.0–1.0 position while dragging
     scrub_released = Signal(float)       # 0.0–1.0 final position on release
     speed_up_clicked = Signal()
@@ -1440,15 +1438,6 @@ class TransportBar(QWidget):
         self._row1 = row1          # keep reference for swap_scrub_mode
         row1.setSpacing(4)
 
-        # Prev
-        self.btn_prev = QPushButton()
-        self.btn_prev.setIcon(qta.icon('mdi6.skip-previous', color=COLORS['fg']))
-        self.btn_prev.setFixedSize(40, 34)
-        self.btn_prev.setIconSize(self.btn_prev.size() * 0.6)
-        self.btn_prev.setToolTip('Previous track')
-        self.btn_prev.clicked.connect(self.prev_clicked)
-        row1.addWidget(self.btn_prev)
-
         # Play / Pause
         self.btn_play = QPushButton()
         self._icon_play = qta.icon('mdi6.play', color='white')
@@ -1462,15 +1451,6 @@ class TransportBar(QWidget):
             f'QPushButton:hover {{ background-color: {COLORS["accent_hover"]}; }}')
         self.btn_play.clicked.connect(self.play_pause_clicked)
         row1.addWidget(self.btn_play)
-
-        # Next
-        self.btn_next = QPushButton()
-        self.btn_next.setIcon(qta.icon('mdi6.skip-next', color=COLORS['fg']))
-        self.btn_next.setFixedSize(40, 34)
-        self.btn_next.setIconSize(self.btn_next.size() * 0.6)
-        self.btn_next.setToolTip('Next track')
-        self.btn_next.clicked.connect(self.next_clicked)
-        row1.addWidget(self.btn_next)
 
         # Stop
         self.btn_stop = QPushButton()

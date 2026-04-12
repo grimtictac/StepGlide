@@ -785,8 +785,6 @@ class MainWindow(QMainWindow):
         t = self._transport
         t.play_pause_clicked.connect(self._play_pause)
         t.stop_clicked.connect(self._stop)
-        t.next_clicked.connect(self._next_track)
-        t.prev_clicked.connect(self._prev_track)
         t.scrub_released.connect(self._on_scrub_released)
         t.speed_up_clicked.connect(self._speed_up)
         t.speed_down_clicked.connect(self._speed_down)
