@@ -55,6 +55,9 @@ Saved ideas from sessions. Grouped and prioritized so we can pick them off in se
 
 ---
 
+### TODO — Resume Here
+- **Fades**: Continue working on fade behaviour. Recent changes: pull-fader release-before-zero (fade continues), release-at-zero (volume resets to 100 + orange glow), fade-to-zero toast banner, timed fade buttons. Still to review: volume desync issues (VLC not matching slider), double-toast guard, overall fade UX.
+
 ### Suggested next steps
 1. **Quick wins**: album art display, media key support, remember window state, now-playing highlight.
 2. **Medium effort**: cross-fade, mini mode, playlist export, duplicate finder, keyboard fade.
