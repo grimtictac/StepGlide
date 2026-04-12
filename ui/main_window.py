@@ -290,10 +290,6 @@ class MainWindow(QMainWindow):
             lambda: self._open_settings(tab='Volume'))
         self._volume_strip.apply_config(self.config)
 
-        # Sync VLC volume to slider's initial value at startup
-        self._vlc_mp().audio_set_volume(
-            self._volume_strip.volume_slider.value())
-
         self._volume_panel = VolumePanel(self._volume_strip, self)
         self._volume_panel.pull_fader.debug_log.connect(self._debug_log)
         self._volume_panel.pull_fader.apply_config(self.config)
@@ -927,6 +923,15 @@ class MainWindow(QMainWindow):
         """Shortcut to the underlying media player."""
         return self.vlc_player.get_media_player()
 
+    def _sync_vlc_volume(self):
+        """Push the current slider volume into VLC.
+
+        Called shortly after play() because VLC sometimes ignores
+        audio_set_volume until the media pipeline is running.
+        """
+        vol = self._volume_strip.volume_slider.value()
+        self._vlc_mp().audio_set_volume(vol)
+
     @perf.track
     def _load(self, index):
         """Prepare VLC to play playlist[index]. Returns True on success."""
@@ -1010,6 +1015,7 @@ class MainWindow(QMainWindow):
         # Currently paused → resume
         if self.is_paused:
             self.vlc_player.play()
+            QTimer.singleShot(50, self._sync_vlc_volume)
             self.is_paused = False
             self.is_playing = True
             self._last_action = 'playing'
@@ -1036,6 +1042,7 @@ class MainWindow(QMainWindow):
             return
         try:
             self.vlc_player.play()
+            QTimer.singleShot(50, self._sync_vlc_volume)
             self._debug_log('INFO', f'Playing #{index}: {self.playlist[index].get("title", "?")}')
             self.is_playing = True
             self.is_paused = False
@@ -1122,6 +1129,7 @@ class MainWindow(QMainWindow):
             self.is_paused = False
             return
         self.vlc_player.play()
+        QTimer.singleShot(50, self._sync_vlc_volume)
         self.is_playing = True
         self.is_paused = False
         self._last_action = 'playing'
@@ -1145,6 +1153,7 @@ class MainWindow(QMainWindow):
             self.is_paused = False
             return
         self.vlc_player.play()
+        QTimer.singleShot(50, self._sync_vlc_volume)
         self.is_playing = True
         self.is_paused = False
         self._last_action = 'playing'
