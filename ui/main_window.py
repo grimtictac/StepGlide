@@ -1061,12 +1061,20 @@ class MainWindow(QMainWindow):
         self._lbl_genre.setText('')
 
     def _on_fade_hit_zero(self):
-        """Fade reached zero — stop playback and show banner asking about next track."""
-        self._debug_log('INFO', 'Fade hit zero → stop + banner prompt')
+        """Fade reached zero — stop playback, activate mute, show banner."""
+        self._debug_log('INFO', 'Fade hit zero → stop + mute + banner')
 
-        # Stop immediately, glow the stop button
+        # Stop playback, glow the stop button
         self._transport.flash_stop_button(1500)
         self._stop()
+
+        # Activate mute state (so mute button can be used to unmute)
+        self._muted = True
+        self._pre_mute_vol = 100   # will jump to 100 on unmute
+        self._volume_strip.set_mute_icon(True)
+
+        # Snap pull fader back if user isn't still holding it
+        self._volume_panel.pull_fader.on_fade_hit_zero()
 
         # Show banner between transport and search row
         banner = ToastBanner(
@@ -1074,13 +1082,15 @@ class MainWindow(QMainWindow):
             [('Play Next', 'next'), ('No Thanks', 'dismiss')],
             parent=self._center,
         )
-        # Insert after transport bar in center_layout
         center_layout = self._center.layout()
         transport_idx = center_layout.indexOf(self._transport)
         center_layout.insertWidget(transport_idx + 1, banner)
         banner.show()
 
         def _on_banner_click(key):
+            # Unmute and reset volume
+            self._muted = False
+            self._volume_strip.set_mute_icon(False)
             self._volume_strip.start_timed_fade_up(100, duration_s=1.0)
             self._volume_strip.volume_slider.flash_glow(1000)
             if key == 'next':
@@ -1161,8 +1171,9 @@ class MainWindow(QMainWindow):
 
     def _toggle_mute(self):
         if self._muted:
-            self._volume_strip.set_volume(self._pre_mute_vol)
-            self._vlc_mp().audio_set_volume(self._pre_mute_vol)
+            restore_vol = self._pre_mute_vol if self._pre_mute_vol > 0 else 100
+            self._volume_strip.set_volume(restore_vol)
+            self._vlc_mp().audio_set_volume(restore_vol)
             self._muted = False
             self._volume_strip.set_mute_icon(False)
         else:

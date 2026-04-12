@@ -473,6 +473,7 @@ class VolumeStrip(QWidget):
         self._instant_velocity = 0.0  # latest scroll velocity (evt/s), for boost bar
         self._delta_accumulator = 0   # angleDelta accumulator for tick detection
         self._pending_interval = 0    # deferred interval for set_fade_speed()
+        self._fade_zero_fired = False  # guard: emit fade_hit_zero only once
         self._fade_timer = QTimer(self)
         self._fade_timer.timeout.connect(self._fade_tick)
 
@@ -505,7 +506,7 @@ class VolumeStrip(QWidget):
         layout.addWidget(self.btn_mute, alignment=Qt.AlignHCenter)
 
         # Percentage label
-        self.lbl_vol_pct = QLabel('80%')
+        self.lbl_vol_pct = QLabel('100%')
         self.lbl_vol_pct.setAlignment(Qt.AlignCenter)
         self.lbl_vol_pct.setStyleSheet(
             f'color: {COLORS["fg_dim"]}; font-size: 10px; font-weight: bold;')
@@ -798,7 +799,8 @@ class VolumeStrip(QWidget):
         if new_val == current:
             self._log('DEBUG', f'Volume fade: hit limit at {current}% → stopped')
             self._stop_fade()
-            if current == 0:
+            if current == 0 and not self._fade_zero_fired:
+                self._fade_zero_fired = True
                 self._log('DEBUG', 'Volume fade: reached zero → stop & reset')
                 self.fade_hit_zero.emit()
             return
@@ -978,6 +980,8 @@ class VolumeStrip(QWidget):
 
     def _on_volume_changed(self, value):
         self.lbl_vol_pct.setText(f'{value}%')
+        if value > 0:
+            self._fade_zero_fired = False
         self.volume_changed.emit(value)
 
     # ── Public API ───────────────────────────────────────
@@ -1263,31 +1267,46 @@ class PullFader(QWidget):
         self._vs.set_fade_speed(speed_vps, -1)
 
     def _on_released(self):
-        """User released — stop the fade, snap handle back to top."""
-        self._user_holding = False
-        self._vs._stop_fade()
+        """User released the pull fader.
 
-        # Snap handle back to resting position
+        - If volume hit zero while pulling → snap fader back and reset.
+        - If volume > 0 → leave fader in place, fade continues at last speed.
+        """
+        self._user_holding = False
+
+        cur_vol = self._vs.volume_slider.value()
+        if cur_vol <= 0:
+            # Volume already at zero — snap back and clear
+            self._snap_back()
+            self.debug_log.emit('DEBUG',
+                                'Pull-fader: released at zero → snapped back')
+        else:
+            # Fade continues at the locked-in speed — don't stop or snap
+            self.debug_log.emit('DEBUG',
+                                'Pull-fader: released mid-fade → fade continues')
+
+    def _snap_back(self):
+        """Reset the pull-fader handle to top and clear readouts."""
         self._slider.blockSignals(True)
         self._slider.setValue(100)
         self._slider.blockSignals(False)
-
-        # Clear readout
         self._pull_bar.setValue(0)
         self._lbl_speed.setText('—')
         self._lbl_fade_time.setText('—')
 
-        self.debug_log.emit('DEBUG', 'Pull-fader: released → fade stopped')
+    def on_fade_hit_zero(self):
+        """Called by MainWindow when the fade reaches zero.
+
+        If the user is still holding the pull fader, do nothing —
+        the fader will snap back on release.  If not holding, snap back now.
+        """
+        if not self._user_holding:
+            self._snap_back()
 
     def stop(self):
         """Public: reset visual state (called externally if needed)."""
         self._user_holding = False
-        self._pull_bar.setValue(0)
-        self._lbl_speed.setText('—')
-        self._lbl_fade_time.setText('—')
-        self._slider.blockSignals(True)
-        self._slider.setValue(100)
-        self._slider.blockSignals(False)
+        self._snap_back()
 
     # ── Tuning setters (called by settings dialog) ──
 
