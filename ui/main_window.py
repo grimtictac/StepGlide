@@ -160,15 +160,6 @@ class MainWindow(QMainWindow):
         self._btn_eq.clicked.connect(self._show_eq_dialog)
         np_layout.addWidget(self._btn_eq)
 
-        # Settings button
-        btn_settings = QPushButton()
-        btn_settings.setIcon(qta.icon('mdi6.cog', color=COLORS['fg']))
-        btn_settings.setFixedSize(34, 28)
-        btn_settings.setIconSize(btn_settings.size() * 0.55)
-        btn_settings.setToolTip('Settings')
-        btn_settings.clicked.connect(self._open_settings)
-        np_layout.addWidget(btn_settings)
-
         # Jump-to-playing button
         self.btn_jump = QPushButton()
         self.btn_jump.setIcon(qta.icon('mdi6.crosshairs-gps', color=COLORS['fg']))
@@ -336,6 +327,12 @@ class MainWindow(QMainWindow):
         add_folder_action = QAction('Add F&older...', self)
         add_folder_action.triggered.connect(self._add_folder)
         file_menu.addAction(add_folder_action)
+
+        file_menu.addSeparator()
+        settings_action = QAction('&Settings...', self)
+        settings_action.setShortcut('Ctrl+,')
+        settings_action.triggered.connect(self._open_settings)
+        file_menu.addAction(settings_action)
 
         file_menu.addSeparator()
         quit_action = QAction('&Quit', self)
