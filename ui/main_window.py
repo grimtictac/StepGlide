@@ -4,6 +4,7 @@ Main window — QMainWindow shell with layout, splitters, and panel wiring.
 
 import os
 import time
+from datetime import datetime, timedelta
 
 import vlc
 
@@ -27,7 +28,7 @@ from ui.queue_panel import QueuePanel
 from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
-from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackFilterProxy, TrackTableModel, TrackTableView
+from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackTableModel, TrackTableView, _sort_value
 from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
 
 from core.audio_devices import list_audio_devices
@@ -225,15 +226,30 @@ class MainWindow(QMainWindow):
 
         # Track table
         self._track_model = TrackTableModel(self)
-        self._filter_proxy = TrackFilterProxy(self)
-        self._filter_proxy.setSourceModel(self._track_model)
         self._track_table = TrackTableView(self)
-        self._track_table.setModel(self._filter_proxy)
+        self._track_table.setModel(self._track_model)
+
+        # Filter + sort state (applied in _apply_filters)
+        self._filter_state = {
+            'genre': None,          # set of genres, or None for All
+            'tags': set(),
+            'search_tokens': [],    # [(field_fn_or_None, term), ...]
+            'rating': None,         # (op, val) or None
+            'liked_by': None,       # voter name or None
+            'first_played': 'All',
+            'last_played': 'All',
+            'file_created': 'All',
+            'length_label': 'All',
+            'length_range': (None, None),
+            'playlist_paths': None, # set of paths or None
+        }
+        self._sort_state = None  # (column_index, Qt.SortOrder) or None
 
         # Connect signals
         self._track_table.play_requested.connect(self._on_play_requested)
         self._track_table.selection_changed.connect(self._on_selection_changed)
         self._track_table.context_menu_requested.connect(self._on_context_menu)
+        self._track_table.sort_requested.connect(self._on_sort_requested)
 
         center_layout.addWidget(self._track_table, stretch=1)
 
@@ -443,7 +459,7 @@ class MainWindow(QMainWindow):
             self._path_set.add(entry['path'])
             self._path_to_idx[entry['path']] = i
 
-        self._track_model.set_tracks(self.playlist)
+        self._apply_filters()
 
         # Apply visible columns from config
         if self.config.visible_columns:
@@ -488,11 +504,152 @@ class MainWindow(QMainWindow):
 
     def _update_track_count(self):
         total = len(self.playlist)
-        shown = self._filter_proxy.rowCount()
+        shown = self._track_model.rowCount()
         if shown == total:
             self._track_count_lbl.setText(f'{total} tracks')
         else:
             self._track_count_lbl.setText(f'{shown} of {total} tracks')
+
+    # ── Filtering + sorting (pure Python) ────────────────
+
+    @perf.track
+    def _apply_filters(self):
+        """Filter + sort self.playlist in pure Python, update the model."""
+        fs = self._filter_state
+        result = []
+
+        # Pre-compute date boundaries once (not per-row)
+        need_dates = (fs['first_played'] != 'All'
+                      or fs['last_played'] != 'All'
+                      or fs['file_created'] != 'All')
+        if need_dates:
+            today = datetime.now().date()
+            week_ago = today - timedelta(days=7)
+            month_ago = today - timedelta(days=30)
+        else:
+            today = week_ago = month_ago = None
+
+        playlist_paths = fs['playlist_paths']
+        genre_filter = fs['genre']
+        active_tags = fs['tags']
+        rating_threshold = fs['rating']
+        liked_by = fs['liked_by']
+        length_label = fs['length_label']
+        length_range = fs['length_range']
+        search_tokens = fs['search_tokens']
+        fp_filter = fs['first_played']
+        lp_filter = fs['last_played']
+        fc_filter = fs['file_created']
+
+        for entry in self.playlist:
+            # Playlist filter
+            if playlist_paths is not None:
+                if entry['path'] not in playlist_paths:
+                    continue
+
+            # Genre filter
+            if genre_filter is not None:
+                if entry.get('genre') not in genre_filter:
+                    continue
+
+            # Tag filter
+            if active_tags:
+                track_tags = entry.get('tags')
+                if not track_tags or not active_tags.intersection(track_tags):
+                    continue
+
+            # Rating filter
+            if rating_threshold is not None:
+                op, val = rating_threshold
+                rating = entry.get('rating', 0)
+                if op == '>=' and rating < val:
+                    continue
+                elif op == '<=' and rating > val:
+                    continue
+                elif op == '=' and rating != val:
+                    continue
+
+            # Liked-by filter
+            if liked_by:
+                if liked_by not in entry.get('liked_by', set()):
+                    continue
+
+            # Date filters
+            if need_dates:
+                skip = False
+                for field_key, filter_val in [
+                    ('first_played', fp_filter),
+                    ('last_played', lp_filter),
+                    ('file_created', fc_filter),
+                ]:
+                    if filter_val == 'All':
+                        continue
+                    raw = entry.get(field_key)
+                    try:
+                        d = datetime.fromisoformat(raw).date() if raw else None
+                    except Exception:
+                        d = None
+                    if filter_val == 'Today' and (not d or d != today):
+                        skip = True; break
+                    if filter_val == 'This Week' and (not d or d < week_ago):
+                        skip = True; break
+                    if filter_val == 'This Month' and (not d or d < month_ago):
+                        skip = True; break
+                if skip:
+                    continue
+
+            # Length filter
+            if length_label != 'All':
+                lo, hi = length_range
+                track_len = entry.get('length')
+                if track_len is None:
+                    continue
+                if lo is not None and hi is not None and not (lo <= track_len < hi):
+                    continue
+                elif lo is not None and hi is None and track_len < lo:
+                    continue
+                elif hi is not None and lo is None and track_len >= hi:
+                    continue
+
+            # Search filter
+            if search_tokens:
+                title_lower = (entry.get('title') or entry.get('basename', '')).lower()
+                artist_lower = (entry.get('artist') or '').lower()
+                album_lower = (entry.get('album') or '').lower()
+                genre_lower = (entry.get('genre') or '').lower()
+                comment_lower = (entry.get('comment') or '').lower()
+                tags_lower = ' '.join(entry.get('tags', [])).lower()
+                liked_lower = ' '.join(entry.get('liked_by', set())).lower()
+                path_lower = entry.get('path', '').lower()
+                all_text = f'{title_lower} {artist_lower} {album_lower} {genre_lower} {comment_lower} {tags_lower} {liked_lower} {path_lower}'
+
+                skip = False
+                for field_fn, term in search_tokens:
+                    if field_fn is not None:
+                        if term not in field_fn(entry):
+                            skip = True; break
+                    else:
+                        if term not in all_text:
+                            skip = True; break
+                if skip:
+                    continue
+
+            result.append(entry)
+
+        # Sort
+        if self._sort_state:
+            col, order = self._sort_state
+            reverse = (order == Qt.DescendingOrder)
+            result.sort(key=lambda e: _sort_value(e, col), reverse=reverse)
+
+        # Update the model
+        self._track_model.set_tracks(result)
+        self._update_track_count()
+
+    def _on_sort_requested(self, column, order):
+        """Handle column header click — sort the filtered list."""
+        self._sort_state = (column, order)
+        self._apply_filters()
 
     # ── Add files / folders ──────────────────────────────
 
@@ -567,8 +724,7 @@ class MainWindow(QMainWindow):
             return
         for f in files:
             self._add_path(f)
-        self._track_model.set_tracks(self.playlist)
-        self._update_track_count()
+        self._apply_filters()
         self._lbl_now_playing.setText(f'{len(files)} file(s) added')
 
     @perf.track
@@ -611,8 +767,7 @@ class MainWindow(QMainWindow):
         self._status_bar.removeWidget(progress)
         progress.deleteLater()
 
-        self._track_model.set_tracks(self.playlist)
-        self._update_track_count()
+        self._apply_filters()
         self._lbl_now_playing.setText(f'Added {added} tracks')
 
     # ── Connect transport bar signals ───────────────────
@@ -656,47 +811,61 @@ class MainWindow(QMainWindow):
         sb.smart_playlist_evaluate.connect(self._on_smart_playlist_evaluate)
 
     def _on_search_changed(self, tokens):
-        self._filter_proxy.set_search_tokens(tokens)
-        self._update_track_count()
+        self._filter_state['search_tokens'] = tokens
+        self._apply_filters()
 
     def _on_rating_filter(self, threshold):
-        self._filter_proxy.set_rating_filter(threshold)
-        self._update_track_count()
+        self._filter_state['rating'] = threshold
+        self._apply_filters()
 
     def _on_liked_by_filter(self, voter):
-        self._filter_proxy.set_liked_by_filter(voter)
-        self._update_track_count()
+        self._filter_state['liked_by'] = voter
+        self._apply_filters()
 
     def _on_date_filter(self, which, value):
-        self._filter_proxy.set_date_filter(which, value)
-        self._update_track_count()
+        self._filter_state[which] = value
+        self._apply_filters()
 
     def _on_length_filter(self, label, lo, hi):
         if label == 'All':
-            self._filter_proxy.set_length_filter('All', None, None)
+            self._filter_state['length_label'] = 'All'
+            self._filter_state['length_range'] = (None, None)
         else:
             # Look up (lo, hi) from config by label
             for cfg_label, cfg_lo, cfg_hi in self.config.length_filter_durations:
                 if cfg_label == label:
-                    self._filter_proxy.set_length_filter(label, cfg_lo, cfg_hi)
+                    self._filter_state['length_label'] = label
+                    self._filter_state['length_range'] = (cfg_lo, cfg_hi)
                     break
-        self._update_track_count()
+        self._apply_filters()
 
     def _on_filters_reset(self):
-        self._filter_proxy.clear_all_filters()
-        self._update_track_count()
+        self._filter_state = {
+            'genre': None,
+            'tags': set(),
+            'search_tokens': [],
+            'rating': None,
+            'liked_by': None,
+            'first_played': 'All',
+            'last_played': 'All',
+            'file_created': 'All',
+            'length_label': 'All',
+            'length_range': (None, None),
+            'playlist_paths': None,
+        }
+        self._apply_filters()
 
     # ── Sidebar handlers ─────────────────────────────────
 
     def _on_genre_selected(self, genres):
         """genres is a set of genre strings, or None for All."""
-        self._filter_proxy.set_genre_filter(genres)
-        self._update_track_count()
+        self._filter_state['genre'] = genres
+        self._apply_filters()
 
     def _on_playlist_selected(self, paths):
         """paths is a set of file paths, or None for All Tracks."""
-        self._filter_proxy.set_playlist_filter(paths)
-        self._update_track_count()
+        self._filter_state['playlist_paths'] = paths
+        self._apply_filters()
 
     def _on_playlist_changed(self):
         """A playlist was created/renamed/deleted — persist to config."""
@@ -713,13 +882,13 @@ class MainWindow(QMainWindow):
         from core.smart_playlist import collect_matching_paths
         sp = self.config.smart_playlists.get(name)
         if not sp:
-            self._filter_proxy.set_playlist_filter(None)
-            self._update_track_count()
+            self._filter_state['playlist_paths'] = None
+            self._apply_filters()
             return
         paths = collect_matching_paths(
             self.playlist, sp['rules'], sp.get('match', 'all'))
-        self._filter_proxy.set_playlist_filter(set(paths))
-        self._update_track_count()
+        self._filter_state['playlist_paths'] = set(paths)
+        self._apply_filters()
         self._debug_log('INFO',
                         f'Smart playlist "{name}": {len(paths)} tracks matched')
 
@@ -727,8 +896,8 @@ class MainWindow(QMainWindow):
 
     def _on_tags_changed(self, active_tags):
         """Handle tag toggle — active_tags is a set (empty = show all)."""
-        self._filter_proxy.set_tag_filter(active_tags)
-        self._update_track_count()
+        self._filter_state['tags'] = active_tags
+        self._apply_filters()
 
     # ── VLC helpers ──────────────────────────────────────
 
@@ -1166,8 +1335,7 @@ class MainWindow(QMainWindow):
         self._path_to_idx = {e['path']: i for i, e in enumerate(self.playlist)}
         for i, e in enumerate(self.playlist):
             e['_playlist_idx'] = i
-        self._track_model.set_tracks(self.playlist)
-        self._update_track_count()
+        self._apply_filters()
 
     # ── Voting (from play log) ───────────────────────────
 
@@ -1687,8 +1855,7 @@ class MainWindow(QMainWindow):
                 if self._add_path(path):
                     added += 1
         if added:
-            self._track_model.set_tracks(self.playlist)
-            self._update_track_count()
+            self._apply_filters()
             self._lbl_now_playing.setText(f'Dropped {added} track(s)')
         event.acceptProposedAction()
 

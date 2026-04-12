@@ -1,23 +1,21 @@
 """
-Track table — QTableView + QAbstractTableModel + QSortFilterProxyModel.
+Track table — QTableView + QAbstractTableModel.
 
-This is the centrepiece of the PySide6 migration: a virtual table that
-only renders visible rows, with sorting and filtering in C++ land.
+The model receives a pre-filtered, pre-sorted list of track dicts from
+MainWindow._apply_filters().  No QSortFilterProxyModel — all filtering
+and sorting happens in pure Python to avoid C++→Python per-row overhead.
 """
-
-from datetime import datetime, timedelta
 
 from PySide6.QtCore import (
     QAbstractTableModel, QByteArray, QMimeData, QModelIndex,
-    QSortFilterProxyModel, Qt, Signal,
+    Qt, Signal,
 )
-from PySide6.QtGui import QColor, QCursor, QFont
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QHeaderView, QMenu, QTableView,
+    QAbstractItemView, QHeaderView, QMenu, QTableView,
 )
 
 from core.formatters import format_duration, format_ts
-from core.perf import perf
 from ui.theme import COLORS
 
 # ── Column definitions ───────────────────────────────────
@@ -120,21 +118,12 @@ class TrackTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._tracks = []        # reference to the backend's playlist list
         self._now_playing_idx = None  # playlist index of currently playing track
-        self._sort_cache = None  # list of pre-computed sort keys, or None
 
     def set_tracks(self, tracks):
         """Replace the backing data. tracks is a list of entry dicts."""
         self.beginResetModel()
         self._tracks = tracks
-        self._sort_cache = None
         self.endResetModel()
-
-    def build_sort_cache(self, col):
-        """Pre-compute sort keys for every row — called once before sort."""
-        self._sort_cache = [_sort_value(e, col) for e in self._tracks]
-
-    def clear_sort_cache(self):
-        self._sort_cache = None
 
     # ── Drag support (drag OUT only — no drop / reorder) ─
 
@@ -209,12 +198,6 @@ class TrackTableModel(QAbstractTableModel):
             # Return the playlist index for selection tracking
             return entry.get('_playlist_idx')
 
-        elif role == Qt.UserRole + 1:
-            # Return cached sort key if available, else compute on the fly
-            if self._sort_cache is not None and row < len(self._sort_cache):
-                return self._sort_cache[row]
-            return _sort_value(entry, col)
-
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -247,208 +230,6 @@ class TrackTableModel(QAbstractTableModel):
                 return
 
 
-# ── Filter Proxy ─────────────────────────────────────────
-
-class TrackFilterProxy(QSortFilterProxyModel):
-    """Handles all filtering (genre, tags, search, rating, dates, length, playlist)."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setDynamicSortFilter(False)  # we control when to invalidate
-        self.setSortRole(Qt.UserRole + 1)
-
-        # Filter state
-        self._genre_filter = None       # set of genres, or None for All
-        self._active_tags = set()
-        self._search_tokens = []        # [(field_fn_or_None, term), ...]
-        self._rating_threshold = None   # (op, val) or None
-        self._liked_by_filter = None    # voter name or None
-        self._first_played_filter = 'All'
-        self._last_played_filter = 'All'
-        self._file_created_filter = 'All'
-        self._length_filter = 'All'
-        self._length_range = (None, None)  # (lo, hi) in seconds
-        self._playlist_paths = None     # set of paths or None
-        self._sorting = False
-        self._view = None  # set by TrackTableView after construction
-
-    @perf.track
-    def invalidateFilter(self):
-        """Override to instrument filter performance."""
-        super().invalidateFilter()
-
-    @perf.track
-    def sort(self, column, order=Qt.AscendingOrder):
-        """Wrap the sort with a wait cursor; block header clicks during sort."""
-        if self._sorting:
-            return
-        self._sorting = True
-        # Disable header clicks so queued events can't trigger another sort
-        header = self._view.horizontalHeader() if self._view else None
-        if header:
-            header.setSectionsClickable(False)
-        QApplication.setOverrideCursor(QCursor(Qt.WaitCursor))
-        QApplication.processEvents()
-        try:
-            # Pre-compute sort keys once (avoids 75K+ Python calls during sort)
-            src = self.sourceModel()
-            if src:
-                src.build_sort_cache(column)
-            super().sort(column, order)
-        finally:
-            if src:
-                src.clear_sort_cache()
-            QApplication.restoreOverrideCursor()
-            if header:
-                header.setSectionsClickable(True)
-            self._sorting = False
-
-    def set_genre_filter(self, genres):
-        """genres is a set of genre strings, or None for All."""
-        self._genre_filter = genres
-        self.invalidateFilter()
-
-    def set_tag_filter(self, tags):
-        self._active_tags = tags
-        self.invalidateFilter()
-
-    def set_search_tokens(self, tokens):
-        self._search_tokens = tokens
-        self.invalidateFilter()
-
-    def set_rating_filter(self, threshold):
-        self._rating_threshold = threshold
-        self.invalidateFilter()
-
-    def set_liked_by_filter(self, voter):
-        self._liked_by_filter = voter
-        self.invalidateFilter()
-
-    def set_date_filter(self, which, value):
-        """which is 'first_played', 'last_played', or 'file_created'."""
-        setattr(self, f'_{which}_filter', value)
-        self.invalidateFilter()
-
-    def set_length_filter(self, label, lo, hi):
-        self._length_filter = label
-        self._length_range = (lo, hi)
-        self.invalidateFilter()
-
-    def set_playlist_filter(self, paths):
-        """paths is a set of file paths, or None for All."""
-        self._playlist_paths = paths
-        self.invalidateFilter()
-
-    def clear_all_filters(self):
-        self._genre_filter = None
-        self._active_tags = set()
-        self._search_tokens = []
-        self._rating_threshold = None
-        self._liked_by_filter = None
-        self._first_played_filter = 'All'
-        self._last_played_filter = 'All'
-        self._file_created_filter = 'All'
-        self._length_filter = 'All'
-        self._length_range = (None, None)
-        self._playlist_paths = None
-        self.invalidateFilter()
-
-    def filterAcceptsRow(self, source_row, source_parent):
-        model = self.sourceModel()
-        if source_row >= len(model._tracks):
-            return False
-        entry = model._tracks[source_row]
-
-        # Playlist filter
-        if self._playlist_paths is not None:
-            if entry['path'] not in self._playlist_paths:
-                return False
-
-        # Genre filter
-        if self._genre_filter is not None:
-            if entry.get('genre') not in self._genre_filter:
-                return False
-
-        # Tag filter
-        if self._active_tags:
-            track_tags = entry.get('tags')
-            if not track_tags or not self._active_tags.intersection(track_tags):
-                return False
-
-        # Rating filter
-        if self._rating_threshold is not None:
-            op, val = self._rating_threshold
-            rating = entry.get('rating', 0)
-            if op == '>=' and rating < val:
-                return False
-            elif op == '<=' and rating > val:
-                return False
-            elif op == '=' and rating != val:
-                return False
-
-        # Liked-by filter
-        if self._liked_by_filter:
-            if self._liked_by_filter not in entry.get('liked_by', set()):
-                return False
-
-        # Date filters
-        today = datetime.now().date()
-        week_ago = today - timedelta(days=7)
-        month_ago = today - timedelta(days=30)
-        for field_key, filter_val in [
-            ('first_played', self._first_played_filter),
-            ('last_played', self._last_played_filter),
-            ('file_created', self._file_created_filter),
-        ]:
-            if filter_val == 'All':
-                continue
-            raw = entry.get(field_key)
-            try:
-                d = datetime.fromisoformat(raw).date() if raw else None
-            except Exception:
-                d = None
-            if filter_val == 'Today' and (not d or d != today):
-                return False
-            if filter_val == 'This Week' and (not d or d < week_ago):
-                return False
-            if filter_val == 'This Month' and (not d or d < month_ago):
-                return False
-
-        # Length filter
-        if self._length_filter != 'All':
-            lo, hi = self._length_range
-            track_len = entry.get('length')
-            if track_len is None:
-                return False
-            if lo is not None and hi is not None and not (lo <= track_len < hi):
-                return False
-            elif lo is not None and hi is None and track_len < lo:
-                return False
-            elif hi is not None and lo is None and track_len >= hi:
-                return False
-
-        # Search filter
-        if self._search_tokens:
-            title_lower = (entry.get('title') or entry.get('basename', '')).lower()
-            artist_lower = (entry.get('artist') or '').lower()
-            album_lower = (entry.get('album') or '').lower()
-            genre_lower = (entry.get('genre') or '').lower()
-            comment_lower = (entry.get('comment') or '').lower()
-            tags_lower = ' '.join(entry.get('tags', [])).lower()
-            liked_lower = ' '.join(entry.get('liked_by', set())).lower()
-            path_lower = entry.get('path', '').lower()
-            all_text = f'{title_lower} {artist_lower} {album_lower} {genre_lower} {comment_lower} {tags_lower} {liked_lower} {path_lower}'
-
-            for field_fn, term in self._search_tokens:
-                if field_fn is not None:
-                    if term not in field_fn(entry):
-                        return False
-                else:
-                    if term not in all_text:
-                        return False
-
-        return True
-
 
 # ── Table View widget ────────────────────────────────────
 
@@ -459,6 +240,7 @@ class TrackTableView(QTableView):
     play_requested = Signal(int)          # playlist_idx — double-click
     context_menu_requested = Signal(int, object)  # playlist_idx, QPoint
     selection_changed = Signal(list)       # list of playlist indices
+    sort_requested = Signal(int, object)   # column_index, Qt.SortOrder
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -466,11 +248,18 @@ class TrackTableView(QTableView):
         self.setSelectionBehavior(QTableView.SelectRows)
         self.setSelectionMode(QTableView.ExtendedSelection)
         self.setShowGrid(False)
-        self.setSortingEnabled(True)
+        self.setSortingEnabled(False)  # we handle sorting ourselves
         self.setWordWrap(False)
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setDefaultSectionSize(34)
         self.horizontalHeader().setStretchLastSection(True)
+
+        # Sort state tracked here for the header indicator
+        self._sort_column = -1
+        self._sort_order = Qt.AscendingOrder
+
+        # Connect header clicks to our own sort handler
+        self.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
 
         # Drag-and-drop: drag OUT of table only (into sidebar playlists)
         self.setDragEnabled(True)
@@ -519,9 +308,6 @@ class TrackTableView(QTableView):
 
     def setModel(self, model):
         super().setModel(model)
-        # Give the proxy a reference to this view for sort-lock
-        if hasattr(model, '_view'):
-            model._view = self
         # Apply default column widths
         for col, width in self._default_widths.items():
             self.setColumnWidth(col, width)
@@ -533,6 +319,25 @@ class TrackTableView(QTableView):
         sel_model = self.selectionModel()
         if sel_model:
             sel_model.selectionChanged.connect(self._on_selection_changed)
+
+    # ── Sort handling ─────────────────────────────────────
+
+    def _on_header_clicked(self, logical_index):
+        """User clicked a column header — toggle sort and emit signal."""
+        if logical_index == self._sort_column:
+            # Same column — flip direction
+            self._sort_order = (Qt.DescendingOrder
+                                if self._sort_order == Qt.AscendingOrder
+                                else Qt.AscendingOrder)
+        else:
+            self._sort_column = logical_index
+            self._sort_order = Qt.AscendingOrder
+        # Update the visual indicator
+        header = self.horizontalHeader()
+        header.setSortIndicatorShown(True)
+        header.setSortIndicator(self._sort_column, self._sort_order)
+        # Let MainWindow do the actual sorting
+        self.sort_requested.emit(self._sort_column, self._sort_order)
 
     # ── Column rebalancing ────────────────────────────────
 
