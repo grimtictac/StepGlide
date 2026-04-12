@@ -5,7 +5,7 @@ speed controls, and mute button.
 
 import time
 
-from PySide6.QtCore import Qt, QEvent, QRectF, QTimer, Signal
+from PySide6.QtCore import Qt, QEvent, QRectF, QSize, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar,
@@ -589,34 +589,6 @@ class VolumeStrip(QWidget):
         bar_labels.addWidget(self._boost_lbl)
 
         layout.addLayout(bar_labels)
-
-        # ── Timed fade-out buttons (1s, 2s, 3s, 4s) ─────
-        fade_btn_row = QHBoxLayout()
-        fade_btn_row.setSpacing(1)
-        fade_btn_row.setContentsMargins(0, 2, 0, 0)
-
-        self._fade_out_buttons = []
-        _chevron_icons = [
-            'mdi6.chevron-down',
-            'mdi6.chevron-double-down',
-            'mdi6.chevron-triple-down',
-            'mdi6.arrow-collapse-down',
-        ]
-        for i, duration in enumerate([1, 2, 3, 4]):
-            btn = QPushButton()
-            btn.setIcon(qta.icon(_chevron_icons[i], color=COLORS['fg']))
-            btn.setFixedSize(12, 18)
-            btn.setIconSize(btn.size() * 0.7)
-            btn.setToolTip(f'Fade out over {duration}s')
-            btn.setStyleSheet(
-                f'QPushButton {{ min-height: 0px; padding: 0px;'
-                f' border: 1px solid {COLORS["border"]}; border-radius: 2px; }}'
-                f'QPushButton:hover {{ background-color: {COLORS["bg_light"]}; }}')
-            btn.clicked.connect(lambda checked, d=duration: self._start_timed_fade(d))
-            fade_btn_row.addWidget(btn)
-            self._fade_out_buttons.append(btn)
-
-        layout.addLayout(fade_btn_row)
 
         # Gear button at the bottom
         self._btn_gear = QPushButton()
@@ -1326,15 +1298,43 @@ class VolumePanel(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(2)
 
-        # ── Volume strip (always visible) ──
-        layout.addWidget(self._vs)
+        # ── Timed fade-out buttons (spans full width) ────
+        fade_btn_row = QHBoxLayout()
+        fade_btn_row.setSpacing(2)
+        fade_btn_row.setContentsMargins(2, 2, 2, 0)
 
-        # ── Pull fader (always visible) ──
-        layout.addWidget(self._pull_fader)
+        _chevron_icons = [
+            'mdi6.chevron-down',
+            'mdi6.chevron-double-down',
+            'mdi6.chevron-triple-down',
+            'mdi6.arrow-collapse-down',
+        ]
+        for i, duration in enumerate([1, 2, 3, 4]):
+            btn = QPushButton()
+            btn.setIcon(qta.icon(_chevron_icons[i], color=COLORS['fg']))
+            btn.setFixedHeight(22)
+            btn.setIconSize(QSize(16, 16))
+            btn.setToolTip(f'Fade out over {duration}s')
+            btn.setStyleSheet(
+                f'QPushButton {{ min-height: 0px; padding: 0px;'
+                f' border: 1px solid {COLORS["border"]}; border-radius: 2px; }}'
+                f'QPushButton:hover {{ background-color: {COLORS["bg_light"]}; }}')
+            btn.clicked.connect(lambda checked, d=duration: self._vs._start_timed_fade(d))
+            fade_btn_row.addWidget(btn)
+
+        layout.addLayout(fade_btn_row)
+
+        # ── Volume strip + Pull fader side-by-side ───────
+        slider_row = QHBoxLayout()
+        slider_row.setContentsMargins(0, 0, 0, 0)
+        slider_row.setSpacing(0)
+        slider_row.addWidget(self._vs)
+        slider_row.addWidget(self._pull_fader)
+        layout.addLayout(slider_row, stretch=1)
 
     @property
     def volume_strip(self):
