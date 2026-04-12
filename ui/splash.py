@@ -63,7 +63,7 @@ class SplashScreen(QSplashScreen):
         painter.setFont(title_font)
         painter.setPen(QColor('#dce4ee'))
         painter.drawText(self.rect().adjusted(0, 110, 0, -60),
-                         Qt.AlignHCenter | Qt.AlignTop, 'Music Player')
+                         Qt.AlignHCenter | Qt.AlignTop, 'StepGlide')
 
         # Subtitle
         sub_font = QFont('Segoe UI', 10)
