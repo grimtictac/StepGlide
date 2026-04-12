@@ -31,6 +31,7 @@ from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackFilterProx
 from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
 
 from core.audio_devices import list_audio_devices
+from core.perf import perf
 from core.waveform import WaveformWorker, deserialise_waveform, serialise_waveform
 from ui.waveform_bar import WaveformScrubBar
 from ui.waveform_legend import WaveformLegend
@@ -422,6 +423,7 @@ class MainWindow(QMainWindow):
 
     # ── Data loading ─────────────────────────────────────
 
+    @perf.track
     def _load_tracks(self):
         """Load all tracks from DB and populate the table model."""
         tracks, voters, genres = self.db.load_all_tracks()
@@ -569,6 +571,7 @@ class MainWindow(QMainWindow):
         self._update_track_count()
         self._lbl_now_playing.setText(f'{len(files)} file(s) added')
 
+    @perf.track
     def _add_folder(self):
         """File > Add Folder... dialog."""
         folder = QFileDialog.getExistingDirectory(self, 'Select folder')
@@ -733,6 +736,7 @@ class MainWindow(QMainWindow):
         """Shortcut to the underlying media player."""
         return self.vlc_player.get_media_player()
 
+    @perf.track
     def _load(self, index):
         """Prepare VLC to play playlist[index]. Returns True on success."""
         if index is None or index < 0 or index >= len(self.playlist):
@@ -779,6 +783,7 @@ class MainWindow(QMainWindow):
             self._lbl_now_playing.setText('Not Playing')
             self._lbl_genre.setText('')
 
+    @perf.track
     def _record_play_immediate(self):
         """Record the play for the current track and update the table row."""
         if self.current_index is None:
@@ -831,6 +836,7 @@ class MainWindow(QMainWindow):
 
         self._play_index(self.current_index)
 
+    @perf.track
     def _play_index(self, index):
         """Load and start playing a specific playlist index."""
         # Auto-close preview when main player starts a new track
@@ -862,6 +868,7 @@ class MainWindow(QMainWindow):
         self._transport.reset_display()
         self._update_now_playing('Stopped')
 
+    @perf.track
     def _next_track(self):
         """Advance to the next track (queue-aware)."""
         if not self.playlist:
@@ -993,6 +1000,7 @@ class MainWindow(QMainWindow):
                 indices.append(pl_idx)
         return indices
 
+    @perf.track
     def _on_context_menu(self, playlist_idx, pos):
         """Show context menu on right-click in track table."""
         selected = self._get_selected_indices()
@@ -1235,6 +1243,7 @@ class MainWindow(QMainWindow):
 
     # ── Settings ─────────────────────────────────────────
 
+    @perf.track
     def _open_settings(self, tab=None):
         """Open the settings dialog and apply changes on save."""
         dlg = SettingsDialog(
@@ -1287,6 +1296,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass  # swallow errors in the poll loop
 
+    @perf.track(quiet=True)
     def _poll_inner(self):
         mp = self._vlc_mp()
         is_playing = mp.is_playing()
@@ -1576,6 +1586,7 @@ class MainWindow(QMainWindow):
 
     # ── Waveform ─────────────────────────────────────────
 
+    @perf.track
     def _start_waveform(self, playlist_idx):
         """Kick off waveform generation for the given track.
 
@@ -1615,6 +1626,7 @@ class MainWindow(QMainWindow):
         self._waveform_worker = worker
         worker.start()
 
+    @perf.track
     def _on_waveform_ready(self, rel_path, file_path, data):
         """Slot: background waveform generation finished."""
         self._waveform_worker = None
@@ -1654,6 +1666,7 @@ class MainWindow(QMainWindow):
         else:
             super().dragEnterEvent(event)
 
+    @perf.track
     def dropEvent(self, event):
         """Handle files/folders dropped from a file manager."""
         urls = event.mimeData().urls()
@@ -1690,4 +1703,6 @@ class MainWindow(QMainWindow):
         self.config.save()
         # Persist queue
         self.db.save_queue(self._queue_panel.queue_paths())
+        # Dump performance summary
+        perf.dump()
         super().closeEvent(event)

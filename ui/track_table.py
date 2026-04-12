@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.formatters import format_duration, format_ts
+from core.perf import perf
 from ui.theme import COLORS
 
 # ── Column definitions ───────────────────────────────────
@@ -271,6 +272,12 @@ class TrackFilterProxy(QSortFilterProxyModel):
         self._sorting = False
         self._view = None  # set by TrackTableView after construction
 
+    @perf.track
+    def invalidateFilter(self):
+        """Override to instrument filter performance."""
+        super().invalidateFilter()
+
+    @perf.track
     def sort(self, column, order=Qt.AscendingOrder):
         """Wrap the sort with a wait cursor; block header clicks during sort."""
         if self._sorting:
@@ -455,7 +462,7 @@ class TrackTableView(QTableView):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAlternatingRowColors(False)
+        self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QTableView.SelectRows)
         self.setSelectionMode(QTableView.ExtendedSelection)
         self.setShowGrid(False)

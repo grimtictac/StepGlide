@@ -201,6 +201,7 @@ class Database:
 
     # ── Track CRUD ───────────────────────────────────────
 
+    @perf.track
     def load_all_tracks(self):
         """Load all tracks, tags, and votes from DB.
         Returns (tracks_list, all_voters, genres) where tracks_list is a list of dicts."""
@@ -282,6 +283,7 @@ class Database:
             return row[0]
         return None
 
+    @perf.track
     def ensure_track(self, path, title='', genre='Unknown', comment='',
                      length=None, artist='', album='', abs_path_fn=None):
         """Ensure a track exists in the DB. Returns (play_count, first_played, last_played, file_created, length)."""
@@ -366,6 +368,7 @@ class Database:
 
     # ── Votes ────────────────────────────────────────────
 
+    @perf.track
     def record_vote(self, path, vote, voter=''):
         """Record a vote. Returns (success: bool, message: str)."""
         track_id = self.get_track_id(path)

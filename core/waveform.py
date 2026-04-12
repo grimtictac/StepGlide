@@ -22,6 +22,8 @@ import zlib
 
 from PySide6.QtCore import QThread, Signal
 
+from core.perf import perf
+
 # ── Defaults ─────────────────────────────────────────────
 
 SAMPLE_RATE = 8000
@@ -329,6 +331,7 @@ def deserialise_waveform(blob):
 
 # ── Decode audio file to float samples via VLC CLI ───────
 
+@perf.track
 def _decode_to_samples(file_path, sample_rate=SAMPLE_RATE):
     """Transcode file_path to mono 16-bit WAV via VLC, return float list."""
     if not _VLC_BIN:
@@ -395,6 +398,7 @@ def _decode_to_samples(file_path, sample_rate=SAMPLE_RATE):
 
 # ── Main generation pipeline ────────────────────────────
 
+@perf.track
 def _generate_waveform(file_path, num_bins=NUM_BINS, sample_rate=SAMPLE_RATE):
     """Full pipeline: decode -> biquad filter -> bin -> normalise."""
     samples = _decode_to_samples(file_path, sample_rate)
