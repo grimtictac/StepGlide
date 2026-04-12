@@ -1051,7 +1051,8 @@ class MainWindow(QMainWindow):
         self.is_paused = False
         self._last_action = 'stopped'
         self._transport.reset_display()
-        self._update_now_playing()
+        self._lbl_now_playing.setText('')
+        self._lbl_genre.setText('')
 
     @perf.track
     def _next_track(self):
