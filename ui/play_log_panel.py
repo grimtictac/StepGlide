@@ -4,7 +4,8 @@ Play log panel — shows recent play history grouped by date.
 
 from datetime import datetime, date as date_cls
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QMenu,
     QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -123,7 +124,40 @@ class PlayLogPanel(QWidget):
                 if child.data(0, Qt.UserRole) == file_path:
                     self._tree.setCurrentItem(child)
                     self._tree.scrollToItem(child)
+                    self._flash_item(child)
                     return
+
+
+    def _flash_item(self, item, duration_ms=1500, steps=15):
+        """Briefly highlight *item* with a fading background glow."""
+        start_color = QColor(COLORS['accent'])
+        end_color = QColor('transparent')
+        cols = self._tree.columnCount()
+        step_interval = duration_ms // steps
+        step_count = [0]
+
+        def _tick():
+            step_count[0] += 1
+            t = step_count[0] / steps
+            r = int(start_color.red()   + t * (end_color.red()   - start_color.red()))
+            g = int(start_color.green() + t * (end_color.green() - start_color.green()))
+            b = int(start_color.blue()  + t * (end_color.blue()  - start_color.blue()))
+            a = int(start_color.alpha() + t * (end_color.alpha() - start_color.alpha()))
+            color = QColor(r, g, b, a)
+            for c in range(cols):
+                item.setBackground(c, color)
+            if step_count[0] >= steps:
+                timer.stop()
+                for c in range(cols):
+                    item.setData(c, Qt.BackgroundRole, None)
+
+        timer = QTimer(self)
+        timer.setInterval(step_interval)
+        timer.timeout.connect(_tick)
+        # Set initial highlight
+        for c in range(cols):
+            item.setBackground(c, start_color)
+        timer.start()
 
     # ── Rebuild tree ─────────────────────────────────────
 
