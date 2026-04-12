@@ -28,6 +28,7 @@ from ui.queue_panel import QueuePanel
 from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
 from ui.tag_bar import TagBar
+from ui.toast_banner import ToastBanner
 from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackTableModel, TrackTableView, _sort_value
 from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
 
@@ -1056,20 +1057,34 @@ class MainWindow(QMainWindow):
         self._lbl_genre.setText('')
 
     def _on_fade_hit_zero(self):
-        """Fade reached zero — glow stop, pause, stop playback, reset volume."""
-        self._debug_log('INFO', 'Fade hit zero → staged stop & reset')
+        """Fade reached zero — stop playback and show banner asking about next track."""
+        self._debug_log('INFO', 'Fade hit zero → stop + banner prompt')
 
-        # Stage 1: Glow the stop button immediately (stays lit ~1.5 s)
+        # Stop immediately, glow the stop button
         self._transport.flash_stop_button(1500)
+        self._stop()
 
-        # Stage 2: After 1 s, stop playback + glow + reset volume
-        def _stage2():
-            self._stop()
+        # Show banner between transport and search row
+        banner = ToastBanner(
+            'Fade finished — play next track?',
+            [('Play Next', 'next'), ('No Thanks', 'dismiss')],
+            parent=self._center,
+        )
+        # Insert after transport bar in center_layout
+        center_layout = self._center.layout()
+        transport_idx = center_layout.indexOf(self._transport)
+        center_layout.insertWidget(transport_idx + 1, banner)
+        banner.show()
+
+        def _on_banner_click(key):
             self._volume_strip.set_volume(100)
             self._vlc_mp().audio_set_volume(100)
-            self._volume_strip.volume_slider.flash_glow(1000)
+            self._volume_strip.volume_slider.flash_glow(800)
+            if key == 'next':
+                self._debug_log('INFO', 'Fade banner → playing next track')
+                self._next_track()
 
-        QTimer.singleShot(1000, _stage2)
+        banner.button_clicked.connect(_on_banner_click)
 
     @perf.track
     def _next_track(self):
