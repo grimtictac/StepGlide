@@ -834,6 +834,18 @@ class VolumeStrip(QWidget):
                   f'({speed:.1f} v/s)')
         self.set_fade_speed(speed, -1)
 
+    def start_timed_fade_up(self, target=100, duration_s=1.0):
+        """Fade volume up to *target* over *duration_s* seconds."""
+        current = self.volume_slider.value()
+        delta = target - current
+        if delta <= 0:
+            return
+        speed = delta / duration_s
+        self._log('DEBUG',
+                  f'Timed fade-up: {current}% → {target}% over {duration_s}s '
+                  f'({speed:.1f} v/s)')
+        self.set_fade_speed(speed, +1)
+
     # ── Public: external speed injection (used by PullFader) ──
 
     def inject_fade_speed(self, speed_vps, direction):

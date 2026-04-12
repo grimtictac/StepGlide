@@ -1077,9 +1077,8 @@ class MainWindow(QMainWindow):
         banner.show()
 
         def _on_banner_click(key):
-            self._volume_strip.set_volume(100)
-            self._vlc_mp().audio_set_volume(100)
-            self._volume_strip.volume_slider.flash_glow(800)
+            self._volume_strip.start_timed_fade_up(100, duration_s=1.0)
+            self._volume_strip.volume_slider.flash_glow(1000)
             if key == 'next':
                 self._debug_log('INFO', 'Fade banner → playing next track')
                 self._next_track()
