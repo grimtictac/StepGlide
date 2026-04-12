@@ -417,6 +417,7 @@ class VolumeStrip(QWidget):
     mute_toggled = Signal()
     debug_log = Signal(str, str)   # (level, message) → route to debug panel
     fade_state_changed = Signal(bool)  # is_fading
+    fade_hit_zero = Signal()           # fade reached 0 → stop & reset
     settings_requested = Signal()      # gear button clicked → open settings
 
     def __init__(self, parent=None):
@@ -766,10 +767,9 @@ class VolumeStrip(QWidget):
         if new_val == current:
             self._log('DEBUG', f'Volume fade: hit limit at {current}% → stopped')
             self._stop_fade()
-            # Auto-mute when fade reaches zero
             if current == 0:
-                self._log('DEBUG', 'Volume fade: reached zero → auto-mute')
-                self.mute_toggled.emit()
+                self._log('DEBUG', 'Volume fade: reached zero → stop & reset')
+                self.fade_hit_zero.emit()
             return
 
         self.volume_slider.setValue(new_val)

@@ -283,6 +283,7 @@ class MainWindow(QMainWindow):
         self._volume_strip = VolumeStrip(self)
         self._volume_strip.volume_changed.connect(self._on_volume_changed)
         self._volume_strip.mute_toggled.connect(self._toggle_mute)
+        self._volume_strip.fade_hit_zero.connect(self._on_fade_hit_zero)
         self._volume_strip.debug_log.connect(self._debug_log)
         self._volume_strip.settings_requested.connect(
             lambda: self._open_settings(tab='Volume'))
@@ -1053,6 +1054,12 @@ class MainWindow(QMainWindow):
         self._transport.reset_display()
         self._lbl_now_playing.setText('')
         self._lbl_genre.setText('')
+
+    def _on_fade_hit_zero(self):
+        """Fade reached zero — stop playback and reset volume to max."""
+        self._debug_log('INFO', 'Fade hit zero → stopping and resetting volume')
+        self._stop()
+        self._volume_strip.set_volume(100)
 
     @perf.track
     def _next_track(self):
