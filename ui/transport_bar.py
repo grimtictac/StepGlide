@@ -336,8 +336,8 @@ class GradientVolumeSlider(TickSlider):
         orig_handle = self._color_handle
         orig_handle_hover = self._color_handle_hover
 
-        glow = QColor(COLORS['cyan_bright'])
-        glow_dim = QColor(COLORS['cyan'])
+        glow = QColor(COLORS['orange'])
+        glow_dim = QColor(COLORS['yellow_hover'])
 
         self._color_bottom = glow
         self._color_mid = glow
@@ -1105,6 +1105,7 @@ class PullFader(QWidget):
     """
 
     debug_log = Signal(str, str)
+    volume_reset = Signal()        # emitted when pull-fader resets volume to max
 
     def __init__(self, volume_strip: 'VolumeStrip', parent=None):
         super().__init__(parent)
@@ -1281,6 +1282,7 @@ class PullFader(QWidget):
             self._vs.set_volume(100)
             self._vs.volume_changed.emit(100)
             self._vs.volume_slider.flash_glow(1000)
+            self.volume_reset.emit()
             self.debug_log.emit('DEBUG',
                                 'Pull-fader: released at zero → volume reset to 100')
         else:
@@ -1795,14 +1797,14 @@ class TransportBar(QWidget):
         return f'{m}:{s:02d}'
 
     def flash_stop_button(self, duration_ms=1000):
-        """Briefly glow the stop button with a cyan border."""
+        """Briefly glow the stop button with an orange border."""
         self.btn_stop.setStyleSheet(
             f'min-height: 0px; padding: 0px;'
-            f' border: 2px solid {COLORS["cyan_bright"]};'
+            f' border: 2px solid {COLORS["orange"]};'
             f' border-radius: 4px;'
-            f' background-color: #003040;')
+            f' background-color: #5c2d00;')
         self.btn_stop.setIcon(
-            qta.icon('mdi6.stop', color=COLORS['cyan_bright']))
+            qta.icon('mdi6.stop', color=COLORS['orange']))
 
         def _revert():
             self.btn_stop.setStyleSheet('min-height: 0px; padding: 0px;')

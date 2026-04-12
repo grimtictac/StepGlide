@@ -292,12 +292,18 @@ class MainWindow(QMainWindow):
 
         self._volume_panel = VolumePanel(self._volume_strip, self)
         self._volume_panel.pull_fader.debug_log.connect(self._debug_log)
+        self._volume_panel.pull_fader.volume_reset.connect(
+            lambda: self._flash_vol_container(1000))
         self._volume_panel.pull_fader.apply_config(self.config)
 
         vol_container = QWidget()
+        vol_container.setObjectName('VolContainer')
         vol_container.setStyleSheet(
-            f'background-color: {COLORS["bg_dark"]}; '
-            f'border-left: 1px solid {COLORS["border"]};')
+            f'#VolContainer {{'
+            f'  background-color: {COLORS["bg_dark"]};'
+            f'  border-left: 1px solid {COLORS["border"]};'
+            f'}}')
+        self._vol_container = vol_container
         vcl = QVBoxLayout(vol_container)
         vcl.setContentsMargins(0, 0, 0, 0)
         vcl.setSpacing(0)
@@ -1067,6 +1073,23 @@ class MainWindow(QMainWindow):
         self._lbl_now_playing.setText('')
         self._lbl_genre.setText('')
 
+    def _flash_vol_container(self, duration_ms=1000):
+        """Briefly glow the entire volume area with the orange reset colour."""
+        self._vol_container.setStyleSheet(
+            f'#VolContainer {{'
+            f'  background-color: #5c2d00;'
+            f'  border-left: 2px solid {COLORS["orange"]};'
+            f'}}')
+
+        def _revert():
+            self._vol_container.setStyleSheet(
+                f'#VolContainer {{'
+                f'  background-color: {COLORS["bg_dark"]};'
+                f'  border-left: 1px solid {COLORS["border"]};'
+                f'}}')
+
+        QTimer.singleShot(duration_ms, _revert)
+
     def _on_fade_hit_zero(self):
         """Fade reached zero — stop playback, activate mute, show banner."""
         self._debug_log('INFO', 'Fade hit zero → stop + mute + banner')
@@ -1102,6 +1125,8 @@ class MainWindow(QMainWindow):
                 self._volume_strip.set_mute_icon(False)
                 self._volume_strip.set_volume(100)
                 self._vlc_mp().audio_set_volume(100)
+                self._volume_strip.volume_slider.flash_glow(1000)
+                self._flash_vol_container(1000)
                 self._next_track()
 
         banner.button_clicked.connect(_on_banner_click)

@@ -37,9 +37,9 @@ class ToastBanner(QWidget):
         # ── Styling ──
         self.setStyleSheet(f'''
             #ToastBanner {{
-                background-color: {COLORS['bg_light']};
-                border-top: 2px solid {COLORS['cyan']};
-                border-bottom: 2px solid {COLORS['cyan']};
+                background-color: #5c2d00;
+                border-top: 2px solid {COLORS['orange']};
+                border-bottom: 2px solid {COLORS['orange']};
             }}
         ''')
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -52,7 +52,7 @@ class ToastBanner(QWidget):
 
         lbl = QLabel(message)
         lbl.setStyleSheet(
-            f'color: {COLORS["fg"]}; font-size: 13px; font-weight: bold;'
+            f'color: {COLORS["orange"]}; font-size: 13px; font-weight: bold;'
             f' background: transparent; border: none;')
         lay.addWidget(lbl)
         lay.addStretch()
@@ -63,9 +63,9 @@ class ToastBanner(QWidget):
             btn.setFixedHeight(28)
             btn.setStyleSheet(
                 f'QPushButton {{'
-                f'  background-color: {COLORS["accent"]};'
+                f'  background-color: #5c2d00;'
                 f'  color: {COLORS["fg"]};'
-                f'  border: 1px solid {COLORS["cyan"]};'
+                f'  border: 1px solid {COLORS["orange"]};'
                 f'  border-radius: 4px;'
                 f'  padding: 2px 14px;'
                 f'  font-size: 12px;'
@@ -73,8 +73,9 @@ class ToastBanner(QWidget):
                 f'  min-height: 0px;'
                 f'}}'
                 f'QPushButton:hover {{'
-                f'  background-color: {COLORS["accent_hover"]};'
-                f'  border-color: {COLORS["cyan_bright"]};'
+                f'  background-color: {COLORS["yellow_hover"]};'
+                f'  border-color: {COLORS["yellow"]};'
+                f'  color: #000;'
                 f'}}')
             btn.clicked.connect(lambda _=False, k=key: self._on_click(k))
             lay.addWidget(btn)
