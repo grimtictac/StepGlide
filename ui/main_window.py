@@ -9,12 +9,12 @@ from datetime import datetime, timedelta
 import vlc
 
 import qtawesome as qta
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QInputDialog, QLabel, QMainWindow,
-    QMenu, QMessageBox, QProgressBar, QPushButton, QSplitter, QStatusBar,
-    QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QProgressBar, QProgressDialog, QPushButton,
+    QSplitter, QStatusBar, QVBoxLayout, QWidget,
 )
 
 from ui.theme import COLORS, DARK_THEME
@@ -38,6 +38,50 @@ from core.waveform import WaveformWorker, deserialise_waveform, serialise_wavefo
 from ui.waveform_bar import WaveformScrubBar
 from ui.waveform_legend import WaveformLegend
 from ui.waveform_settings_panel import WaveformSettingsPanel
+
+
+class _GenreRenameWorker(QThread):
+    """Background worker that renames a genre in the DB and file metadata."""
+
+    progress = Signal(int, int)       # (current, total)
+    error = Signal(str)               # per-file error message
+    finished_ok = Signal(int)         # count of files updated
+
+    def __init__(self, tracks, new_genre, db, parent=None):
+        super().__init__(parent)
+        self._tracks = tracks          # list of (rel_path, abs_path)
+        self._new_genre = new_genre
+        self._db = db
+
+    def run(self):
+        try:
+            from mutagen import File as MutagenFile
+        except Exception:
+            MutagenFile = None
+
+        total = len(self._tracks)
+        updated = 0
+        for i, (rel_path, abs_path) in enumerate(self._tracks):
+            # Update database
+            try:
+                self._db.update_track_field(rel_path, 'genre', self._new_genre)
+            except Exception as e:
+                self.error.emit(f'DB error for {rel_path}: {e}')
+
+            # Update file metadata
+            if MutagenFile is not None and abs_path:
+                try:
+                    tags = MutagenFile(abs_path, easy=True)
+                    if tags is not None:
+                        tags['genre'] = self._new_genre
+                        tags.save()
+                        updated += 1
+                except Exception as e:
+                    self.error.emit(f'Metadata error for {abs_path}: {e}')
+
+            self.progress.emit(i + 1, total)
+
+        self.finished_ok.emit(updated)
 
 
 class MainWindow(QMainWindow):
@@ -831,6 +875,7 @@ class MainWindow(QMainWindow):
         sb.genre_selected.connect(self._on_genre_selected)
         sb.genre_hidden.connect(self._on_genre_hidden)
         sb.genre_unhidden.connect(self._on_genre_unhidden)
+        sb.genre_rename_requested.connect(self._on_genre_rename_requested)
         sb.playlist_selected.connect(self._on_playlist_selected)
         sb.playlist_changed.connect(self._on_playlist_changed)
         sb.smart_playlist_changed.connect(self._on_smart_playlist_changed)
@@ -897,6 +942,86 @@ class MainWindow(QMainWindow):
         """A genre was unhidden via sidebar context menu — persist."""
         self.config.hidden_genres.discard(genre)
         self.config.save()
+
+    def _on_genre_rename_requested(self, old_genre, new_genre):
+        """Rename all tracks from old_genre to new_genre (DB + file metadata)."""
+        # Collect affected tracks
+        affected = [(e['path'], e.get('_abs_path', ''))
+                     for e in self.playlist if e.get('genre') == old_genre]
+        if not affected:
+            return
+
+        reply = QMessageBox.question(
+            self, 'Rename Genre',
+            f'Rename {len(affected)} track(s) from "{old_genre}" '
+            f'to "{new_genre}"?\n\n'
+            f'This will update the database and the metadata\n'
+            f'in the original audio files.',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+
+        # Progress dialog
+        prog = QProgressDialog(
+            f'Renaming genre to "{new_genre}"…', 'Cancel', 0, len(affected), self)
+        prog.setWindowTitle('Renaming Genre')
+        prog.setMinimumDuration(0)
+        prog.setModal(True)
+        prog.setValue(0)
+
+        # Worker thread
+        worker = _GenreRenameWorker(affected, new_genre, self.db, self)
+        self._genre_rename_worker = worker   # prevent GC
+
+        errors = []
+
+        def on_progress(current, total):
+            if prog.wasCanceled():
+                worker.terminate()
+                return
+            prog.setValue(current)
+
+        def on_error(msg):
+            errors.append(msg)
+            self._debug_log('WARN', msg)
+
+        def on_finished(updated_count):
+            prog.close()
+            # Update all in-memory playlist entries
+            for entry in self.playlist:
+                if entry.get('genre') == old_genre:
+                    entry['genre'] = new_genre
+            # Update genre set
+            self.genres.discard(old_genre)
+            self.genres.add(new_genre)
+            # If old genre was hidden, transfer to new
+            if old_genre in self.config.hidden_genres:
+                self.config.hidden_genres.discard(old_genre)
+                self.config.hidden_genres.add(new_genre)
+                self.config.save()
+            # Refresh sidebar + table
+            self._sidebar.set_genre_data(
+                self.genres, self._genre_counts(),
+                self.config.hidden_genres)
+            self._apply_filters()
+            self._genre_rename_worker = None
+
+            if errors:
+                QMessageBox.warning(
+                    self, 'Genre Rename',
+                    f'Renamed to "{new_genre}" with '
+                    f'{len(errors)} error(s).\n'
+                    f'Check debug log for details.')
+            else:
+                self._debug_log('INFO',
+                    f'Genre rename complete: {len(affected)} tracks '
+                    f'"{old_genre}" → "{new_genre}" '
+                    f'({updated_count} files updated)')
+
+        worker.progress.connect(on_progress)
+        worker.error.connect(on_error)
+        worker.finished_ok.connect(on_finished)
+        worker.start()
 
     def _on_playlist_selected(self, paths):
         """paths is a set of file paths, or None for All Tracks."""

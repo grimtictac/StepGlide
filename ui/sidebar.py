@@ -70,6 +70,7 @@ class SidebarWidget(QWidget):
     genre_selected = Signal(object)      # set of genres or None (All)
     genre_hidden = Signal(str)           # genre name hidden via context menu
     genre_unhidden = Signal(str)         # genre name unhidden
+    genre_rename_requested = Signal(str, str)  # (old_genre, new_genre)
     playlist_selected = Signal(object)   # set of paths or None (All Tracks)
 
     playlist_changed = Signal()          # emitted after any playlist CRUD
@@ -214,6 +215,9 @@ class SidebarWidget(QWidget):
         kind, name = item.data(Qt.UserRole)
         menu = QMenu(self)
         if kind == 'genre':
+            menu.addAction(f'Rename "{name}" to…',
+                           lambda: self._request_genre_rename(name))
+            menu.addSeparator()
             menu.addAction(f'Hide "{name}"',
                            lambda: self._hide_genre(name))
         # Always offer unhide if there are hidden genres
@@ -225,6 +229,14 @@ class SidebarWidget(QWidget):
         if menu.isEmpty():
             return
         menu.exec(self._genre_list.mapToGlobal(pos))
+
+    def _request_genre_rename(self, old_genre):
+        new_genre, ok = QInputDialog.getText(
+            self, 'Rename Genre',
+            f'Rename all "{old_genre}" tracks to:',
+            text=old_genre)
+        if ok and new_genre.strip() and new_genre.strip() != old_genre:
+            self.genre_rename_requested.emit(old_genre, new_genre.strip())
 
     def _hide_genre(self, genre):
         self._hidden_genres.add(genre)
