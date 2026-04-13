@@ -46,7 +46,6 @@ class AppConfig:
     def __init__(self, config_path=None):
         self.config_path = config_path or CONFIG_PATH
         self.library_root = ''
-        self.genre_groups = {}
         self.length_filter_durations = [
             ('< 2 min', 0, 120),
             ('2 – 4 min', 120, 240),
@@ -96,15 +95,6 @@ class AppConfig:
         lib_el = root.find('library_root')
         if lib_el is not None and lib_el.text:
             self.library_root = lib_el.text
-
-        # Genre groups
-        self.genre_groups = {}
-        groups_el = root.find('genre_groups')
-        if groups_el is not None:
-            for group_el in groups_el.findall('group'):
-                gname = group_el.get('name', '')
-                members = [m.text for m in group_el.findall('member') if m.text]
-                self.genre_groups[gname] = members
 
         # Length filter durations
         durations_el = root.find('length_filter_durations')
@@ -245,14 +235,6 @@ class AppConfig:
         # Library root
         lib_el = ET.SubElement(root, 'library_root')
         lib_el.text = self.library_root or ''
-
-        # Genre groups
-        groups_el = ET.SubElement(root, 'genre_groups')
-        for gname, members in self.genre_groups.items():
-            group_el = ET.SubElement(groups_el, 'group', name=gname)
-            for member in members:
-                m_el = ET.SubElement(group_el, 'member')
-                m_el.text = member
 
         # Length filter durations
         durations_el = ET.SubElement(root, 'length_filter_durations')

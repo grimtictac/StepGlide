@@ -1,5 +1,5 @@
 """
-Settings dialog — tabbed dialog for genre groups, tags, length filters,
+Settings dialog — tabbed dialog for tags, length filters,
 tooltips, and interface options.
 """
 
@@ -36,7 +36,6 @@ class SettingsDialog(QDialog):
         self._volume_strip = volume_strip
 
         # Working copies so Cancel discards changes
-        self._working_groups = {k: list(v) for k, v in config.genre_groups.items()}
         self._working_tags = set(config.all_tags)
         self._working_tag_rows = dict(config.tag_rows)
         self._working_durations = [list(d) for d in config.length_filter_durations]
@@ -73,7 +72,7 @@ class SettingsDialog(QDialog):
         self._tab_buttons = {}
         self._stack = QStackedWidget()
 
-        for label in ('Genres', 'Tags', 'Length', 'Tooltips', 'Interface', 'Volume'):
+        for label in ('Tags', 'Length', 'Tooltips', 'Interface', 'Volume'):
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setFixedHeight(30)
@@ -84,12 +83,11 @@ class SettingsDialog(QDialog):
         root.addLayout(tab_row)
 
         # Build each tab page
-        self._stack.addWidget(self._build_genres_tab())     # 0
-        self._stack.addWidget(self._build_tags_tab())       # 1
-        self._stack.addWidget(self._build_length_tab())     # 2
-        self._stack.addWidget(self._build_tooltips_tab())   # 3
-        self._stack.addWidget(self._build_interface_tab())  # 4
-        self._stack.addWidget(self._build_volume_tab())     # 5
+        self._stack.addWidget(self._build_tags_tab())       # 0
+        self._stack.addWidget(self._build_length_tab())     # 1
+        self._stack.addWidget(self._build_tooltips_tab())   # 2
+        self._stack.addWidget(self._build_interface_tab())  # 3
+        self._stack.addWidget(self._build_volume_tab())     # 4
         root.addWidget(self._stack, 1)
 
         # Bottom buttons
@@ -98,11 +96,6 @@ class SettingsDialog(QDialog):
         btn_snapshot.setStyleSheet('padding: 6px 12px;')
         btn_snapshot.clicked.connect(self._snapshot)
         btn_row.addWidget(btn_snapshot)
-
-        btn_genres = QPushButton('\U0001f3b5 Show All Genres')
-        btn_genres.setStyleSheet('padding: 6px 12px;')
-        btn_genres.clicked.connect(self._show_all_genres)
-        btn_row.addWidget(btn_genres)
 
         btn_row.addStretch()
 
@@ -119,7 +112,7 @@ class SettingsDialog(QDialog):
 
         root.addLayout(btn_row)
 
-        self._show_tab('Genres')
+        self._show_tab('Tags')
 
     def show_tab(self, name):
         """Public API — jump to a named tab (e.g. 'Volume')."""
@@ -127,8 +120,8 @@ class SettingsDialog(QDialog):
 
     def _show_tab(self, name):
         idx_map = {
-            'Genres': 0, 'Tags': 1, 'Length': 2,
-            'Tooltips': 3, 'Interface': 4, 'Volume': 5,
+            'Tags': 0, 'Length': 1,
+            'Tooltips': 2, 'Interface': 3, 'Volume': 4,
         }
         self._stack.setCurrentIndex(idx_map[name])
         for lbl, btn in self._tab_buttons.items():
@@ -140,125 +133,6 @@ class SettingsDialog(QDialog):
             else:
                 btn.setStyleSheet(
                     'background-color: transparent; border: 1px solid #555; border-radius: 4px;')
-
-    # ── Genres tab ───────────────────────────────────────
-
-    def _build_genres_tab(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setSpacing(4)
-
-        layout.addWidget(self._heading('Genre Groups'))
-        layout.addWidget(self._subtext('Create groups and assign genres to them.'))
-
-        # Scrollable content
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        self._genre_content = QWidget()
-        self._genre_layout = QVBoxLayout(self._genre_content)
-        self._genre_layout.setAlignment(Qt.AlignTop)
-        scroll.setWidget(self._genre_content)
-        layout.addWidget(scroll, 1)
-
-        btn_row = QHBoxLayout()
-        btn_add = QPushButton('+ New Group')
-        btn_add.clicked.connect(self._add_genre_group)
-        btn_row.addWidget(btn_add)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
-        self._rebuild_genres()
-        return page
-
-    def _rebuild_genres(self):
-        # Clear
-        while self._genre_layout.count():
-            item = self._genre_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-
-        for gname, members in self._working_groups.items():
-            group_widget = QWidget()
-            group_widget.setStyleSheet(f'background-color: {COLORS["bg_mid"]};'
-                                       f'border-radius: 4px; padding: 4px;')
-            gl = QVBoxLayout(group_widget)
-            gl.setContentsMargins(8, 6, 8, 6)
-            gl.setSpacing(2)
-
-            # Header row
-            hdr = QHBoxLayout()
-            lbl = QLabel(gname)
-            lbl.setStyleSheet('font-size: 13px; font-weight: bold;')
-            hdr.addWidget(lbl)
-            hdr.addStretch()
-            btn_rename = QPushButton()
-            btn_rename.setIcon(qta.icon('mdi6.pencil', color=COLORS['fg']))
-            btn_rename.setFixedSize(30, 26)
-            btn_rename.setIconSize(btn_rename.size() * 0.55)
-            btn_rename.clicked.connect(lambda _, g=gname: self._rename_genre_group(g))
-            hdr.addWidget(btn_rename)
-            btn_del = QPushButton()
-            btn_del.setIcon(qta.icon('mdi6.delete', color=COLORS['red_text']))
-            btn_del.setFixedSize(30, 26)
-            btn_del.setIconSize(btn_del.size() * 0.55)
-            btn_del.clicked.connect(lambda _, g=gname: self._delete_genre_group(g))
-            hdr.addWidget(btn_del)
-            gl.addLayout(hdr)
-
-            # Checkboxes for genres
-            for genre in self._genres:
-                cb = QCheckBox(genre)
-                cb.setChecked(genre in members)
-                cb.toggled.connect(
-                    lambda checked, g=gname, gr=genre: self._toggle_genre(g, gr, checked))
-                gl.addWidget(cb)
-
-            self._genre_layout.addWidget(group_widget)
-
-        # Ungrouped genres
-        assigned = set()
-        for m in self._working_groups.values():
-            assigned.update(m)
-        ungrouped = [g for g in self._genres if g not in assigned]
-        if ungrouped:
-            ug_widget = QWidget()
-            ug_layout = QVBoxLayout(ug_widget)
-            ug_layout.setContentsMargins(8, 6, 8, 6)
-            lbl = QLabel('Ungrouped')
-            lbl.setStyleSheet('font-size: 13px; font-weight: bold; color: #888;')
-            ug_layout.addWidget(lbl)
-            for g in ungrouped:
-                ug_layout.addWidget(QLabel(f'  {g}'))
-            self._genre_layout.addWidget(ug_widget)
-
-    def _add_genre_group(self):
-        name, ok = QInputDialog.getText(self, 'New Group', 'Group name:')
-        if ok and name.strip() and name.strip() not in self._working_groups:
-            self._working_groups[name.strip()] = []
-            self._rebuild_genres()
-
-    def _rename_genre_group(self, old):
-        name, ok = QInputDialog.getText(self, 'Rename Group', 'New name:', text=old)
-        if ok and name.strip() and name.strip() != old:
-            self._working_groups[name.strip()] = self._working_groups.pop(old)
-            self._rebuild_genres()
-
-    def _delete_genre_group(self, gname):
-        del self._working_groups[gname]
-        self._rebuild_genres()
-
-    def _toggle_genre(self, group, genre, checked):
-        if checked:
-            # Remove from any other group first
-            for g, members in self._working_groups.items():
-                if genre in members and g != group:
-                    members.remove(genre)
-            if genre not in self._working_groups[group]:
-                self._working_groups[group].append(genre)
-        else:
-            if genre in self._working_groups[group]:
-                self._working_groups[group].remove(genre)
 
     # ── Tags tab ─────────────────────────────────────────
 
@@ -1018,43 +892,11 @@ class SettingsDialog(QDialog):
         QMessageBox.information(self, 'Snapshot',
                                 f'Settings snapshot saved:\n{os.path.basename(dest)}')
 
-    def _show_all_genres(self):
-        """Simple list of all detected genres with counts."""
-        # Gather counts from parent's playlist
-        parent = self.parent()
-        genre_counts = {}
-        if hasattr(parent, 'playlist'):
-            for e in parent.playlist:
-                g = e.get('genre', 'Unknown')
-                genre_counts[g] = genre_counts.get(g, 0) + 1
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle('All Detected Genres')
-        dlg.resize(360, 420)
-        dlg.setModal(True)
-        ly = QVBoxLayout(dlg)
-        ly.addWidget(self._heading(f'{len(self._genres)} genres found'))
-
-        lw = QListWidget()
-        for g in self._genres:
-            count = genre_counts.get(g, 0)
-            item = QListWidgetItem(f'{g}  ({count} tracks)')
-            lw.addItem(item)
-        ly.addWidget(lw, 1)
-
-        btn_close = QPushButton('Close')
-        btn_close.clicked.connect(dlg.accept)
-        ly.addWidget(btn_close)
-        dlg.exec()
-
     # ── Save ─────────────────────────────────────────────
 
     def _on_save(self):
         """Commit all working copies back to config and accept."""
         c = self._config
-
-        # Genres
-        c.genre_groups = self._working_groups
 
         # Tags
         c.all_tags = self._working_tags

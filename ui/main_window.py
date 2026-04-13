@@ -493,7 +493,7 @@ class MainWindow(QMainWindow):
 
         # Populate sidebar
         self._sidebar.set_genre_data(
-            self.genres, self.config.genre_groups, self._genre_counts())
+            self.genres, self._genre_counts())
         self._sidebar.set_playlist_data(
             self.config.playlists, self.config.smart_playlists)
 
@@ -1365,7 +1365,7 @@ class MainWindow(QMainWindow):
         self.genres.add(genre)
         self.db.update_track_field(entry['path'], 'genre', genre)
         self._track_model.update_row(idx)
-        self._sidebar.set_genre_data(self.genres, self.config.genre_groups,
+        self._sidebar.set_genre_data(self.genres,
                                      self._genre_counts())
 
     def _ctx_edit_genre(self, idx):
@@ -1522,7 +1522,7 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             # Refresh UI elements that depend on config
             self._sidebar.set_genre_data(
-                sorted(self.genres), self.config.genre_groups,
+                sorted(self.genres),
                 self._genre_counts())
             self._tag_bar.set_tags(self.config.all_tags, self.config.tag_rows)
             if self.config.length_filter_durations:

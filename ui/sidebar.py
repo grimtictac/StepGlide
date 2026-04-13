@@ -76,9 +76,8 @@ class SidebarWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._genre_groups = {}  # group_name → [genre, ...]
         self._all_genres = set()
-        self._genre_label_map = {}  # display label → ('all'|'group'|'genre', name)
+        self._genre_label_map = {}  # display label → ('all'|'genre', name)
 
         self._playlists = {}  # name → [path, ...]
         self._smart_playlists = {}  # name → {'rules': [...], 'match': str}
@@ -142,10 +141,9 @@ class SidebarWidget(QWidget):
 
     # ── Public API ───────────────────────────────────────
 
-    def set_genre_data(self, all_genres, genre_groups, genre_counts=None):
-        """Rebuild the genre list from a set of all genres and a groups dict."""
+    def set_genre_data(self, all_genres, genre_counts=None):
+        """Rebuild the genre list from a set of all genres."""
         self._all_genres = all_genres
-        self._genre_groups = genre_groups
         self._genre_counts = genre_counts or {}
         self._build_genre_list()
 
@@ -166,7 +164,7 @@ class SidebarWidget(QWidget):
     # ── Genre list ───────────────────────────────────────
 
     def _build_genre_list(self):
-        """Populate the genre QListWidget with groups + ungrouped."""
+        """Populate the genre QListWidget."""
         self._genre_list.blockSignals(True)
         self._genre_list.clear()
         self._genre_label_map = {}
@@ -179,28 +177,8 @@ class SidebarWidget(QWidget):
         item.setData(Qt.UserRole, ('all', 'All'))
         self._genre_list.addItem(item)
 
-        grouped_genres = set()
-        for gname, members in sorted(self._genre_groups.items()):
-            # Group header with summed count
-            group_count = sum(counts.get(g, 0) for g in members)
-            group_label = f'▸ {gname}  ({group_count})' if group_count else f'▸ {gname}'
-            group_item = QListWidgetItem(group_label)
-            group_item.setData(Qt.UserRole, ('group', gname))
-            group_item.setForeground(
-                Qt.GlobalColor.cyan if COLORS else Qt.GlobalColor.white)
-            self._genre_list.addItem(group_item)
-
-            for genre in sorted(members):
-                c = counts.get(genre, 0)
-                sub_label = f'    {genre}  ({c})' if c else f'    {genre}'
-                sub = QListWidgetItem(sub_label)
-                sub.setData(Qt.UserRole, ('genre', genre))
-                self._genre_list.addItem(sub)
-                grouped_genres.add(genre)
-
-        # Ungrouped genres
-        ungrouped = sorted(g for g in self._all_genres if g and g not in grouped_genres)
-        for genre in ungrouped:
+        # All genres, alphabetical
+        for genre in sorted(g for g in self._all_genres if g):
             c = counts.get(genre, 0)
             label = f'{genre}  ({c})' if c else genre
             gi = QListWidgetItem(label)
@@ -217,9 +195,6 @@ class SidebarWidget(QWidget):
         kind, name = current.data(Qt.UserRole)
         if kind == 'all':
             self.genre_selected.emit(None)
-        elif kind == 'group':
-            members = self._genre_groups.get(name, [])
-            self.genre_selected.emit(set(members))
         else:
             self.genre_selected.emit({name})
 
