@@ -68,6 +68,8 @@ class SidebarWidget(QWidget):
 
     # ── Signals ──────────────────────────────────────────
     genre_selected = Signal(object)      # set of genres or None (All)
+    genre_hidden = Signal(str)           # genre name hidden via context menu
+    genre_unhidden = Signal(str)         # genre name unhidden
     playlist_selected = Signal(object)   # set of paths or None (All Tracks)
 
     playlist_changed = Signal()          # emitted after any playlist CRUD
@@ -77,6 +79,7 @@ class SidebarWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._all_genres = set()
+        self._hidden_genres = set()
         self._genre_label_map = {}  # display label → ('all'|'genre', name)
 
         self._playlists = {}  # name → [path, ...]
@@ -101,6 +104,9 @@ class SidebarWidget(QWidget):
         self._genre_list = QListWidget()
         self._genre_list.setSelectionMode(QListWidget.SingleSelection)
         self._genre_list.currentItemChanged.connect(self._on_genre_item_changed)
+        self._genre_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._genre_list.customContextMenuRequested.connect(
+            self._on_genre_right_click)
         layout.addWidget(self._genre_list, stretch=1)
 
         # ── Playlist section ─────────────────────────────
@@ -141,10 +147,11 @@ class SidebarWidget(QWidget):
 
     # ── Public API ───────────────────────────────────────
 
-    def set_genre_data(self, all_genres, genre_counts=None):
+    def set_genre_data(self, all_genres, genre_counts=None, hidden_genres=None):
         """Rebuild the genre list from a set of all genres."""
         self._all_genres = all_genres
         self._genre_counts = genre_counts or {}
+        self._hidden_genres = hidden_genres or set()
         self._build_genre_list()
 
     def set_playlist_data(self, playlists, smart_playlists=None):
@@ -177,8 +184,10 @@ class SidebarWidget(QWidget):
         item.setData(Qt.UserRole, ('all', 'All'))
         self._genre_list.addItem(item)
 
-        # All genres, alphabetical
-        for genre in sorted(g for g in self._all_genres if g):
+        # Visible genres, alphabetical
+        visible = sorted(
+            g for g in self._all_genres if g and g not in self._hidden_genres)
+        for genre in visible:
             c = counts.get(genre, 0)
             label = f'{genre}  ({c})' if c else genre
             gi = QListWidgetItem(label)
@@ -197,6 +206,35 @@ class SidebarWidget(QWidget):
             self.genre_selected.emit(None)
         else:
             self.genre_selected.emit({name})
+
+    def _on_genre_right_click(self, pos):
+        item = self._genre_list.itemAt(pos)
+        if item is None:
+            return
+        kind, name = item.data(Qt.UserRole)
+        menu = QMenu(self)
+        if kind == 'genre':
+            menu.addAction(f'Hide "{name}"',
+                           lambda: self._hide_genre(name))
+        # Always offer unhide if there are hidden genres
+        if self._hidden_genres:
+            sub = menu.addMenu(
+                f'Unhide ({len(self._hidden_genres)} hidden)')
+            for g in sorted(self._hidden_genres):
+                sub.addAction(g, lambda genre=g: self._unhide_genre(genre))
+        if menu.isEmpty():
+            return
+        menu.exec(self._genre_list.mapToGlobal(pos))
+
+    def _hide_genre(self, genre):
+        self._hidden_genres.add(genre)
+        self._build_genre_list()
+        self.genre_hidden.emit(genre)
+
+    def _unhide_genre(self, genre):
+        self._hidden_genres.discard(genre)
+        self._build_genre_list()
+        self.genre_unhidden.emit(genre)
 
     # ── Playlist list ────────────────────────────────────
 

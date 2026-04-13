@@ -493,7 +493,7 @@ class MainWindow(QMainWindow):
 
         # Populate sidebar
         self._sidebar.set_genre_data(
-            self.genres, self._genre_counts())
+            self.genres, self._genre_counts(), self.config.hidden_genres)
         self._sidebar.set_playlist_data(
             self.config.playlists, self.config.smart_playlists)
 
@@ -829,6 +829,8 @@ class MainWindow(QMainWindow):
     def _connect_sidebar(self):
         sb = self._sidebar
         sb.genre_selected.connect(self._on_genre_selected)
+        sb.genre_hidden.connect(self._on_genre_hidden)
+        sb.genre_unhidden.connect(self._on_genre_unhidden)
         sb.playlist_selected.connect(self._on_playlist_selected)
         sb.playlist_changed.connect(self._on_playlist_changed)
         sb.smart_playlist_changed.connect(self._on_smart_playlist_changed)
@@ -885,6 +887,16 @@ class MainWindow(QMainWindow):
         """genres is a set of genre strings, or None for All."""
         self._filter_state['genre'] = genres
         self._apply_filters()
+
+    def _on_genre_hidden(self, genre):
+        """A genre was hidden via sidebar context menu — persist."""
+        self.config.hidden_genres.add(genre)
+        self.config.save()
+
+    def _on_genre_unhidden(self, genre):
+        """A genre was unhidden via sidebar context menu — persist."""
+        self.config.hidden_genres.discard(genre)
+        self.config.save()
 
     def _on_playlist_selected(self, paths):
         """paths is a set of file paths, or None for All Tracks."""
@@ -1366,7 +1378,8 @@ class MainWindow(QMainWindow):
         self.db.update_track_field(entry['path'], 'genre', genre)
         self._track_model.update_row(idx)
         self._sidebar.set_genre_data(self.genres,
-                                     self._genre_counts())
+                                     self._genre_counts(),
+                                     self.config.hidden_genres)
 
     def _ctx_edit_genre(self, idx):
         entry = self.playlist[idx]
@@ -1523,7 +1536,8 @@ class MainWindow(QMainWindow):
             # Refresh UI elements that depend on config
             self._sidebar.set_genre_data(
                 sorted(self.genres),
-                self._genre_counts())
+                self._genre_counts(),
+                self.config.hidden_genres)
             self._tag_bar.set_tags(self.config.all_tags, self.config.tag_rows)
             if self.config.length_filter_durations:
                 opts = [label for label, lo, hi in self.config.length_filter_durations]
