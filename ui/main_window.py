@@ -1418,11 +1418,66 @@ class MainWindow(QMainWindow):
     # ── Slot handlers ────────────────────────────────────
 
     def _on_play_requested(self, playlist_idx):
-        """Handle double-click on a track — load and play it."""
-        # Auto-reset speed if enabled
+        """Handle double-click on a track — play now or queue next."""
+        if self.is_playing and playlist_idx != self.current_index:
+            entry = self.playlist[playlist_idx]
+            title = entry.get('title', '?')
+            choice = self._ask_play_or_queue(title)
+            if choice == 'now':
+                if self._auto_reset_speed and abs(self._speed - 1.0) > 0.05:
+                    self._speed_reset()
+                self._play_index(playlist_idx)
+            elif choice == 'next':
+                self._queue_panel.add_next(playlist_idx)
+            # 'cancel' → do nothing
+            return
+        # Nothing playing (or same track) — just play immediately
         if self._auto_reset_speed and abs(self._speed - 1.0) > 0.05:
             self._speed_reset()
         self._play_index(playlist_idx)
+
+    def _ask_play_or_queue(self, title):
+        """Show Play Now / Play Next dialog.  Returns 'now', 'next', or 'cancel'.
+
+        Shortcuts: Enter → Play Now, Space → Play Next, Escape → Cancel.
+        """
+        from PySide6.QtWidgets import QDialog, QDialogButtonBox
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle('Play or Queue')
+        layout = QVBoxLayout(dlg)
+        lbl = QLabel(f'A track is already playing.\n\n"{title}"')
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+
+        btn_box = QDialogButtonBox(dlg)
+        btn_now = QPushButton('▶  Play Now')
+        btn_next = QPushButton('⏭  Play Next')
+        btn_box.addButton(btn_now, QDialogButtonBox.AcceptRole)
+        btn_box.addButton(btn_next, QDialogButtonBox.ActionRole)
+        btn_box.addButton(QDialogButtonBox.Cancel)
+        layout.addWidget(btn_box)
+
+        result = {'choice': 'cancel'}
+
+        def _play_now():
+            result['choice'] = 'now'
+            dlg.accept()
+
+        def _play_next():
+            result['choice'] = 'next'
+            dlg.accept()
+
+        btn_now.clicked.connect(_play_now)
+        btn_next.clicked.connect(_play_next)
+        btn_box.rejected.connect(dlg.reject)
+
+        # Keyboard shortcuts: Enter → Play Now, Space → Play Next
+        QShortcut(QKeySequence(Qt.Key_Return), dlg).activated.connect(_play_now)
+        QShortcut(QKeySequence(Qt.Key_Space), dlg).activated.connect(_play_next)
+
+        dlg.exec()
+        return result['choice']
 
     def _on_selection_changed(self, indices):
         """Handle track selection change."""

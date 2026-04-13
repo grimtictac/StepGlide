@@ -222,6 +222,11 @@ class QueuePanel(QWidget):
         self._queue.append(playlist_idx)
         self._rebuild()
 
+    def add_next(self, playlist_idx):
+        """Insert a single track at the front of the queue (play next)."""
+        self._queue.insert(0, playlist_idx)
+        self._rebuild()
+
     def add_multiple(self, indices):
         """Append several tracks to the queue."""
         self._queue.extend(indices)
