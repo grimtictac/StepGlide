@@ -84,6 +84,28 @@ class _GenreRenameWorker(QThread):
         self.finished_ok.emit(updated)
 
 
+class _MissingFileScanWorker(QThread):
+    """Background worker that checks every track path for existence on disk."""
+
+    progress = Signal(int, int)          # (current, total)
+    missing_found = Signal(str, str)     # (rel_path, abs_path)
+    finished_ok = Signal(int, int)       # (total_scanned, missing_count)
+
+    def __init__(self, tracks, parent=None):
+        super().__init__(parent)
+        self._tracks = tracks            # list of (rel_path, abs_path)
+
+    def run(self):
+        total = len(self._tracks)
+        missing = 0
+        for i, (rel_path, abs_path) in enumerate(self._tracks):
+            if not os.path.isfile(abs_path):
+                missing += 1
+                self.missing_found.emit(rel_path, abs_path)
+            self.progress.emit(i + 1, total)
+        self.finished_ok.emit(total, missing)
+
+
 class MainWindow(QMainWindow):
     """Top-level window for the music player."""
 
@@ -483,6 +505,10 @@ class MainWindow(QMainWindow):
         rq_action.triggered.connect(self._random_queue_dialog)
         tools_menu.addAction(rq_action)
 
+        scan_missing_action = QAction('Scan for &Missing Files', self)
+        scan_missing_action.triggered.connect(self._scan_missing_files)
+        tools_menu.addAction(scan_missing_action)
+
         tools_menu.addSeparator()
 
         audit_action = QAction('&Audit Log...', self)
@@ -494,6 +520,14 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self._status_bar)
         self._track_count_lbl = QLabel('0 tracks')
         self._status_bar.addWidget(self._track_count_lbl)
+
+        self._scan_progress = QProgressBar()
+        self._scan_progress.setFixedWidth(200)
+        self._scan_progress.setFixedHeight(16)
+        self._scan_progress.setTextVisible(True)
+        self._scan_progress.hide()
+        self._status_bar.addWidget(self._scan_progress)
+
         self._perf_lbl = QLabel('')
         self._perf_lbl.setStyleSheet(f'color: {COLORS["fg_very_dim"]};')
         self._status_bar.addPermanentWidget(self._perf_lbl)
@@ -1684,6 +1718,77 @@ class MainWindow(QMainWindow):
     def _show_audit_log(self):
         """Show the audit log viewer."""
         AuditLogDialog(self, db=self.db).exec()
+
+    def _scan_missing_files(self):
+        """Scan all tracks for missing files on disk (background thread)."""
+        if hasattr(self, '_missing_scan_worker') and self._missing_scan_worker is not None:
+            self._debug_log('WARN', 'Missing-file scan already in progress')
+            return
+
+        tracks = [(e['path'], e.get('_abs_path', ''))
+                   for e in self.playlist]
+        if not tracks:
+            self._debug_log('INFO', 'No tracks to scan')
+            return
+
+        # Prepare output file
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._missing_scan_log_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), '..',
+            f'missing_files_{stamp}.log')
+        self._missing_scan_results = []
+
+        # Show progress bar
+        self._scan_progress.setMaximum(len(tracks))
+        self._scan_progress.setValue(0)
+        self._scan_progress.setFormat('Scanning… %v / %m')
+        self._scan_progress.show()
+
+        self._debug_log('INFO',
+            f'Starting missing-file scan: {len(tracks)} tracks')
+
+        worker = _MissingFileScanWorker(tracks, self)
+        self._missing_scan_worker = worker
+
+        worker.progress.connect(self._on_missing_scan_progress)
+        worker.missing_found.connect(self._on_missing_file_found)
+        worker.finished_ok.connect(self._on_missing_scan_finished)
+        worker.start()
+
+    def _on_missing_scan_progress(self, current, total):
+        self._scan_progress.setValue(current)
+
+    def _on_missing_file_found(self, rel_path, abs_path):
+        self._debug_log('WARN', f'MISSING: {abs_path}')
+        self._missing_scan_results.append(abs_path)
+
+    def _on_missing_scan_finished(self, total_scanned, missing_count):
+        self._scan_progress.hide()
+        self._missing_scan_worker = None
+
+        # Write results to file
+        log_path = self._missing_scan_log_path
+        try:
+            with open(log_path, 'w', encoding='utf-8') as f:
+                f.write(f'Missing file scan — {datetime.now().isoformat()}\n')
+                f.write(f'Scanned: {total_scanned}  Missing: {missing_count}\n')
+                f.write('-' * 60 + '\n')
+                for p in self._missing_scan_results:
+                    f.write(p + '\n')
+        except Exception as e:
+            self._debug_log('ERROR', f'Failed to write scan log: {e}')
+
+        if missing_count == 0:
+            self._debug_log('INFO',
+                f'Scan complete: all {total_scanned} files present')
+            self.statusBar().showMessage(
+                f'Scan complete — all {total_scanned} files OK', 5000)
+        else:
+            self._debug_log('WARN',
+                f'Scan complete: {missing_count} of {total_scanned} '
+                f'files missing — see {os.path.basename(log_path)}')
+            self.statusBar().showMessage(
+                f'{missing_count} missing file(s) — see debug log', 8000)
 
     def _on_play_from_queue(self, playlist_idx):
         """Handle double-click on a queue item — play immediately."""
