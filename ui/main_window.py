@@ -1412,7 +1412,8 @@ class MainWindow(QMainWindow):
     def _jump_to_playing(self):
         """Scroll the track table to the currently playing track."""
         if self.current_index is not None:
-            self._track_table.jump_to_playlist_index(self.current_index)
+            if not self._track_table.jump_to_playlist_index(self.current_index):
+                self._offer_clear_filters(self.current_index)
 
     # ── Slot handlers ────────────────────────────────────
 
@@ -1798,7 +1799,24 @@ class MainWindow(QMainWindow):
 
     def _jump_to_track_index(self, playlist_idx):
         """Scroll and select a track in the main table by playlist index."""
-        self._track_table.jump_to_playlist_index(playlist_idx)
+        if not self._track_table.jump_to_playlist_index(playlist_idx):
+            self._offer_clear_filters(playlist_idx)
+
+    def _offer_clear_filters(self, playlist_idx):
+        """Show a dialog when a track is hidden by filters."""
+        entry = self.playlist[playlist_idx] if playlist_idx < len(self.playlist) else None
+        title = entry.get('title', '') if entry else ''
+        msg = f'"{title}" is hidden by the current filters.'
+        reply = QMessageBox.question(
+            self, 'Track Not Visible',
+            f'{msg}\n\nClear all filters to show it?',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if reply == QMessageBox.Yes:
+            self._search_bar._reset_all()               # resets combos + emits filters_reset
+            self._tag_bar._on_all_clicked()              # deselect all tag buttons
+            self._sidebar._genre_list.setCurrentRow(0)   # select "All" genre
+            self._sidebar._playlist_list.setCurrentRow(0)  # select "All Tracks"
+            self._track_table.jump_to_playlist_index(playlist_idx)
 
     # ── Poll timer ───────────────────────────────────────
 

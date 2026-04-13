@@ -16,10 +16,11 @@ dist/
 music_player.db
 music_player.db.*
 
-# Performance & debug logs
+# Performance, debug & scan logs
 perf_*.log
 perf_traces/
 debug_*.log
+missing_files_*.log
 
 # User config (machine-specific paths)
 music_player_config.xml

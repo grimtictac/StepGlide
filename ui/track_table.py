@@ -468,13 +468,15 @@ class TrackTableView(QTableView):
             header.setSectionHidden(i, name not in visible_set)
 
     def jump_to_playlist_index(self, playlist_idx):
-        """Select and scroll to a specific playlist index."""
+        """Select and scroll to a specific playlist index.
+        Returns True if the track was found in the visible rows."""
         model = self.model()
         if model is None:
-            return
+            return False
         for row in range(model.rowCount()):
             idx = model.index(row, 0)
             if idx.data(Qt.UserRole) == playlist_idx:
                 self.selectRow(row)
                 self.scrollTo(idx)
-                return
+                return True
+        return False
