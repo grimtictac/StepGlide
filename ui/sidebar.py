@@ -215,8 +215,18 @@ class SidebarWidget(QWidget):
         kind, name = item.data(Qt.UserRole)
         menu = QMenu(self)
         if kind == 'genre':
-            menu.addAction(f'Rename "{name}" to…',
-                           lambda: self._request_genre_rename(name))
+            # Build "Rename to" submenu with existing genres + custom option
+            rename_sub = menu.addMenu(f'Rename "{name}" to')
+            others = sorted(
+                g for g in self._all_genres
+                if g and g != name and g not in self._hidden_genres)
+            for g in others:
+                rename_sub.addAction(
+                    g, lambda new=g: self.genre_rename_requested.emit(name, new))
+            if others:
+                rename_sub.addSeparator()
+            rename_sub.addAction(
+                'Custom…', lambda: self._request_genre_rename(name))
             menu.addSeparator()
             menu.addAction(f'Hide "{name}"',
                            lambda: self._hide_genre(name))
