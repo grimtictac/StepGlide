@@ -110,7 +110,7 @@ class SidebarWidget(QWidget):
         self._genre_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._genre_list.customContextMenuRequested.connect(
             self._on_genre_right_click)
-        layout.addWidget(self._genre_list, stretch=1)
+        layout.addWidget(self._genre_list, stretch=3)
 
         # ── Playlist section ─────────────────────────────
         pl_header_row = QHBoxLayout()
