@@ -482,6 +482,14 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
+        self._show_hidden_genres_action = QAction('Show &Hidden Genres', self)
+        self._show_hidden_genres_action.setCheckable(True)
+        self._show_hidden_genres_action.setChecked(False)
+        self._show_hidden_genres_action.triggered.connect(self._toggle_show_hidden_genres)
+        view_menu.addAction(self._show_hidden_genres_action)
+
+        view_menu.addSeparator()
+
         # Track List submenu
         track_list_menu = view_menu.addMenu('Track &List')
 
@@ -2026,6 +2034,13 @@ class MainWindow(QMainWindow):
             self._search_bar.hide()
         else:
             self._search_bar.show()
+
+    def _toggle_show_hidden_genres(self, checked):
+        """Toggle visibility of hidden genres in the sidebar genre list."""
+        self._sidebar.set_show_hidden(checked)
+        self._sidebar.set_genre_data(self.genres,
+                                     self._genre_counts(),
+                                     self.config.hidden_genres)
 
     def _toggle_lite_mode(self):
         """Toggle lite mode — hides sidebar, search bar, and tag bar."""

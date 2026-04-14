@@ -81,6 +81,7 @@ class SidebarWidget(QWidget):
         super().__init__(parent)
         self._all_genres = set()
         self._hidden_genres = set()
+        self._show_hidden = False
         self._genre_label_map = {}  # display label → ('all'|'genre', name)
 
         self._playlists = {}  # name → [path, ...]
@@ -155,6 +156,10 @@ class SidebarWidget(QWidget):
         self._hidden_genres = hidden_genres or set()
         self._build_genre_list()
 
+    def set_show_hidden(self, show):
+        """Toggle whether hidden genres are displayed (in yellow)."""
+        self._show_hidden = show
+
     def set_playlist_data(self, playlists, smart_playlists=None):
         """Set the playlists dict (name → [path, ...]) and rebuild."""
         self._playlists = playlists
@@ -194,6 +199,16 @@ class SidebarWidget(QWidget):
             gi = QListWidgetItem(label)
             gi.setData(Qt.UserRole, ('genre', genre))
             self._genre_list.addItem(gi)
+
+        # Hidden genres (shown in yellow when _show_hidden is True)
+        if self._show_hidden and self._hidden_genres:
+            for genre in sorted(self._hidden_genres):
+                c = counts.get(genre, 0)
+                label = f'{genre}  ({c})' if c else genre
+                gi = QListWidgetItem(label)
+                gi.setData(Qt.UserRole, ('genre', genre))
+                gi.setForeground(QColor(COLORS['yellow']))
+                self._genre_list.addItem(gi)
 
         # Select "All" by default
         self._genre_list.setCurrentRow(0)
