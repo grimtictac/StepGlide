@@ -343,7 +343,7 @@ class WaveformSettingsPanel(QWidget):
         s.amp_gamma = DEFAULT_AMP_GAMMA
         s.color_gamma = DEFAULT_COLOR_GAMMA
         s.color_smooth = DEFAULT_COLOR_SMOOTH
-        s.draw_mode = 'bars'
+        s.draw_mode = 'envelope'
         s.bar_width = 2
         s.bar_gap = 1
         s.bar_height = 60

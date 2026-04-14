@@ -51,7 +51,7 @@ class WaveformSettings:
         self.amp_gamma = DEFAULT_AMP_GAMMA
         self.color_gamma = DEFAULT_COLOR_GAMMA
         self.color_smooth = DEFAULT_COLOR_SMOOTH
-        self.draw_mode = 'bars'          # 'bars' or 'envelope'
+        self.draw_mode = 'envelope'      # 'bars' or 'envelope'
         self.bar_width = 2               # pixels (bars mode only)
         self.bar_gap = 1                 # pixels (bars mode only)
         self.bar_height = 60             # pixels
