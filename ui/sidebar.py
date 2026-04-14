@@ -106,6 +106,7 @@ class SidebarWidget(QWidget):
         self._genre_list = QListWidget()
         self._genre_list.setSelectionMode(QListWidget.SingleSelection)
         self._genre_list.currentItemChanged.connect(self._on_genre_item_changed)
+        self._genre_list.itemDoubleClicked.connect(self._on_genre_double_clicked)
         self._genre_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._genre_list.customContextMenuRequested.connect(
             self._on_genre_right_click)
@@ -222,6 +223,15 @@ class SidebarWidget(QWidget):
             self.genre_selected.emit(None)
         else:
             self.genre_selected.emit({name})
+
+    def _on_genre_double_clicked(self, item):
+        """Double-click on a genre: if a playlist is selected, deselect it."""
+        if self._active_playlist is not None:
+            self._active_playlist = None
+            self._playlist_list.blockSignals(True)
+            self._playlist_list.setCurrentRow(0)  # "All Tracks"
+            self._playlist_list.blockSignals(False)
+            self.playlist_selected.emit(None)
 
     def _on_genre_right_click(self, pos):
         item = self._genre_list.itemAt(pos)
