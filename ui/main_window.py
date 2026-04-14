@@ -332,6 +332,7 @@ class MainWindow(QMainWindow):
 
         self._queue_panel = QueuePanel()
         self._queue_panel.play_from_queue.connect(self._on_play_from_queue)
+        self._queue_panel.save_as_playlist_requested.connect(self._save_queue_as_playlist)
         self._right_splitter.addWidget(self._queue_panel)
 
         self._play_log = PlayLogPanel()
@@ -1075,6 +1076,18 @@ class MainWindow(QMainWindow):
         """A playlist was created/renamed/deleted — persist to config."""
         self.config.playlists = self._sidebar._playlists
         self.config.save()
+
+    def _save_queue_as_playlist(self, name, paths):
+        """Create a new playlist from the current queue contents."""
+        if name in self._sidebar._playlists:
+            QMessageBox.warning(
+                self, 'Name Conflict',
+                f'A playlist named "{name}" already exists.')
+            return
+        self._sidebar._playlists[name] = list(paths)
+        self._sidebar._refresh_playlist_list()
+        self._sidebar.playlist_changed.emit()
+        self._lbl_now_playing.setText(f'Queue saved as "{name}"')
 
     def _on_smart_playlist_changed(self):
         """A smart playlist was created/edited/deleted — persist to config."""

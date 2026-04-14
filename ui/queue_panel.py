@@ -5,7 +5,7 @@ Queue panel — shows the play queue with reorder / remove / clear controls.
 from PySide6.QtCore import Qt, QPoint, QRect, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMenu,
+    QAbstractItemView, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QMenu,
     QPushButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -121,6 +121,8 @@ class QueuePanel(QWidget):
 
     # Emitted when user double-clicks a queue item — sends playlist index
     play_from_queue = Signal(int)
+    # Emitted when user clicks "Save as Playlist" — sends (name, [paths])
+    save_as_playlist_requested = Signal(str, list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -144,6 +146,14 @@ class QueuePanel(QWidget):
             f'color: {COLORS["fg_dim"]}; font-weight: bold; font-size: 12px;')
         header.addWidget(self._title_lbl)
         header.addStretch()
+
+        btn_save_pl = QPushButton()
+        btn_save_pl.setIcon(qta.icon('mdi6.content-save-outline', color=COLORS['fg']))
+        btn_save_pl.setFixedSize(28, 22)
+        btn_save_pl.setIconSize(btn_save_pl.size() * 0.65)
+        btn_save_pl.setToolTip('Save queue as a new playlist')
+        btn_save_pl.clicked.connect(self._save_as_playlist)
+        header.addWidget(btn_save_pl)
 
         btn_clear = QPushButton('Clear')
         btn_clear.setFixedHeight(22)
@@ -381,6 +391,22 @@ class QueuePanel(QWidget):
             self._queue.insert(0, item)
             self._rebuild()
             self._select_row(0)
+
+    # ── Save queue as playlist ─────────────────────────────
+
+    def _save_as_playlist(self):
+        """Prompt for a name and emit save_as_playlist_requested with paths."""
+        if not self._queue:
+            return
+        from datetime import date
+        default_name = date.today().strftime('%Y-%m-%d')
+        name, ok = QInputDialog.getText(
+            self, 'Save Queue as Playlist', 'Playlist name:',
+            text=default_name)
+        if ok and name.strip():
+            paths = self.queue_paths()
+            if paths:
+                self.save_as_playlist_requested.emit(name.strip(), paths)
 
     # ── Double-click to play ─────────────────────────────
 
