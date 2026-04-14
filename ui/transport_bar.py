@@ -8,7 +8,7 @@ import time
 from PySide6.QtCore import Qt, QEvent, QRectF, QSize, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QFrame, QHBoxLayout, QLabel, QProgressBar,
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QMenu, QProgressBar,
     QPushButton, QSlider, QSizePolicy, QStyleOptionSlider,
     QStyle, QVBoxLayout, QWidget,
 )
@@ -1519,6 +1519,7 @@ class TransportBar(QWidget):
 
     # Signals emitted to MainWindow
     play_pause_clicked = Signal()
+    countdown_play_requested = Signal(int)  # seconds to wait before playing
     stop_clicked = Signal()
     scrub_moved = Signal(float)          # 0.0–1.0 position while dragging
     scrub_released = Signal(float)       # 0.0–1.0 final position on release
@@ -1559,6 +1560,8 @@ class TransportBar(QWidget):
             f' min-height: 0px; padding: 0px; }}'
             f'QPushButton:hover {{ background-color: {COLORS["accent_hover"]}; }}')
         self.btn_play.clicked.connect(self.play_pause_clicked)
+        self.btn_play.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.btn_play.customContextMenuRequested.connect(self._on_play_context)
         row1.addWidget(self.btn_play)
 
         # Stop
@@ -1812,3 +1815,13 @@ class TransportBar(QWidget):
                 qta.icon('mdi6.stop', color=COLORS['fg']))
 
         QTimer.singleShot(duration_ms, _revert)
+
+    def _on_play_context(self, pos):
+        """Right-click on play button → countdown-before-play menu."""
+        menu = QMenu(self)
+        for secs in (3, 5, 10, 15, 30, 60):
+            label = f'{secs}s' if secs < 60 else '1 min'
+            menu.addAction(
+                f'⏳  Play after {label}',
+                lambda s=secs: self.countdown_play_requested.emit(s))
+        menu.exec(self.btn_play.mapToGlobal(pos))

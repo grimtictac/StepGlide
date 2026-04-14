@@ -879,6 +879,7 @@ class MainWindow(QMainWindow):
     def _connect_transport(self):
         t = self._transport
         t.play_pause_clicked.connect(self._play_pause)
+        t.countdown_play_requested.connect(self._countdown_play)
         t.stop_clicked.connect(self._stop)
         t.scrub_released.connect(self._on_scrub_released)
         t.speed_up_clicked.connect(self._speed_up)
@@ -1209,6 +1210,28 @@ class MainWindow(QMainWindow):
             self.current_index = 0
 
         self._play_index(self.current_index)
+
+    def _countdown_play(self, seconds):
+        """Pause for *seconds* then start playback, updating the play button."""
+        if hasattr(self, '_countdown_timer') and self._countdown_timer is not None:
+            self._countdown_timer.stop()
+        self._countdown_remaining = seconds
+        self._transport.btn_play.setText(f'{seconds}')
+        self._transport.btn_play.setIcon(qta.icon('mdi6.timer-outline', color='white'))
+        self._countdown_timer = QTimer(self)
+        self._countdown_timer.setInterval(1000)
+        self._countdown_timer.timeout.connect(self._countdown_tick)
+        self._countdown_timer.start()
+
+    def _countdown_tick(self):
+        self._countdown_remaining -= 1
+        if self._countdown_remaining <= 0:
+            self._countdown_timer.stop()
+            self._countdown_timer = None
+            self._transport.btn_play.setText('')
+            self._play_pause()
+        else:
+            self._transport.btn_play.setText(f'{self._countdown_remaining}')
 
     @perf.track
     def _play_index(self, index):
