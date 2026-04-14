@@ -93,6 +93,7 @@ class Database:
             ('comment', "ALTER TABLE tracks ADD COLUMN comment TEXT DEFAULT ''"),
             ('length', "ALTER TABLE tracks ADD COLUMN length REAL"),
             ('waveform', "ALTER TABLE tracks ADD COLUMN waveform BLOB"),
+            ('hidden', "ALTER TABLE tracks ADD COLUMN hidden INTEGER DEFAULT 0"),
         ]:
             if col not in columns:
                 con.execute(sql)
@@ -210,7 +211,7 @@ class Database:
         cur = con.cursor()
         cur.execute(
             "SELECT id, file_path, title, play_count, first_played, last_played, "
-            "file_created, genre, comment, length, artist, album FROM tracks ORDER BY title"
+            "file_created, genre, comment, length, artist, album, hidden FROM tracks ORDER BY title"
         )
         rows = cur.fetchall()
 
@@ -242,7 +243,7 @@ class Database:
         seen = set()
         total = len(rows)
         for idx, (track_id, path, db_title, play_count, first_played, last_played,
-             file_created, genre, comment, length, artist, album) in enumerate(rows):
+             file_created, genre, comment, length, artist, album, hidden) in enumerate(rows):
             if path in seen:
                 continue
             seen.add(path)
@@ -265,6 +266,7 @@ class Database:
                 'rating': vdata['rating'],
                 'liked_by': vdata['liked_by'],
                 'disliked_by': vdata['disliked_by'],
+                'hidden': bool(hidden),
             }
             tracks.append(entry)
             genres.add(entry['genre'])
@@ -519,6 +521,18 @@ class Database:
             return
         con = self.connect()
         con.execute(f"UPDATE tracks SET {field} = ? WHERE file_path = ?", (value, path))
+        con.commit()
+        con.close()
+
+    def set_track_hidden(self, path, hidden, comment=None):
+        """Mark a track as hidden (or unhidden).  Optionally update comment."""
+        con = self.connect()
+        if comment is not None:
+            con.execute("UPDATE tracks SET hidden = ?, comment = ? WHERE file_path = ?",
+                        (1 if hidden else 0, comment, path))
+        else:
+            con.execute("UPDATE tracks SET hidden = ? WHERE file_path = ?",
+                        (1 if hidden else 0, path))
         con.commit()
         con.close()
 

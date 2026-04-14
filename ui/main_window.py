@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
         self._last_action = 'stopped'
         self._play_started_at = 0.0
         self._consecutive_skips = 0
+        self._show_hidden_tracks = False
 
         # Play queue: list of playlist indices
         self._play_queue = []
@@ -356,6 +357,7 @@ class MainWindow(QMainWindow):
             lambda idx: self._queue_panel.add(idx))
         self._play_log.jump_to_track.connect(self._jump_to_track_index)
         self._play_log.vote_requested.connect(self._vote_from_log)
+        self._play_log.hide_track_requested.connect(self._hide_track)
         self._right_splitter.addWidget(self._play_log)
 
         self._right_splitter.setSizes([350, 250])
@@ -503,6 +505,12 @@ class MainWindow(QMainWindow):
         self._show_hidden_genres_action.setChecked(False)
         self._show_hidden_genres_action.triggered.connect(self._toggle_show_hidden_genres)
         view_menu.addAction(self._show_hidden_genres_action)
+
+        self._show_hidden_tracks_action = QAction('Show Hidden &Tracks', self)
+        self._show_hidden_tracks_action.setCheckable(True)
+        self._show_hidden_tracks_action.setChecked(False)
+        self._show_hidden_tracks_action.triggered.connect(self._toggle_show_hidden_tracks)
+        view_menu.addAction(self._show_hidden_tracks_action)
 
         view_menu.addSeparator()
 
@@ -676,6 +684,10 @@ class MainWindow(QMainWindow):
         fc_filter = fs['file_created']
 
         for entry in self.playlist:
+            # Hidden track filter
+            if entry.get('hidden') and not self._show_hidden_tracks:
+                continue
+
             # Playlist filter
             if playlist_paths is not None:
                 if entry['path'] not in playlist_paths:
@@ -1632,6 +1644,12 @@ class MainWindow(QMainWindow):
                 'Other\u2026',
                 lambda idxs=selected: self._ctx_edit_genre_multi(idxs))
 
+        # Hide track
+        if not multi:
+            hide_label = '👁  Unhide Track' if entry.get('hidden') else '🚫  Hide Track…'
+            menu.addAction(hide_label,
+                           lambda: self._hide_track(playlist_idx))
+
         # Playlist submenu
         pl_names = self._sidebar.get_playlist_names()
         if pl_names:
@@ -1720,6 +1738,36 @@ class MainWindow(QMainWindow):
             entry['comment'] = new_val.strip()
             self.db.update_track_field(entry['path'], 'comment', new_val.strip())
             self._track_model.update_row(idx)
+
+    def _hide_track(self, idx):
+        """Hide a track after asking for a reason (stored in comment)."""
+        entry = self.playlist[idx]
+        title = entry.get('title', '?')
+        if entry.get('hidden'):
+            # Already hidden — offer to unhide
+            entry['hidden'] = False
+            self.db.set_track_hidden(entry['path'], False)
+            self._apply_filters()
+            self.statusBar().showMessage(f'Unhidden: {title}', 3000)
+            return
+        reason, ok = QInputDialog.getText(
+            self, 'Hide Track',
+            f'Reason for hiding "{title}":')
+        if not ok:
+            return
+        reason = reason.strip()
+        if not reason:
+            QMessageBox.warning(self, 'Hide Track',
+                                'A reason is required to hide a track.')
+            return
+        comment = entry.get('comment', '')
+        new_comment = f'[HIDDEN] {reason}' if not comment else f'{comment} [HIDDEN] {reason}'
+        entry['hidden'] = True
+        entry['comment'] = new_comment
+        self.db.set_track_hidden(entry['path'], True, new_comment)
+        self._apply_filters()
+        self._track_model.update_row(idx)
+        self.statusBar().showMessage(f'Hidden: {title} — {reason}', 3000)
 
     def _ctx_toggle_tag(self, idx, tag, currently_has):
         entry = self.playlist[idx]
@@ -2087,6 +2135,11 @@ class MainWindow(QMainWindow):
         self._sidebar.set_genre_data(self.genres,
                                      self._genre_counts(),
                                      self.config.hidden_genres)
+
+    def _toggle_show_hidden_tracks(self, checked):
+        """Toggle visibility of hidden tracks in the track listing."""
+        self._show_hidden_tracks = checked
+        self._apply_filters()
 
     def _toggle_lite_mode(self):
         """Toggle lite mode — hides sidebar, search bar, and tag bar."""

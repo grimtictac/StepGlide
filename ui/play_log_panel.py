@@ -27,6 +27,8 @@ class PlayLogPanel(QWidget):
     jump_to_track = Signal(int)
     # Emitted when user votes on a selected track — (file_path, vote, voter)
     vote_requested = Signal(str, int, str)
+    # Emitted when user wants to hide the selected track — sends playlist index
+    hide_track_requested = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -68,6 +70,15 @@ class PlayLogPanel(QWidget):
         btn_dislike.setStyleSheet(_vote_btn_css)
         btn_dislike.clicked.connect(lambda: self._do_vote(-1))
         vote_row.addWidget(btn_dislike)
+
+        btn_hide = QPushButton()
+        btn_hide.setIcon(qta.icon('mdi6.cancel', color=COLORS['red']))
+        btn_hide.setFixedSize(28, 24)
+        btn_hide.setIconSize(btn_hide.size() * 0.6)
+        btn_hide.setToolTip('Hide selected track')
+        btn_hide.setStyleSheet(_vote_btn_css)
+        btn_hide.clicked.connect(self._on_hide_clicked)
+        vote_row.addWidget(btn_hide)
 
         btn_like = QPushButton()
         btn_like.setIcon(qta.icon('mdi6.thumb-up', color=COLORS['yellow']))
@@ -276,6 +287,15 @@ class PlayLogPanel(QWidget):
             return
         voter = self._voter_combo.currentText().strip()
         self.vote_requested.emit(file_path, vote, voter)
+
+    def _on_hide_clicked(self):
+        """Emit hide_track_requested for the selected play-log entry."""
+        file_path = self._selected_file_path()
+        if file_path is None:
+            return
+        idx = self._path_to_idx.get(file_path)
+        if idx is not None:
+            self.hide_track_requested.emit(idx)
 
     def _on_selection_changed(self, current, _previous):
         """Placeholder for future selection-change handling."""
