@@ -1542,7 +1542,7 @@ class MainWindow(QMainWindow):
             menu.addAction('\u270f  Edit Title\u2026',
                            lambda: self._ctx_edit_title(playlist_idx))
 
-            # Genre submenu
+            # Genre submenu (single)
             genre_sub = menu.addMenu('\U0001f3b5  Genre')
             current_genre = entry.get('genre', 'Unknown')
             for genre in sorted(self.genres):
@@ -1566,6 +1566,17 @@ class MainWindow(QMainWindow):
                     tags_sub.addAction(
                         lbl, lambda t=tag, h=has: self._ctx_toggle_tag(
                             playlist_idx, t, h))
+        else:
+            # Genre submenu (multi-selection)
+            genre_sub = menu.addMenu(f'\U0001f3b5  Set Genre ({len(selected)} tracks)')
+            for genre in sorted(self.genres):
+                genre_sub.addAction(
+                    genre,
+                    lambda g=genre, idxs=selected: self._ctx_set_genre_multi(idxs, g))
+            genre_sub.addSeparator()
+            genre_sub.addAction(
+                'Other\u2026',
+                lambda idxs=selected: self._ctx_edit_genre_multi(idxs))
 
         # Playlist submenu
         pl_names = self._sidebar.get_playlist_names()
@@ -1626,6 +1637,25 @@ class MainWindow(QMainWindow):
             self, 'Change Genre', 'Genre:', text=current)
         if ok and new_val.strip():
             self._ctx_set_genre(idx, new_val.strip())
+
+    def _ctx_set_genre_multi(self, indices, genre):
+        """Set genre for multiple tracks at once."""
+        self.genres.add(genre)
+        for idx in indices:
+            entry = self.playlist[idx]
+            entry['genre'] = genre
+            self.db.update_track_field(entry['path'], 'genre', genre)
+            self._track_model.update_row(idx)
+        self._sidebar.set_genre_data(self.genres,
+                                     self._genre_counts(),
+                                     self.config.hidden_genres)
+
+    def _ctx_edit_genre_multi(self, indices):
+        """Prompt for a custom genre, then apply to all selected tracks."""
+        new_val, ok = QInputDialog.getText(
+            self, 'Change Genre', f'Genre for {len(indices)} tracks:')
+        if ok and new_val.strip():
+            self._ctx_set_genre_multi(indices, new_val.strip())
 
     def _ctx_edit_comment(self, idx):
         entry = self.playlist[idx]
