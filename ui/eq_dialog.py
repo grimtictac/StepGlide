@@ -56,10 +56,10 @@ class EqualizerDialog(QDialog):
 
         self._build_ui(track_title)
 
-        # Debounce timer — apply EQ only after slider rests for 150 ms
+        # Debounce timer — apply EQ only after slider rests for 40 ms
         self._apply_timer = QTimer(self)
         self._apply_timer.setSingleShot(True)
-        self._apply_timer.setInterval(150)
+        self._apply_timer.setInterval(40)
         self._apply_timer.timeout.connect(self._deferred_apply)
 
         self._load_current()
