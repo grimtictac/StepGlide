@@ -1472,7 +1472,7 @@ class MainWindow(QMainWindow):
     # ── Slot handlers ────────────────────────────────────
 
     def _on_play_requested(self, playlist_idx):
-        """Handle double-click on a track — play now or queue next."""
+        """Handle double-click on a track — play now, queue next, or preview."""
         if self.is_playing and playlist_idx != self.current_index:
             entry = self.playlist[playlist_idx]
             title = entry.get('title', '?')
@@ -1483,6 +1483,8 @@ class MainWindow(QMainWindow):
                 self._play_index(playlist_idx)
             elif choice == 'next':
                 self._queue_panel.add_next(playlist_idx)
+            elif choice == 'preview':
+                self._preview_track(playlist_idx)
             # 'cancel' → do nothing
             return
         # Nothing playing (or same track) — just play immediately
@@ -1491,9 +1493,11 @@ class MainWindow(QMainWindow):
         self._play_index(playlist_idx)
 
     def _ask_play_or_queue(self, title):
-        """Show Play Now / Play Next dialog.  Returns 'now', 'next', or 'cancel'.
+        """Show Play Now / Play Next / Preview dialog.
 
-        Shortcuts: Enter → Play Now, Space → Play Next, Escape → Cancel.
+        Returns 'now', 'next', 'preview', or 'cancel'.
+        Shortcuts: Enter → Play Now, Space → Play Next, P → Preview,
+                   Escape → Cancel.
         """
         from PySide6.QtWidgets import QDialog, QDialogButtonBox
 
@@ -1507,8 +1511,10 @@ class MainWindow(QMainWindow):
         btn_box = QDialogButtonBox(dlg)
         btn_now = QPushButton('▶  Play Now')
         btn_next = QPushButton('⏭  Play Next')
+        btn_preview = QPushButton('🎧  Preview')
         btn_box.addButton(btn_now, QDialogButtonBox.AcceptRole)
         btn_box.addButton(btn_next, QDialogButtonBox.ActionRole)
+        btn_box.addButton(btn_preview, QDialogButtonBox.ActionRole)
         btn_box.addButton(QDialogButtonBox.Cancel)
         layout.addWidget(btn_box)
 
@@ -1522,13 +1528,19 @@ class MainWindow(QMainWindow):
             result['choice'] = 'next'
             dlg.accept()
 
+        def _preview():
+            result['choice'] = 'preview'
+            dlg.accept()
+
         btn_now.clicked.connect(_play_now)
         btn_next.clicked.connect(_play_next)
+        btn_preview.clicked.connect(_preview)
         btn_box.rejected.connect(dlg.reject)
 
-        # Keyboard shortcuts: Enter → Play Now, Space → Play Next
+        # Keyboard shortcuts: Enter → Play Now, Space → Play Next, P → Preview
         QShortcut(QKeySequence(Qt.Key_Return), dlg).activated.connect(_play_now)
         QShortcut(QKeySequence(Qt.Key_Space), dlg).activated.connect(_play_next)
+        QShortcut(QKeySequence(Qt.Key_P), dlg).activated.connect(_preview)
 
         dlg.exec()
         return result['choice']
