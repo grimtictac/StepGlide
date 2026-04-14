@@ -40,6 +40,14 @@ class SplashScreen(QSplashScreen):
         from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
 
+    def set_status_text(self, text: str):
+        """Update only the status text without advancing the progress bar."""
+        self._status = text
+        self._dot_count = 0
+        self.repaint()
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+
     def set_progress(self, step: int):
         """Manually set the progress step (1-based)."""
         self._current_step = max(0, min(step, self._total_steps))

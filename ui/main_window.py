@@ -109,10 +109,11 @@ class _MissingFileScanWorker(QThread):
 class MainWindow(QMainWindow):
     """Top-level window for the music player."""
 
-    def __init__(self, db, config, parent=None):
+    def __init__(self, db, config, parent=None, splash=None):
         super().__init__(parent)
         self.db = db
         self.config = config
+        self._splash = splash
 
         self.setWindowTitle('Python Music Player')
         self.resize(1920, 1080)
@@ -178,7 +179,11 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
 
         # ── Defer heavy data loading so the window paints first ──
-        QTimer.singleShot(0, self._load_tracks)
+        if self._splash:
+            self._load_tracks()          # load synchronously behind splash
+            self._splash = None          # release reference
+        else:
+            QTimer.singleShot(0, self._load_tracks)
 
     def _build_ui(self):
         """Construct the main layout with splitters."""
@@ -556,7 +561,13 @@ class MainWindow(QMainWindow):
     @perf.track
     def _load_tracks(self):
         """Load all tracks from DB and populate the table model."""
-        tracks, voters, genres = self.db.load_all_tracks()
+        splash = self._splash
+
+        def _on_progress(current, total):
+            if splash is not None:
+                splash.set_status_text(f'Loading tracks ({current:,} / {total:,})')
+
+        tracks, voters, genres = self.db.load_all_tracks(progress_cb=_on_progress)
         self._debug_log('INFO', f'Loaded {len(tracks)} tracks from database')
         self.all_voters = voters
         self.genres = genres

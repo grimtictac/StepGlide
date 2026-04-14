@@ -202,9 +202,10 @@ class Database:
     # ── Track CRUD ───────────────────────────────────────
 
     @perf.track
-    def load_all_tracks(self):
+    def load_all_tracks(self, progress_cb=None):
         """Load all tracks, tags, and votes from DB.
-        Returns (tracks_list, all_voters, genres) where tracks_list is a list of dicts."""
+        Returns (tracks_list, all_voters, genres) where tracks_list is a list of dicts.
+        *progress_cb*, if provided, is called with (current, total) during row iteration."""
         con = self.connect()
         cur = con.cursor()
         cur.execute(
@@ -239,8 +240,9 @@ class Database:
         tracks = []
         genres = set()
         seen = set()
-        for (track_id, path, db_title, play_count, first_played, last_played,
-             file_created, genre, comment, length, artist, album) in rows:
+        total = len(rows)
+        for idx, (track_id, path, db_title, play_count, first_played, last_played,
+             file_created, genre, comment, length, artist, album) in enumerate(rows):
             if path in seen:
                 continue
             seen.add(path)
@@ -266,6 +268,8 @@ class Database:
             }
             tracks.append(entry)
             genres.add(entry['genre'])
+            if progress_cb and (idx % 50 == 0 or idx == total - 1):
+                progress_cb(idx + 1, total)
 
         return tracks, all_voters, genres
 
