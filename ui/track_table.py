@@ -171,6 +171,9 @@ class TrackTableModel(QAbstractTableModel):
                 pl_idx = entry.get('_playlist_idx')
                 if pl_idx == self._now_playing_idx:
                     return QColor(COLORS['now_playing_fg'])
+            # Hidden tracks shown in yellow
+            if entry.get('hidden'):
+                return QColor(COLORS['yellow'])
             # Rating column colouring
             if col == 5:
                 r = entry.get('rating', 0)
