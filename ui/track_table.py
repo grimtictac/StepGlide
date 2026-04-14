@@ -8,14 +8,14 @@ and sorting happens in pure Python to avoid C++→Python per-row overhead.
 
 from PySide6.QtCore import (
     QAbstractTableModel, QByteArray, QMimeData, QModelIndex,
-    Qt, Signal,
+    QPoint, Qt, QTimer, Signal,
 )
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHeaderView, QMenu, QTableView,
+    QAbstractItemView, QHeaderView, QMenu, QTableView, QToolTip,
 )
 
-from core.formatters import format_duration, format_ts
+from core.formatters import build_track_tooltip, format_duration, format_ts
 from ui.theme import COLORS
 
 # ── Column definitions ───────────────────────────────────
@@ -198,6 +198,9 @@ class TrackTableModel(QAbstractTableModel):
             # Return the playlist index for selection tracking
             return entry.get('_playlist_idx')
 
+        elif role == Qt.ToolTipRole:
+            return build_track_tooltip(entry)
+
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -253,6 +256,15 @@ class TrackTableView(QTableView):
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setDefaultSectionSize(34)
         self.horizontalHeader().setStretchLastSection(True)
+
+        # Hover tooltip with 500ms delay
+        self.setMouseTracking(True)
+        self._tooltip_timer = QTimer(self)
+        self._tooltip_timer.setSingleShot(True)
+        self._tooltip_timer.setInterval(500)
+        self._tooltip_timer.timeout.connect(self._show_hover_tooltip)
+        self._hover_index = None
+        self._hover_global_pos = QPoint()
 
         # Sort state tracked here for the header indicator
         self._sort_column = -1
@@ -408,7 +420,32 @@ class TrackTableView(QTableView):
             self._last_viewport_width = vp_width
             self._rebalance_columns()
 
+    # ── Hover tooltip (500 ms delay) ─────────────────────
+
+    def mouseMoveEvent(self, event):
+        super().mouseMoveEvent(event)
+        index = self.indexAt(event.pos())
+        if index.isValid() and index.row() != (self._hover_index.row() if self._hover_index and self._hover_index.isValid() else -1):
+            self._hover_index = index
+            self._hover_global_pos = event.globalPosition().toPoint()
+            self._tooltip_timer.start()
+        elif not index.isValid():
+            self._tooltip_timer.stop()
+            self._hover_index = None
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self._tooltip_timer.stop()
+        self._hover_index = None
+
+    def _show_hover_tooltip(self):
+        if self._hover_index and self._hover_index.isValid():
+            tip = self._hover_index.data(Qt.ToolTipRole)
+            if tip:
+                QToolTip.showText(self._hover_global_pos, tip, self)
+
     def mouseDoubleClickEvent(self, event):
+        self._tooltip_timer.stop()
         index = self.indexAt(event.pos())
         if index.isValid():
             playlist_idx = index.data(Qt.UserRole)

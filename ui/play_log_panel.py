@@ -4,14 +4,15 @@ Play log panel — shows recent play history grouped by date.
 
 from datetime import datetime, date as date_cls
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QPoint, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QMenu,
-    QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QPushButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 import qtawesome as qta
 
+from core.formatters import build_track_tooltip
 from ui.theme import COLORS
 
 
@@ -91,6 +92,15 @@ class PlayLogPanel(QWidget):
         self._tree.customContextMenuRequested.connect(self._on_right_click)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
         self._tree.currentItemChanged.connect(self._on_selection_changed)
+        self._tree.setMouseTracking(True)
+        self._tree.viewport().setMouseTracking(True)
+        self._tree.viewport().installEventFilter(self)
+        self._tooltip_timer = QTimer(self)
+        self._tooltip_timer.setSingleShot(True)
+        self._tooltip_timer.setInterval(500)
+        self._tooltip_timer.timeout.connect(self._show_hover_tooltip)
+        self._hover_item = None
+        self._hover_global_pos = QPoint()
         layout.addWidget(self._tree, stretch=1)
 
     # ── Public API ───────────────────────────────────────
@@ -270,3 +280,33 @@ class PlayLogPanel(QWidget):
     def _on_selection_changed(self, current, _previous):
         """Placeholder for future selection-change handling."""
         pass
+
+    # ── Hover tooltip (500 ms delay) ─────────────────────
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        if obj is self._tree.viewport():
+            if event.type() == QEvent.MouseMove:
+                item = self._tree.itemAt(event.pos())
+                if item is not self._hover_item:
+                    self._hover_item = item
+                    self._hover_global_pos = event.globalPosition().toPoint()
+                    if item is not None and item.parent() is not None:
+                        self._tooltip_timer.start()
+                    else:
+                        self._tooltip_timer.stop()
+            elif event.type() == QEvent.Leave:
+                self._tooltip_timer.stop()
+                self._hover_item = None
+        return super().eventFilter(obj, event)
+
+    def _show_hover_tooltip(self):
+        item = self._hover_item
+        if item is None or item.parent() is None:
+            return
+        file_path = item.data(0, Qt.UserRole)
+        pl_idx = self._path_to_idx.get(file_path)
+        if pl_idx is not None and pl_idx < len(self._playlist):
+            tip = build_track_tooltip(self._playlist[pl_idx])
+            if tip:
+                QToolTip.showText(self._hover_global_pos, tip, self._tree)

@@ -81,3 +81,46 @@ def format_time_ms(ms):
         return '0:00'
     s = ms // 1000
     return f'{s // 60}:{s % 60:02d}'
+
+
+def build_track_tooltip(entry):
+    """Build a rich-text tooltip string with all track info."""
+    if not entry:
+        return ''
+    title = entry.get('title', entry.get('basename', '?'))
+    artist = entry.get('artist', '')
+    album = entry.get('album', '')
+    genre = entry.get('genre', '')
+    length = format_duration(entry.get('length'))
+    rating = entry.get('rating', 0)
+    comment = entry.get('comment', '')
+    tags = entry.get('tags', [])
+    liked_by = entry.get('liked_by', set())
+    disliked_by = entry.get('disliked_by', set())
+    plays = entry.get('play_count', 0)
+    first_played = format_ts(entry.get('first_played'), relative=False)
+    last_played = format_ts(entry.get('last_played'), relative=True)
+    path = entry.get('path', '')
+
+    lines = [f'<b>{title}</b>']
+    if artist:
+        lines.append(f'Artist: {artist}')
+    if album:
+        lines.append(f'Album: {album}')
+    if genre:
+        lines.append(f'Genre: {genre}')
+    lines.append(f'Length: {length}')
+    lines.append(f'Rating: {"+"+str(rating) if rating > 0 else str(rating)}')
+    if tags:
+        lines.append(f'Tags: {", ".join(sorted(t.upper() for t in tags))}')
+    if liked_by:
+        lines.append(f'Liked by: {", ".join(sorted(liked_by))}')
+    if disliked_by:
+        lines.append(f'Disliked by: {", ".join(sorted(disliked_by))}')
+    lines.append(f'Plays: {plays}')
+    lines.append(f'First played: {first_played}')
+    lines.append(f'Last played: {last_played}')
+    if comment:
+        lines.append(f'Comment: {comment}')
+    lines.append(f'<span style="color:#888;">{path}</span>')
+    return '<br>'.join(lines)

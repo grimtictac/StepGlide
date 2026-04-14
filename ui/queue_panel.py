@@ -2,14 +2,15 @@
 Queue panel — shows the play queue with reorder / remove / clear controls.
 """
 
-from PySide6.QtCore import Qt, QRect, Signal
+from PySide6.QtCore import Qt, QPoint, QRect, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMenu,
-    QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QPushButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 import qtawesome as qta
+from core.formatters import build_track_tooltip
 from ui.theme import COLORS
 
 TRACK_PATHS_MIME = 'application/x-musicplayer-track-paths'
@@ -163,6 +164,15 @@ class QueuePanel(QWidget):
         self._tree.itemDoubleClicked.connect(self._on_double_click)
         self._tree.external_paths_dropped.connect(self._on_external_drop)
         self._tree.internal_move_requested.connect(self._on_internal_move)
+        self._tree.setMouseTracking(True)
+        self._tooltip_timer = QTimer(self)
+        self._tooltip_timer.setSingleShot(True)
+        self._tooltip_timer.setInterval(500)
+        self._tooltip_timer.timeout.connect(self._show_hover_tooltip)
+        self._hover_item = None
+        self._hover_global_pos = QPoint()
+        self._tree.viewport().setMouseTracking(True)
+        self._tree.viewport().installEventFilter(self)
         layout.addWidget(self._tree, stretch=1)
 
         # Button row: ▲ ▼ ⤒ ✕
@@ -381,3 +391,35 @@ class QueuePanel(QWidget):
         pl_idx = self._queue.pop(row)
         self._rebuild()
         self.play_from_queue.emit(pl_idx)
+
+    # ── Hover tooltip (500 ms delay) ─────────────────────
+
+    def eventFilter(self, obj, event):
+        from PySide6.QtCore import QEvent
+        if obj is self._tree.viewport():
+            if event.type() == QEvent.MouseMove:
+                item = self._tree.itemAt(event.pos())
+                if item is not self._hover_item:
+                    self._hover_item = item
+                    self._hover_global_pos = event.globalPosition().toPoint()
+                    if item is not None:
+                        self._tooltip_timer.start()
+                    else:
+                        self._tooltip_timer.stop()
+            elif event.type() == QEvent.Leave:
+                self._tooltip_timer.stop()
+                self._hover_item = None
+        return super().eventFilter(obj, event)
+
+    def _show_hover_tooltip(self):
+        item = self._hover_item
+        if item is None:
+            return
+        row = self._tree.indexOfTopLevelItem(item)
+        if row < 0 or row >= len(self._queue):
+            return
+        pl_idx = self._queue[row]
+        if pl_idx < len(self._playlist):
+            tip = build_track_tooltip(self._playlist[pl_idx])
+            if tip:
+                QToolTip.showText(self._hover_global_pos, tip, self._tree)
