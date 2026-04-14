@@ -199,7 +199,9 @@ class TrackTableModel(QAbstractTableModel):
             return entry.get('_playlist_idx')
 
         elif role == Qt.ToolTipRole:
-            return build_track_tooltip(entry)
+            if index.column() == 0:      # Title column only
+                return build_track_tooltip(entry)
+            return None
 
         return None
 
@@ -425,11 +427,11 @@ class TrackTableView(QTableView):
     def mouseMoveEvent(self, event):
         super().mouseMoveEvent(event)
         index = self.indexAt(event.pos())
-        if index.isValid() and index.row() != (self._hover_index.row() if self._hover_index and self._hover_index.isValid() else -1):
+        if index.isValid() and index.column() == 0 and index.row() != (self._hover_index.row() if self._hover_index and self._hover_index.isValid() else -1):
             self._hover_index = index
             self._hover_global_pos = event.globalPosition().toPoint()
             self._tooltip_timer.start()
-        elif not index.isValid():
+        elif not index.isValid() or index.column() != 0:
             self._tooltip_timer.stop()
             self._hover_index = None
 
