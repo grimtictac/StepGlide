@@ -85,6 +85,48 @@ class AppConfig:
         self.pull_max_interval = 200     # slowest (tiny pull)
         self.pull_dead_zone = 5          # pull% below this is ignored
 
+        # Smart playlist window defaults (days)
+        self.trending_window_days = 30
+        self.oldies_window_days = 180
+
+    def ensure_builtin_smart_playlists(self):
+        """Seed the three built-in smart playlists if they are missing.
+
+        Uses the configurable trending/oldies window days.
+        """
+        builtins = {
+            '🔥 Trending': {
+                'match': 'all',
+                'rules': [
+                    {'field': 'Score', 'op': '>=', 'value': 60},
+                    {'field': 'Last Played (days)', 'op': 'within',
+                     'value': self.trending_window_days},
+                ],
+            },
+            '🏆 Golden Oldies': {
+                'match': 'all',
+                'rules': [
+                    {'field': 'Score', 'op': '>=', 'value': 60},
+                    {'field': 'First Played (days)', 'op': 'older than',
+                     'value': self.oldies_window_days},
+                ],
+            },
+            '💎 Undiscovered': {
+                'match': 'all',
+                'rules': [
+                    {'field': 'Play Count', 'op': '<=', 'value': 2},
+                    {'field': 'Likes', 'op': '=', 'value': 0},
+                    {'field': 'Dislikes', 'op': '=', 'value': 0},
+                ],
+            },
+        }
+        changed = False
+        for name, definition in builtins.items():
+            if name not in self.smart_playlists:
+                self.smart_playlists[name] = definition
+                changed = True
+        return changed
+
     def load(self):
         """Load settings from XML config file. Returns True if file existed."""
         if not os.path.exists(self.config_path):
@@ -152,7 +194,9 @@ class AppConfig:
                     op = r_el.get('op', '')
                     value = r_el.get('value', '')
                     # Numeric fields → store as int
-                    if field in ('Rating', 'Play Count', 'Last Played (days)'):
+                    if field in ('Rating', 'Score', 'Likes', 'Dislikes',
+                                 'Play Count', 'Last Played (days)',
+                                 'First Played (days)'):
                         try:
                             value = int(value)
                         except (ValueError, TypeError):
@@ -234,6 +278,20 @@ class AppConfig:
             wf = audio_el.find('waveform_enabled')
             if wf is not None and wf.text:
                 self.waveform_enabled = wf.text.lower() != 'false'
+
+        # Smart playlist windows
+        sp_windows_el = root.find('smart_playlist_windows')
+        if sp_windows_el is not None:
+            for attr, field in [
+                ('trending_days', 'trending_window_days'),
+                ('oldies_days', 'oldies_window_days'),
+            ]:
+                val = sp_windows_el.get(attr)
+                if val is not None:
+                    try:
+                        setattr(self, field, int(val))
+                    except (ValueError, TypeError):
+                        pass
 
         return True
 
@@ -332,6 +390,11 @@ class AppConfig:
         pd.text = self.preview_audio_device or ''
         wf = ET.SubElement(audio_el, 'waveform_enabled')
         wf.text = str(self.waveform_enabled).lower()
+
+        # Smart playlist windows
+        ET.SubElement(root, 'smart_playlist_windows',
+                      trending_days=str(self.trending_window_days),
+                      oldies_days=str(self.oldies_window_days))
 
         ET.indent(root)
         tree = ET.ElementTree(root)

@@ -92,7 +92,7 @@ def build_track_tooltip(entry):
     album = entry.get('album', '')
     genre = entry.get('genre', '')
     length = format_duration(entry.get('length'))
-    rating = entry.get('rating', 0)
+    score = entry.get('score', 0)
     comment = entry.get('comment', '')
     tags = entry.get('tags', [])
     liked_by = entry.get('liked_by', set())
@@ -110,7 +110,7 @@ def build_track_tooltip(entry):
     if genre:
         lines.append(f'Genre: {genre}')
     lines.append(f'Length: {length}')
-    lines.append(f'Rating: {"+"+str(rating) if rating > 0 else str(rating)}')
+    lines.append(f'Score: {score}%')
     if tags:
         lines.append(f'Tags: {", ".join(sorted(t.upper() for t in tags))}')
     if liked_by:

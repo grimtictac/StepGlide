@@ -3,6 +3,7 @@ Database layer — schema init, queries, track CRUD, votes, tags, audit log.
 Pure Python, no UI dependencies.
 """
 
+import math
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -249,6 +250,16 @@ class Database:
             seen.add(path)
             self._track_id_cache[path] = track_id
             vdata = votes_by_path.get(path, {'rating': 0, 'liked_by': set(), 'disliked_by': set()})
+            likes = len(vdata['liked_by'])
+            dislikes = len(vdata['disliked_by'])
+            plays = play_count or 0
+            # Bayesian-smoothed score: ratio × engagement factor
+            prior = 1
+            smoothed = (likes + prior) / (likes + dislikes + 2 * prior)
+            engagement = math.log(plays + 1, 10) / math.log(101, 10)  # 0→0, 100→1
+            score = smoothed * (0.5 + 0.5 * engagement)  # floor at 50% of ratio
+            if bool(hidden):
+                score = 0.0
             entry = {
                 'path': path,
                 'title': db_title or os.path.basename(path),
@@ -257,13 +268,16 @@ class Database:
                 'album': album or '',
                 'genre': genre or 'Unknown',
                 'comment': comment or '',
-                'play_count': play_count or 0,
+                'play_count': plays,
                 'first_played': first_played,
                 'last_played': last_played,
                 'file_created': file_created,
                 'length': length,
                 'tags': tags_by_path.get(path, []),
                 'rating': vdata['rating'],
+                'likes': likes,
+                'dislikes': dislikes,
+                'score': round(score * 100),   # 0–100 integer
                 'liked_by': vdata['liked_by'],
                 'disliked_by': vdata['disliked_by'],
                 'hidden': bool(hidden),

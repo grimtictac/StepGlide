@@ -21,15 +21,15 @@ from ui.theme import COLORS
 # ── Column definitions ───────────────────────────────────
 
 ALL_COLUMNS = (
-    'Title', 'Artist', 'Album', 'Genre', 'Length', 'Rating',
-    'Comment', 'Tags', 'Liked By', 'Disliked By',
+    'Title', 'Artist', 'Album', 'Genre', 'Length', 'Score',
+    'Comment', 'Tags', 'Likes', 'Dislikes',
     'Plays', 'First Played', 'Last Played', 'File Created',
     'Path', 'Relative Path',
 )
 
 # Default visible columns (matches the standard layout)
 DEFAULT_VISIBLE_COLUMNS = (
-    'Genre', 'Title', 'Length', 'Liked By', 'Rating',
+    'Genre', 'Title', 'Length', 'Likes', 'Score',
     'Plays', 'Last Played', 'Tags', 'Comment',
 )
 
@@ -46,20 +46,21 @@ def _col_value(entry, col_idx):
         return entry.get('genre', '')
     elif col_idx == 4:  # Length
         return format_duration(entry.get('length'))
-    elif col_idx == 5:  # Rating
-        r = entry.get('rating', 0)
-        return f'+{r}' if r > 0 else str(r)
+    elif col_idx == 5:  # Score
+        s = entry.get('score', 0)
+        return f'{s}%'
     elif col_idx == 6:  # Comment
         return entry.get('comment', '')
     elif col_idx == 7:  # Tags
         tags = entry.get('tags', [])
-        return ', '.join(sorted(t.upper() for t in tags)) if tags else '—'
-    elif col_idx == 8:  # Liked By
-        lb = entry.get('liked_by', set())
-        return ', '.join(sorted(lb)) if lb else '—'
-    elif col_idx == 9:  # Disliked By
-        db = entry.get('disliked_by', set())
-        return ', '.join(sorted(db)) if db else '—'
+        n = len(tags)
+        return str(n) if n else '—'
+    elif col_idx == 8:  # Likes
+        n = entry.get('likes', 0)
+        return str(n) if n else '—'
+    elif col_idx == 9:  # Dislikes
+        n = entry.get('dislikes', 0)
+        return str(n) if n else '—'
     elif col_idx == 10: # Plays
         return str(entry.get('play_count', 0))
     elif col_idx == 11: # First Played
@@ -88,15 +89,15 @@ def _sort_value(entry, col_idx):
     elif col_idx == 4:
         return entry.get('length') or 0
     elif col_idx == 5:
-        return entry.get('rating', 0)
+        return entry.get('score', 0)
     elif col_idx == 6:
         return (entry.get('comment') or '').lower()
     elif col_idx == 7:
-        return ', '.join(sorted(entry.get('tags', []))).lower()
+        return len(entry.get('tags', []))
     elif col_idx == 8:
-        return ', '.join(sorted(entry.get('liked_by', set()))).lower()
+        return entry.get('likes', 0)
     elif col_idx == 9:
-        return ', '.join(sorted(entry.get('disliked_by', set()))).lower()
+        return entry.get('dislikes', 0)
     elif col_idx == 10:
         return entry.get('play_count', 0)
     elif col_idx in (11, 12, 13):
@@ -174,14 +175,19 @@ class TrackTableModel(QAbstractTableModel):
             # Hidden tracks shown in yellow
             if entry.get('hidden'):
                 return QColor(COLORS['yellow'])
-            # Rating column colouring
+            # Score column colouring
             if col == 5:
-                r = entry.get('rating', 0)
-                if r > 0:
+                s = entry.get('score', 0)
+                likes = entry.get('likes', 0)
+                dislikes = entry.get('dislikes', 0)
+                if likes == 0 and dislikes == 0:
+                    return QColor(COLORS['fg_muted'])
+                if s >= 70:
                     return QColor(COLORS['green_text'])
-                elif r < 0:
+                elif s >= 40:
+                    return QColor(COLORS['yellow'])
+                else:
                     return QColor(COLORS['red_text'])
-                return QColor(COLORS['fg_muted'])
             return None
 
         elif role == Qt.BackgroundRole:
@@ -193,7 +199,7 @@ class TrackTableModel(QAbstractTableModel):
             return None
 
         elif role == Qt.TextAlignmentRole:
-            if col in (4, 5, 10):  # Length, Rating, Plays — center
+            if col in (4, 5, 7, 8, 9, 10):  # Length, Score, Tags, Likes, Dislikes, Plays — center
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
@@ -204,6 +210,21 @@ class TrackTableModel(QAbstractTableModel):
         elif role == Qt.ToolTipRole:
             if index.column() == 0:      # Title column only
                 return build_track_tooltip(entry)
+            elif index.column() == 7:    # Tags — show tag names
+                tags = entry.get('tags', [])
+                if tags:
+                    return ', '.join(sorted(t.upper() for t in tags))
+                return None
+            elif index.column() == 8:    # Likes — show voter names
+                lb = entry.get('liked_by', set())
+                if lb:
+                    return ', '.join(sorted(lb))
+                return None
+            elif index.column() == 9:    # Dislikes — show voter names
+                db = entry.get('disliked_by', set())
+                if db:
+                    return ', '.join(sorted(db))
+                return None
             return None
 
         return None
@@ -295,11 +316,11 @@ class TrackTableView(QTableView):
             2: 150,   # Album
             3: 120,   # Genre
             4: 55,    # Length
-            5: 55,    # Rating
+            5: 55,    # Score
             6: 160,   # Comment
-            7: 180,   # Tags
-            8: 80,    # Liked By
-            9: 80,    # Disliked By
+            7: 60,    # Tags
+            8: 55,    # Likes
+            9: 55,    # Dislikes
             10: 45,   # Plays
             11: 90,   # First Played
             12: 80,   # Last Played
@@ -313,10 +334,10 @@ class TrackTableView(QTableView):
             0: 120,   # Title — needs room for text
             3: 60,    # Genre
             4: 45,    # Length
-            5: 40,    # Rating
+            5: 40,    # Score
             6: 80,    # Comment
-            7: 80,    # Tags
-            8: 55,    # Liked By
+            7: 45,    # Tags
+            8: 45,    # Likes
             10: 40,   # Plays
             12: 65,   # Last Played
         }

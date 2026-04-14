@@ -40,6 +40,15 @@ def _eval_one(entry, rule):
     elif field == 'Rating':
         return _match_num(entry.get('rating', 0), op, int(value))
 
+    elif field == 'Score':
+        return _match_num(entry.get('score', 0), op, int(value))
+
+    elif field == 'Likes':
+        return _match_num(entry.get('likes', 0), op, int(value))
+
+    elif field == 'Dislikes':
+        return _match_num(entry.get('dislikes', 0), op, int(value))
+
     elif field == 'Play Count':
         return _match_num(entry.get('play_count', 0), op, int(value))
 
@@ -60,6 +69,22 @@ def _eval_one(entry, rule):
         try:
             last = datetime.fromisoformat(raw)
             age_days = (datetime.now() - last).days
+        except Exception:
+            return op == 'older than'
+        days_val = int(value)
+        if op == 'within':
+            return age_days <= days_val
+        elif op == 'older than':
+            return age_days > days_val
+
+    elif field == 'First Played (days)':
+        raw = entry.get('first_played')
+        if not raw:
+            # Never played — "within" → False, "older than" → True
+            return op == 'older than'
+        try:
+            first = datetime.fromisoformat(raw)
+            age_days = (datetime.now() - first).days
         except Exception:
             return op == 'older than'
         days_val = int(value)

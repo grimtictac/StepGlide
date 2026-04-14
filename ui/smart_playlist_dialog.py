@@ -18,9 +18,13 @@ from ui.theme import COLORS
 RULE_FIELDS = [
     'Genre',
     'Rating',
+    'Score',
+    'Likes',
+    'Dislikes',
     'Play Count',
     'Tag',
     'Last Played (days)',
+    'First Played (days)',
     'Artist',
     'Title',
 ]
@@ -29,9 +33,13 @@ RULE_FIELDS = [
 FIELD_OPS = {
     'Genre':              ['is', 'is not', 'contains'],
     'Rating':             ['>=', '<=', '=', '!='],
+    'Score':              ['>=', '<=', '=', '!='],
+    'Likes':              ['>=', '<=', '=', '!='],
+    'Dislikes':           ['>=', '<=', '=', '!='],
     'Play Count':         ['>=', '<=', '=', '!='],
     'Tag':                ['has', 'has not'],
     'Last Played (days)': ['within', 'older than'],
+    'First Played (days)':['within', 'older than'],
     'Artist':             ['is', 'is not', 'contains'],
     'Title':              ['contains'],
 }
@@ -119,15 +127,23 @@ class RuleRow(QWidget):
             self.value_genre_combo.show()
         elif field == 'Tag':
             self.value_tag_combo.show()
-        elif field in ('Rating', 'Play Count', 'Last Played (days)'):
+        elif field in ('Rating', 'Score', 'Likes', 'Dislikes',
+                      'Play Count', 'Last Played (days)',
+                      'First Played (days)'):
             self.value_spin.show()
             if field == 'Rating':
                 self.value_spin.setRange(-100, 100)
                 self.value_spin.setValue(0)
+            elif field == 'Score':
+                self.value_spin.setRange(0, 100)
+                self.value_spin.setValue(50)
+            elif field in ('Likes', 'Dislikes'):
+                self.value_spin.setRange(0, 999)
+                self.value_spin.setValue(1)
             elif field == 'Play Count':
                 self.value_spin.setRange(0, 999999)
                 self.value_spin.setValue(1)
-            else:  # Last Played (days)
+            else:  # Last Played (days), First Played (days)
                 self.value_spin.setRange(1, 99999)
                 self.value_spin.setValue(30)
         else:
@@ -142,7 +158,9 @@ class RuleRow(QWidget):
             value = self.value_genre_combo.currentText().strip()
         elif field == 'Tag':
             value = self.value_tag_combo.currentText().strip()
-        elif field in ('Rating', 'Play Count', 'Last Played (days)'):
+        elif field in ('Rating', 'Score', 'Likes', 'Dislikes',
+                      'Play Count', 'Last Played (days)',
+                      'First Played (days)'):
             value = self.value_spin.value()
         else:
             value = self.value_text.text().strip()
@@ -165,7 +183,9 @@ class RuleRow(QWidget):
             self.value_genre_combo.setCurrentText(str(value))
         elif field == 'Tag':
             self.value_tag_combo.setCurrentText(str(value))
-        elif field in ('Rating', 'Play Count', 'Last Played (days)'):
+        elif field in ('Rating', 'Score', 'Likes', 'Dislikes',
+                      'Play Count', 'Last Played (days)',
+                      'First Played (days)'):
             self.value_spin.setValue(int(value))
         else:
             self.value_text.setText(str(value))

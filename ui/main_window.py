@@ -842,6 +842,7 @@ class MainWindow(QMainWindow):
             'artist': artist, 'album': album, 'genre': genre, 'comment': comment,
             'length': length, 'tags': [], 'rating': 0,
             'liked_by': set(), 'disliked_by': set(),
+            'likes': 0, 'dislikes': 0, 'score': 50,
         }
 
         idx = len(self.playlist)
@@ -1842,6 +1843,21 @@ class MainWindow(QMainWindow):
             else:
                 entry.setdefault('disliked_by', set()).add(voter)
 
+        # Recalculate score
+        import math
+        likes = len(entry.get('liked_by', set()))
+        dislikes = len(entry.get('disliked_by', set()))
+        plays = entry.get('play_count', 0)
+        prior = 1
+        smoothed = (likes + prior) / (likes + dislikes + 2 * prior)
+        engagement = math.log(plays + 1, 10) / math.log(101, 10)
+        score = smoothed * (0.5 + 0.5 * engagement)
+        if entry.get('hidden'):
+            score = 0.0
+        entry['likes'] = likes
+        entry['dislikes'] = dislikes
+        entry['score'] = round(score * 100)
+
         self._track_model.update_row(pl_idx)
         self._play_log.set_voters(self.all_voters)
         self._search_bar.set_voters(self.all_voters)
@@ -2246,7 +2262,7 @@ class MainWindow(QMainWindow):
     def _reset_column_widths(self):
         """Ensure key columns are wide enough to show their values."""
         table = self._track_table
-        key_cols = {4: 'Length', 5: 'Rating', 10: 'Plays', 12: 'Last Played'}
+        key_cols = {4: 'Length', 5: 'Score', 10: 'Plays', 12: 'Last Played'}
         changed = False
         for col, label in key_cols.items():
             if table.isColumnHidden(col):
