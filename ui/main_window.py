@@ -1989,6 +1989,19 @@ class MainWindow(QMainWindow):
         self._debug_log('WARN', f'MISSING: {abs_path}')
         self._missing_scan_results.append(abs_path)
 
+        # Hide the missing track in DB and in-memory
+        pl_idx = self._path_to_idx.get(rel_path)
+        if pl_idx is not None:
+            entry = self.playlist[pl_idx]
+            if not entry.get('hidden'):
+                comment = entry.get('comment', '')
+                new_comment = (f'[HIDDEN] MISSING' if not comment
+                               else f'{comment} [HIDDEN] MISSING')
+                entry['hidden'] = True
+                entry['comment'] = new_comment
+                entry['score'] = 0
+                self.db.set_track_hidden(rel_path, True, new_comment)
+
     def _on_missing_scan_finished(self, total_scanned, missing_count):
         self._scan_progress.hide()
         self._missing_scan_worker = None
@@ -2015,7 +2028,9 @@ class MainWindow(QMainWindow):
                 f'Scan complete: {missing_count} of {total_scanned} '
                 f'files missing — see {os.path.basename(log_path)}')
             self.statusBar().showMessage(
-                f'{missing_count} missing file(s) — see debug log', 8000)
+                f'{missing_count} missing file(s) hidden — see debug log',
+                8000)
+            self._apply_filters()
 
     def _on_play_from_queue(self, playlist_idx):
         """Handle double-click on a queue item — play immediately."""
