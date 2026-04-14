@@ -290,6 +290,16 @@ class MainWindow(QMainWindow):
         self._tag_bar = TagBar(self)
         self._tag_bar.tags_changed.connect(self._on_tags_changed)
         tag_filter_layout.addWidget(self._tag_bar)
+
+        btn_col_reset = QPushButton()
+        btn_col_reset.setIcon(qta.icon('mdi6.table-column-width', color=COLORS['fg_dim']))
+        btn_col_reset.setFixedSize(26, 22)
+        btn_col_reset.setIconSize(btn_col_reset.size() * 0.65)
+        btn_col_reset.setToolTip('Reset column widths')
+        btn_col_reset.setStyleSheet('border: none;')
+        btn_col_reset.clicked.connect(self._reset_column_widths)
+        tag_filter_layout.addWidget(btn_col_reset)
+
         tag_filter_layout.addStretch()
         tag_filter_layout.addWidget(self._search_bar)
         center_layout.addWidget(tag_filter_row)
@@ -2156,6 +2166,24 @@ class MainWindow(QMainWindow):
         """Make all columns visible."""
         self._track_table.set_visible_columns(list(ALL_COLUMNS))
         self.statusBar().showMessage('All columns visible', 3000)
+
+    def _reset_column_widths(self):
+        """Ensure key columns are wide enough to show their values."""
+        table = self._track_table
+        key_cols = {4: 'Length', 5: 'Rating', 10: 'Plays', 12: 'Last Played'}
+        changed = False
+        for col, label in key_cols.items():
+            if table.isColumnHidden(col):
+                continue
+            min_w = table._default_widths.get(col, 60)
+            if table.columnWidth(col) < min_w:
+                table.setColumnWidth(col, min_w)
+                changed = True
+        if changed:
+            table._rebalance_columns()
+            self.statusBar().showMessage('Column widths adjusted', 3000)
+        else:
+            self.statusBar().showMessage('Columns already wide enough', 3000)
 
     def _debug_log(self, level, msg):
         """Write a message to the debug panel."""
