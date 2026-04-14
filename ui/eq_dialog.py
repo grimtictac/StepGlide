@@ -4,7 +4,7 @@ Equalizer dialog — 10-band graphic EQ with presets, per-track persistence.
 
 import vlc
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton,
     QSlider, QVBoxLayout, QWidget,
@@ -49,10 +49,19 @@ class EqualizerDialog(QDialog):
         self._track_path = track_path
         self._track_id = db.get_track_id(track_path) if track_path else None
 
+        self._eq = vlc.AudioEqualizer()   # reuse one instance
+
         self._band_sliders = []
         self._band_labels = []
 
         self._build_ui(track_title)
+
+        # Debounce timer — apply EQ only after slider rests for 150 ms
+        self._apply_timer = QTimer(self)
+        self._apply_timer.setSingleShot(True)
+        self._apply_timer.setInterval(150)
+        self._apply_timer.timeout.connect(self._deferred_apply)
+
         self._load_current()
 
     # ── UI ───────────────────────────────────────────────
@@ -209,7 +218,7 @@ class EqualizerDialog(QDialog):
         self._update_labels()
 
     def _apply_live(self):
-        """Apply current slider values to VLC in real time."""
+        """Apply current slider values to VLC using the reusable EQ object."""
         try:
             mp = self._vlc_player.get_media_player()
             pa = self._get_preamp()
@@ -217,11 +226,10 @@ class EqualizerDialog(QDialog):
             if pa == 0 and all(b == 0 for b in bands):
                 mp.set_equalizer(None)
             else:
-                eq = vlc.AudioEqualizer()
-                eq.set_preamp(pa)
+                self._eq.set_preamp(pa)
                 for i, val in enumerate(bands):
-                    eq.set_amp_at_index(val, i)
-                mp.set_equalizer(eq)
+                    self._eq.set_amp_at_index(val, i)
+                mp.set_equalizer(self._eq)
         except Exception:
             pass
 
@@ -229,6 +237,10 @@ class EqualizerDialog(QDialog):
 
     def _on_slider_change(self, _=None):
         self._update_labels()
+        self._apply_timer.start()       # restart 150 ms debounce
+
+    def _deferred_apply(self):
+        """Called after slider rests — apply EQ and detect preset."""
         self._detect_preset()
         self._apply_live()
 
