@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from ui.theme import COLORS
 from ui.waveform_bar import WaveformScrubBar
+from core.waveform import WaveformWorker
 
 
 def _fmt_ms(ms):
@@ -57,9 +58,19 @@ class PreviewDialog(QDialog):
 
         self._is_playing = False
         self._user_scrubbing = False
+        self._waveform_worker = None
 
         self._build_ui()
         self._load_and_play()
+
+        # Generate waveform in background if not provided
+        if not self._waveform_data:
+            abs_path = self._track.get('_abs_path', '')
+            if abs_path and os.path.isfile(abs_path):
+                self._scrub.set_loading(True)
+                self._waveform_worker = WaveformWorker(abs_path, parent=self)
+                self._waveform_worker.finished.connect(self._on_waveform_ready)
+                self._waveform_worker.start()
 
         # ── Poll timer ───────────────────────────────────
         self._poll_timer = QTimer(self)
@@ -223,11 +234,24 @@ class PreviewDialog(QDialog):
             self._is_playing = False
             self._btn_play.setIcon(self._icon_play)
 
+    # ── Waveform ──────────────────────────────────────────
+
+    def _on_waveform_ready(self, _file_path, data):
+        """Background waveform generation finished."""
+        self._waveform_worker = None
+        if data:
+            self._scrub.set_waveform(data)
+        else:
+            self._scrub.set_loading(False)
+
     # ── Cleanup ──────────────────────────────────────────
 
     def stop_and_release(self):
         """Stop playback and release VLC resources. Safe to call multiple times."""
         self._poll_timer.stop()
+        if self._waveform_worker is not None:
+            self._waveform_worker.cancel()
+            self._waveform_worker = None
         try:
             self._vlc_player.stop()
             self._vlc_player.release()
