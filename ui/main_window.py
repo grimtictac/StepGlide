@@ -2277,7 +2277,7 @@ class MainWindow(QMainWindow):
     def _reset_column_widths(self):
         """Ensure key columns are wide enough to show their values."""
         table = self._track_table
-        key_cols = {4: 'Length', 5: 'Score', 10: 'Plays', 12: 'Last Played'}
+        key_cols = {4: 'Length', 5: 'Score', 6: 'Rating', 11: 'Plays', 13: 'Last Played'}
         changed = False
         for col, label in key_cols.items():
             if table.isColumnHidden(col):

@@ -21,7 +21,7 @@ from ui.theme import COLORS
 # ── Column definitions ───────────────────────────────────
 
 ALL_COLUMNS = (
-    'Title', 'Artist', 'Album', 'Genre', 'Length', 'Score',
+    'Title', 'Artist', 'Album', 'Genre', 'Length', 'Score', 'Rating',
     'Comment', 'Tags', 'Likes', 'Dislikes',
     'Plays', 'First Played', 'Last Played', 'File Created',
     'Path', 'Relative Path',
@@ -49,29 +49,32 @@ def _col_value(entry, col_idx):
     elif col_idx == 5:  # Score
         s = entry.get('score', 0)
         return f'{s}%'
-    elif col_idx == 6:  # Comment
+    elif col_idx == 6:  # Rating
+        r = entry.get('rating', 0)
+        return f'+{r}' if r > 0 else str(r)
+    elif col_idx == 7:  # Comment
         return entry.get('comment', '')
-    elif col_idx == 7:  # Tags
+    elif col_idx == 8:  # Tags
         tags = entry.get('tags', [])
         n = len(tags)
         return str(n) if n else '—'
-    elif col_idx == 8:  # Likes
+    elif col_idx == 9:  # Likes
         n = entry.get('likes', 0)
         return str(n) if n else '—'
-    elif col_idx == 9:  # Dislikes
+    elif col_idx == 10:  # Dislikes
         n = entry.get('dislikes', 0)
         return str(n) if n else '—'
-    elif col_idx == 10: # Plays
+    elif col_idx == 11: # Plays
         return str(entry.get('play_count', 0))
-    elif col_idx == 11: # First Played
+    elif col_idx == 12: # First Played
         return format_ts(entry.get('first_played'), relative=False)
-    elif col_idx == 12: # Last Played
+    elif col_idx == 13: # Last Played
         return format_ts(entry.get('last_played'), relative=True)
-    elif col_idx == 13: # File Created
+    elif col_idx == 14: # File Created
         return format_ts(entry.get('file_created'), relative=False)
-    elif col_idx == 14: # Path
+    elif col_idx == 15: # Path
         return entry.get('_abs_path', entry.get('path', ''))
-    elif col_idx == 15: # Relative Path
+    elif col_idx == 16: # Relative Path
         return entry.get('path', '')
     return ''
 
@@ -91,19 +94,21 @@ def _sort_value(entry, col_idx):
     elif col_idx == 5:
         return entry.get('score', 0)
     elif col_idx == 6:
-        return (entry.get('comment') or '').lower()
+        return entry.get('rating', 0)
     elif col_idx == 7:
-        return len(entry.get('tags', []))
+        return (entry.get('comment') or '').lower()
     elif col_idx == 8:
-        return entry.get('likes', 0)
+        return len(entry.get('tags', []))
     elif col_idx == 9:
-        return entry.get('dislikes', 0)
+        return entry.get('likes', 0)
     elif col_idx == 10:
+        return entry.get('dislikes', 0)
+    elif col_idx == 11:
         return entry.get('play_count', 0)
-    elif col_idx in (11, 12, 13):
-        keys = {11: 'first_played', 12: 'last_played', 13: 'file_created'}
+    elif col_idx in (12, 13, 14):
+        keys = {12: 'first_played', 13: 'last_played', 14: 'file_created'}
         return entry.get(keys[col_idx]) or ''
-    elif col_idx in (14, 15):
+    elif col_idx in (15, 16):
         return (entry.get('path') or '').lower()
     return ''
 
@@ -188,6 +193,14 @@ class TrackTableModel(QAbstractTableModel):
                     return QColor(COLORS['yellow'])
                 else:
                     return QColor(COLORS['red_text'])
+            # Rating column colouring
+            if col == 6:
+                r = entry.get('rating', 0)
+                if r > 0:
+                    return QColor(COLORS['green_text'])
+                elif r < 0:
+                    return QColor(COLORS['red_text'])
+                return QColor(COLORS['fg_muted'])
             return None
 
         elif role == Qt.BackgroundRole:
@@ -199,7 +212,7 @@ class TrackTableModel(QAbstractTableModel):
             return None
 
         elif role == Qt.TextAlignmentRole:
-            if col in (4, 5, 7, 8, 9, 10):  # Length, Score, Tags, Likes, Dislikes, Plays — center
+            if col in (4, 5, 6, 8, 9, 10, 11):  # Length, Score, Rating, Tags, Likes, Dislikes, Plays — center
                 return Qt.AlignCenter
             return Qt.AlignLeft | Qt.AlignVCenter
 
@@ -210,17 +223,17 @@ class TrackTableModel(QAbstractTableModel):
         elif role == Qt.ToolTipRole:
             if index.column() == 0:      # Title column only
                 return build_track_tooltip(entry)
-            elif index.column() == 7:    # Tags — show tag names
+            elif index.column() == 8:    # Tags — show tag names
                 tags = entry.get('tags', [])
                 if tags:
                     return ', '.join(sorted(t.upper() for t in tags))
                 return None
-            elif index.column() == 8:    # Likes — show voter names
+            elif index.column() == 9:    # Likes — show voter names
                 lb = entry.get('liked_by', set())
                 if lb:
                     return ', '.join(sorted(lb))
                 return None
-            elif index.column() == 9:    # Dislikes — show voter names
+            elif index.column() == 10:   # Dislikes — show voter names
                 db = entry.get('disliked_by', set())
                 if db:
                     return ', '.join(sorted(db))
@@ -317,16 +330,17 @@ class TrackTableView(QTableView):
             3: 120,   # Genre
             4: 55,    # Length
             5: 55,    # Score
-            6: 160,   # Comment
-            7: 60,    # Tags
-            8: 55,    # Likes
-            9: 55,    # Dislikes
-            10: 45,   # Plays
-            11: 90,   # First Played
-            12: 80,   # Last Played
-            13: 90,   # File Created
-            14: 250,  # Path
-            15: 200,  # Relative Path
+            6: 55,    # Rating
+            7: 160,   # Comment
+            8: 60,    # Tags
+            9: 55,    # Likes
+            10: 55,   # Dislikes
+            11: 45,   # Plays
+            12: 90,   # First Played
+            13: 80,   # Last Played
+            14: 90,   # File Created
+            15: 250,  # Path
+            16: 200,  # Relative Path
         }
 
         # Minimum column widths for default columns (pixels)
@@ -335,11 +349,12 @@ class TrackTableView(QTableView):
             3: 60,    # Genre
             4: 45,    # Length
             5: 40,    # Score
-            6: 80,    # Comment
-            7: 45,    # Tags
-            8: 45,    # Likes
-            10: 40,   # Plays
-            12: 65,   # Last Played
+            6: 40,    # Rating
+            7: 80,    # Comment
+            8: 45,    # Tags
+            9: 45,    # Likes
+            11: 40,   # Plays
+            13: 65,   # Last Played
         }
         self._user_resizing_column = False
         self._last_viewport_width = 0
