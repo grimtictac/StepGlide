@@ -29,7 +29,7 @@ ALL_COLUMNS = (
 
 # Default visible columns (matches the standard layout)
 DEFAULT_VISIBLE_COLUMNS = (
-    'Genre', 'Title', 'Length', 'Likes', 'Score',
+    'Genre', 'Title', 'Length', 'Likes', 'Rating',
     'Plays', 'Last Played', 'Tags', 'Comment',
 )
 
