@@ -614,9 +614,41 @@ class Database:
         self._track_id_cache.pop(path, None)
 
     def snapshot(self, dest_path):
-        """Copy the database file to a snapshot path."""
+        """Copy the database file to a snapshot path.
+
+        Under WAL mode the on-disk .db file does not necessarily contain
+        the most recent committed data — that lives in the .db-wal
+        sidecar until a checkpoint folds it back into the main file.
+        We checkpoint with TRUNCATE first so the snapshot is a complete,
+        self-contained copy of every committed transaction. As a safety
+        net we also copy the -wal/-shm sidecar files if they still
+        exist, so even an interrupted checkpoint leaves a recoverable
+        snapshot set.
+        """
         import shutil
+
+        # Force a full checkpoint so all committed data is in the main file.
+        try:
+            con = self.connect()
+            try:
+                con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                con.commit()
+            finally:
+                con.close()
+        except Exception as e:
+            self._debug_log('WARN', f'Snapshot WAL checkpoint failed: {e}')
+
         shutil.copy2(self.db_path, dest_path)
+
+        # Belt-and-braces: copy any remaining WAL/SHM sidecars too.
+        for suffix in ('-wal', '-shm'):
+            src = self.db_path + suffix
+            if os.path.exists(src):
+                try:
+                    shutil.copy2(src, dest_path + suffix)
+                except Exception as e:
+                    self._debug_log('WARN',
+                        f'Snapshot sidecar copy failed ({suffix}): {e}')
 
 
 class _SharedConnProxy:
