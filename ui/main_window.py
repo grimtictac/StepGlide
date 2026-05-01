@@ -155,9 +155,15 @@ class MainWindow(QMainWindow):
         self._wf_user_scrubbing = False
 
         # ── VLC ──────────────────────────────────────────
-        self.vlc_instance = vlc.Instance()
-        self.vlc_player = self.vlc_instance.media_list_player_new()
-        self.vlc_media_list = self.vlc_instance.media_list_new()
+        # Lazy-instantiated on first access. vlc.Instance() loads libvlc
+        # and many plugin .so files (200+ ms cold on a slow disk), and
+        # nothing on the first paint actually needs a player. The poll
+        # loop is gated on self._vlc_initialised so it doesn't trigger
+        # creation either — VLC only spins up when the user hits play.
+        self._vlc_instance = None
+        self._vlc_player = None
+        self._vlc_media_list = None
+        self._vlc_initialised = False
 
         # ── Build the UI ─────────────────────────────────
         self._build_ui()
@@ -654,21 +660,25 @@ class MainWindow(QMainWindow):
         if self.config.all_tags:
             self._tag_bar.set_tags(self.config.all_tags, self.config.tag_rows)
 
-        # Set up queue panel and restore persisted queue
-        self._queue_panel.set_playlist(self.playlist)
-        saved_paths = self.db.load_queue()
-        if saved_paths:
-            restored = [self._path_to_idx[p] for p in saved_paths
-                        if p in self._path_to_idx]
-            if restored:
-                self._queue_panel.set_queue(restored)
+        # Share one DB connection across the remaining startup queries
+        # (load_queue + play_log.load → get_play_log) to avoid the
+        # connect/pragma overhead of opening two separate connections.
+        with self.db.shared_connection():
+            # Set up queue panel and restore persisted queue
+            self._queue_panel.set_playlist(self.playlist)
+            saved_paths = self.db.load_queue()
+            if saved_paths:
+                restored = [self._path_to_idx[p] for p in saved_paths
+                            if p in self._path_to_idx]
+                if restored:
+                    self._queue_panel.set_queue(restored)
 
-        # Load play log (last — it's the heaviest)
-        self._play_log.set_path_map(self._path_to_idx)
-        self._play_log.set_playlist(self.playlist)
-        self._play_log.set_voters(self.all_voters)
-        self._play_log.set_db(self.db)
-        self._play_log.load(self.db)
+            # Load play log (last — it's the heaviest)
+            self._play_log.set_path_map(self._path_to_idx)
+            self._play_log.set_playlist(self.playlist)
+            self._play_log.set_voters(self.all_voters)
+            self._play_log.set_db(self.db)
+            self._play_log.load(self.db)
 
     def _genre_counts(self):
         """Return {genre_name: track_count} from self.playlist."""
@@ -1185,6 +1195,53 @@ class MainWindow(QMainWindow):
         self._apply_filters()
 
     # ── VLC helpers ──────────────────────────────────────
+
+    def _ensure_vlc(self):
+        """Instantiate VLC on first need. Idempotent."""
+        if self._vlc_initialised:
+            return
+        self._vlc_instance = vlc.Instance()
+        self._vlc_player = self._vlc_instance.media_list_player_new()
+        self._vlc_media_list = self._vlc_instance.media_list_new()
+        self._vlc_initialised = True
+        # Apply audio device routing now that VLC actually exists.
+        dev = getattr(self.config, 'main_audio_device', None)
+        if dev:
+            try:
+                self._vlc_player.get_media_player().audio_output_device_set(None, dev)
+            except Exception:
+                pass
+
+    @property
+    def vlc_instance(self):
+        if not self._vlc_initialised:
+            self._ensure_vlc()
+        return self._vlc_instance
+
+    @vlc_instance.setter
+    def vlc_instance(self, value):
+        self._vlc_instance = value
+        self._vlc_initialised = value is not None
+
+    @property
+    def vlc_player(self):
+        if not self._vlc_initialised:
+            self._ensure_vlc()
+        return self._vlc_player
+
+    @vlc_player.setter
+    def vlc_player(self, value):
+        self._vlc_player = value
+
+    @property
+    def vlc_media_list(self):
+        if not self._vlc_initialised:
+            self._ensure_vlc()
+        return self._vlc_media_list
+
+    @vlc_media_list.setter
+    def vlc_media_list(self, value):
+        self._vlc_media_list = value
 
     def _vlc_mp(self):
         """Shortcut to the underlying media player."""
@@ -2104,6 +2161,11 @@ class MainWindow(QMainWindow):
 
     @perf.track(quiet=True)
     def _poll_inner(self):
+        # Skip the entire poll if VLC hasn't been instantiated yet —
+        # nothing can be playing if there's no player, and we don't want
+        # to trigger lazy VLC creation just for the heartbeat.
+        if not self._vlc_initialised:
+            return
         mp = self._vlc_mp()
         is_playing = mp.is_playing()
 
@@ -2372,6 +2434,10 @@ class MainWindow(QMainWindow):
 
     def _apply_main_audio_device(self):
         """Route the main VLC media player to the configured device."""
+        # If VLC isn't up yet, _ensure_vlc() will apply the device when
+        # it eventually instantiates. Don't force VLC creation here.
+        if not self._vlc_initialised:
+            return
         dev = self.config.main_audio_device
         if dev:
             self._vlc_mp().audio_output_device_set(None, dev)
@@ -2537,7 +2603,12 @@ class MainWindow(QMainWindow):
         self._poll_timer.stop()
         self._cancel_waveform()
         self._close_preview()
-        self.vlc_player.stop()
+        # Only touch VLC if it actually got instantiated this session.
+        if self._vlc_initialised:
+            try:
+                self._vlc_player.stop()
+            except Exception:
+                pass
         self.config.visible_columns = self._track_table.get_visible_columns()
         self.config.save()
         # Persist queue

@@ -35,6 +35,7 @@ class PlayLogPanel(QWidget):
         self._path_to_idx = {}   # set via set_path_map
         self._log_entries = []   # raw rows from DB
         self._playlist = []      # set via set_playlist
+        self._current_limit = 150  # how many entries we've asked the DB for
 
         self._init_ui()
 
@@ -114,6 +115,14 @@ class PlayLogPanel(QWidget):
         self._hover_global_pos = QPoint()
         layout.addWidget(self._tree, stretch=1)
 
+        # "Load more" button — reveals older entries on demand. Keeps
+        # initial startup cost low (only 150 rows built into the tree).
+        self._load_more_btn = QPushButton('Load more…')
+        self._load_more_btn.setStyleSheet(_vote_btn_css)
+        self._load_more_btn.clicked.connect(self._on_load_more)
+        self._load_more_btn.setVisible(False)
+        layout.addWidget(self._load_more_btn)
+
     # ── Public API ───────────────────────────────────────
 
     def set_path_map(self, path_to_idx):
@@ -122,8 +131,18 @@ class PlayLogPanel(QWidget):
 
     def load(self, db):
         """Load play log from the database and rebuild the tree."""
-        self._log_entries = db.get_play_log(limit=500)
+        self._log_entries = db.get_play_log(limit=self._current_limit)
         self._rebuild()
+        # Show "Load more" only if we got a full page back (likely more exist)
+        self._load_more_btn.setVisible(
+            len(self._log_entries) >= self._current_limit)
+
+    def _on_load_more(self):
+        """User clicked 'Load more' — fetch the next page from the DB."""
+        if self._db_ref is None:
+            return
+        self._current_limit += 250
+        self.load(self._db_ref)
 
     # Keep a ref so refresh can call db again
     _db_ref = None

@@ -26,8 +26,14 @@ class Database:
         self._abs_path = abs_path_fn or (lambda p: p)
         self._debug_log = debug_log_fn or (lambda lvl, msg: None)
         self._track_id_cache = {}  # file_path → track_id
+        self._shared_con = None    # set inside shared_connection() context
 
     def connect(self):
+        # If a shared connection is active (e.g. during startup batch),
+        # return a thin proxy that delegates everything but ignores
+        # .close(), so existing call sites stay unchanged.
+        if self._shared_con is not None:
+            return _SharedConnProxy(self._shared_con)
         con = sqlite3.connect(self.db_path)
         # Performance pragmas — applied per connection.
         # journal_mode=WAL persists at the DB level (one-time switch) but
@@ -41,6 +47,18 @@ class Database:
         except Exception as e:
             self._debug_log('WARN', f'Failed to apply SQLite pragmas: {e}')
         return con
+
+    def shared_connection(self):
+        """Context manager that pins one real connection for the duration
+        of the block. Any code calling self.connect() while inside will
+        receive a proxy that delegates to the shared connection but
+        ignores .close(), so existing call sites need no changes.
+
+        Use for batch operations (e.g. startup loads) to avoid the
+        overhead of repeatedly opening/closing SQLite connections and
+        re-applying pragmas.
+        """
+        return _SharedConnectionContext(self)
 
     # ── Schema ───────────────────────────────────────────
 
@@ -599,3 +617,60 @@ class Database:
         """Copy the database file to a snapshot path."""
         import shutil
         shutil.copy2(self.db_path, dest_path)
+
+
+class _SharedConnProxy:
+    """Proxy around a sqlite3.Connection whose .close() is a no-op.
+
+    Returned by Database.connect() while a shared_connection() context
+    is active, so existing call sites that do `con = self.connect(); ...
+    con.close()` keep working without needing changes — the real
+    connection is held by the context manager and closed at exit.
+    """
+    __slots__ = ('_real',)
+
+    def __init__(self, real):
+        self._real = real
+
+    def close(self):
+        # Intentionally no-op; real close happens in the context manager.
+        pass
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def __enter__(self):
+        return self._real.__enter__()
+
+    def __exit__(self, *args):
+        return self._real.__exit__(*args)
+
+
+class _SharedConnectionContext:
+    """Context manager that pins one real sqlite3 connection on a Database."""
+
+    def __init__(self, db):
+        self._db = db
+        self._owner = False  # True if this context opened the connection
+
+    def __enter__(self):
+        if self._db._shared_con is None:
+            self._db._shared_con = sqlite3.connect(self._db.db_path)
+            try:
+                self._db._shared_con.execute("PRAGMA journal_mode=WAL")
+                self._db._shared_con.execute("PRAGMA synchronous=NORMAL")
+                self._db._shared_con.execute("PRAGMA temp_store=MEMORY")
+                self._db._shared_con.execute("PRAGMA cache_size=-20000")
+                self._db._shared_con.execute("PRAGMA mmap_size=268435456")
+            except Exception as e:
+                self._db._debug_log('WARN', f'Shared-conn pragmas failed: {e}')
+            self._owner = True
+        return self._db._shared_con
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._owner:
+            try:
+                self._db._shared_con.close()
+            finally:
+                self._db._shared_con = None
+        return False
