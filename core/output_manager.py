@@ -312,6 +312,60 @@ class OutputManager(QObject):
                 return d
         return None
 
+    @staticmethod
+    def _normalise_description(s: str) -> str:
+        """Normalise a device description for tolerant matching.
+
+        Strips the bits that change when a USB device moves between
+        ports / re-enumerates:
+          - Leading "N- " prefix (Windows MMDevice port disambiguator,
+            e.g. "3- USB Audio Device" → "USB Audio Device")
+          - Trailing " (N)" disambiguator (e.g. "USB Headphones (2)")
+          - Surrounding whitespace + lowercased + collapsed inner spaces
+        """
+        import re
+        if not s:
+            return ''
+        out = s.strip()
+        out = re.sub(r'^\d+\s*-\s*', '', out)        # leading "3- "
+        out = re.sub(r'\s*\(\d+\)\s*$', '', out)     # trailing " (2)"
+        out = re.sub(r'\s+', ' ', out)
+        return out.lower()
+
+    def find_by_description_fuzzy(
+        self, description: str,
+    ) -> Optional[AudioDevice]:
+        """Tolerant description match for devices that have moved between
+        USB ports (description and/or ID may have changed).
+
+        Tries, in order: normalised-equality, substring-either-direction.
+        Only returns usable devices.  System default is excluded so we
+        don't claim a port-moved match that's really just the speakers.
+        """
+        if not description:
+            return None
+        target = self._normalise_description(description)
+        if not target:
+            return None
+
+        candidates = [d for d in self._devices
+                      if d.is_usable() and d.device_id != SYSTEM_DEFAULT_ID]
+
+        # Pass 1: exact normalised equality
+        for d in candidates:
+            if self._normalise_description(d.description) == target:
+                return d
+
+        # Pass 2: substring either way (handles "USB Audio Device" vs
+        # "USB Audio Device Analog Stereo", or vice versa).  Reject
+        # super-short fragments to avoid false positives.
+        if len(target) >= 6:
+            for d in candidates:
+                norm = self._normalise_description(d.description)
+                if target in norm or norm in target:
+                    return d
+        return None
+
     def is_present(self, device_id: str) -> bool:
         """True if device_id is enumerated and not debug-overridden absent."""
         dev = self.find_by_id(device_id)
@@ -330,12 +384,16 @@ class OutputManager(QObject):
         used.  Logs the outcome.
 
         Resolution order:
-          1. Empty configured_id  → System Default (always usable)
-          2. ID match + present   → exact device
-          3. Description match    → device whose ID changed across reboots
-                                    (logged as a WARN so the caller can
-                                    re-save the new ID to config)
-          4. Otherwise            → None  (caller MUST NOT route audio)
+          1. Empty configured_id   → System Default (always usable)
+          2. ID match + present    → exact device
+          3. Description exact     → device whose ID changed across
+                                     reboots (PulseAudio sink-name churn)
+          4. Description fuzzy     → device that moved between USB ports
+                                     (normalised + substring match)
+          5. Otherwise             → None  (caller MUST NOT route audio)
+
+        Cases 3 and 4 are logged as WARN — the caller should re-save the
+        new ID to config so the next launch hits case 2.
         """
         if not configured_id:
             return self._devices[0]   # system default
@@ -348,17 +406,32 @@ class OutputManager(QObject):
             )
             return dev
 
-        # Try description fallback (handles PulseAudio ID churn between reboots)
+        # Try exact description fallback (PulseAudio ID churn between reboots)
         if configured_description:
             alt = self.find_by_description(configured_description)
             if alt is not None:
                 self._debug_log(
                     'WARN',
                     f'OutputManager.resolve: id {configured_id!r} not found, '
-                    f'matched by description {configured_description!r} → '
-                    f'{alt.device_id!r}',
+                    f'matched by exact description '
+                    f'{configured_description!r} → {alt.device_id!r}',
                 )
                 return alt
+
+            # Try fuzzy description fallback (device moved between USB
+            # ports — leading "3- " / trailing "(2)" disambiguators or
+            # subtle description churn).
+            fuzzy = self.find_by_description_fuzzy(configured_description)
+            if fuzzy is not None:
+                self._debug_log(
+                    'WARN',
+                    f'OutputManager.resolve: id {configured_id!r} not found '
+                    f'and exact description {configured_description!r} '
+                    f'absent — fuzzy-matched to {fuzzy.description!r} '
+                    f'({fuzzy.device_id!r}). Likely moved USB port; '
+                    f'caller should persist the new id.',
+                )
+                return fuzzy
 
         self._debug_log(
             'WARN',
