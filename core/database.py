@@ -28,7 +28,19 @@ class Database:
         self._track_id_cache = {}  # file_path → track_id
 
     def connect(self):
-        return sqlite3.connect(self.db_path)
+        con = sqlite3.connect(self.db_path)
+        # Performance pragmas — applied per connection.
+        # journal_mode=WAL persists at the DB level (one-time switch) but
+        # setting it here is harmless and ensures it's on for fresh DBs.
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute("PRAGMA synchronous=NORMAL")
+            con.execute("PRAGMA temp_store=MEMORY")
+            con.execute("PRAGMA cache_size=-20000")     # ~20 MB page cache
+            con.execute("PRAGMA mmap_size=268435456")   # 256 MB memory-mapped I/O
+        except Exception as e:
+            self._debug_log('WARN', f'Failed to apply SQLite pragmas: {e}')
+        return con
 
     # ── Schema ───────────────────────────────────────────
 
@@ -128,6 +140,24 @@ class Database:
                 file_path TEXT
             )
         """)
+        con.commit()
+
+        # Indexes — critical for join performance on large libraries.
+        # All joins in load_all_tracks / get_play_log / vote & tag lookups
+        # were doing full table scans without these.
+        for idx_sql in (
+            "CREATE INDEX IF NOT EXISTS idx_track_tags_track_id   ON track_tags(track_id)",
+            "CREATE INDEX IF NOT EXISTS idx_track_votes_track_id  ON track_votes(track_id)",
+            "CREATE INDEX IF NOT EXISTS idx_track_plays_track_id  ON track_plays(track_id)",
+            "CREATE INDEX IF NOT EXISTS idx_track_plays_played_at ON track_plays(played_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_genre_members_group   ON genre_group_members(group_id)",
+            "CREATE INDEX IF NOT EXISTS idx_tracks_file_path      ON tracks(file_path)",
+            "CREATE INDEX IF NOT EXISTS idx_tracks_title_nocase   ON tracks(title COLLATE NOCASE)",
+        ):
+            try:
+                con.execute(idx_sql)
+            except Exception as e:
+                self._debug_log('WARN', f'Failed to create index: {e} ({idx_sql})')
         con.commit()
 
         # Run backfills
