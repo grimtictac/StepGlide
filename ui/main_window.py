@@ -604,7 +604,16 @@ class MainWindow(QMainWindow):
             self._path_set.add(entry['path'])
             self._path_to_idx[entry['path']] = i
 
-        self._apply_filters()
+        # ── Fast-path initial render ───────────────────────
+        # At startup all filter dropdowns are at their neutral values, so
+        # the only predicate that actually rejects anything is the hidden
+        # flag. Skip the full _apply_filters pipeline (which iterates 7000
+        # rows running ~10 no-op checks each) and feed the model directly.
+        if self._show_hidden_tracks:
+            initial = list(self.playlist)
+        else:
+            initial = [e for e in self.playlist if not e.get('hidden')]
+        self._track_model.set_tracks(initial)
 
         # Apply visible columns from config
         if self.config.visible_columns:
@@ -613,13 +622,26 @@ class MainWindow(QMainWindow):
         self._update_track_count()
         self._lbl_now_playing.setText(f'{len(self.playlist)} tracks loaded')
 
-        # Populate search bar dropdowns
+        # Populate search bar dropdowns (cheap; needed before user types)
         self._search_bar.set_voters(self.all_voters)
         if hasattr(self.config, 'length_filter_durations') and self.config.length_filter_durations:
             opts = [label for label, lo, hi in self.config.length_filter_durations]
             self._search_bar.set_length_options(opts)
 
-        # Populate sidebar
+        # ── Defer secondary panels until after the window has painted ──
+        # Sidebar/tag bar/queue/play-log population is not needed for the
+        # first paint and can take a noticeable chunk of time on large
+        # libraries (esp. play_log.load which builds a 500-row tree).
+        QTimer.singleShot(0, self._populate_secondary_panels)
+
+    def _populate_secondary_panels(self):
+        """Populate sidebar, tag bar, queue panel and play log.
+
+        Called via QTimer.singleShot from _load_tracks so the main window
+        and track table can paint immediately. Safe to call again — each
+        widget's setter replaces its contents.
+        """
+        # Sidebar
         self._sidebar.set_genre_data(
             self.genres, self._genre_counts(), self.config.hidden_genres)
         self._sidebar.set_playlist_data(
@@ -628,7 +650,7 @@ class MainWindow(QMainWindow):
         if self.config.all_tags:
             self._sidebar.set_all_tags(self.config.all_tags)
 
-        # Populate tag bar
+        # Tag bar
         if self.config.all_tags:
             self._tag_bar.set_tags(self.config.all_tags, self.config.tag_rows)
 
@@ -641,7 +663,7 @@ class MainWindow(QMainWindow):
             if restored:
                 self._queue_panel.set_queue(restored)
 
-        # Load play log
+        # Load play log (last — it's the heaviest)
         self._play_log.set_path_map(self._path_to_idx)
         self._play_log.set_playlist(self.playlist)
         self._play_log.set_voters(self.all_voters)
