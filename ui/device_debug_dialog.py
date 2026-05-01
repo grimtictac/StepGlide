@@ -36,13 +36,14 @@ class AudioDeviceDebugDialog(QDialog):
 
         # Tree of devices
         self._tree = QTreeWidget()
-        self._tree.setColumnCount(4)
+        self._tree.setColumnCount(5)
         self._tree.setHeaderLabels(
-            ['Description', 'Device ID', 'Present', 'Forced Absent'])
+            ['Description', 'Device ID', 'Present', 'Forced Absent', 'Test'])
         self._tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
         self._tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
         self._tree.header().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self._tree.header().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self._tree.header().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         layout.addWidget(self._tree, stretch=1)
 
         # Action buttons row
@@ -55,6 +56,10 @@ class AudioDeviceDebugDialog(QDialog):
         self._btn_clear = QPushButton('Clear All Overrides')
         self._btn_clear.clicked.connect(self._on_clear_overrides)
         btn_row.addWidget(self._btn_clear)
+
+        self._btn_beep_all = QPushButton('🔊 Beep All Present')
+        self._btn_beep_all.clicked.connect(self._on_beep_all)
+        btn_row.addWidget(self._btn_beep_all)
 
         btn_row.addStretch()
         close_btn = QDialogButtonBox(QDialogButtonBox.Close)
@@ -90,6 +95,7 @@ class AudioDeviceDebugDialog(QDialog):
                 dev.device_id or '(system default)',
                 '✔' if dev.present else '✘',
                 '',  # filled by checkbox below
+                '',  # filled by beep button below
             ])
             item.setData(0, Qt.UserRole, dev.device_id)
             self._tree.addTopLevelItem(item)
@@ -97,14 +103,21 @@ class AudioDeviceDebugDialog(QDialog):
             # System default is uncheckable — it cannot be force-absented
             if dev.device_id == '':
                 item.setText(3, '—')
-                continue
+            else:
+                cb = QCheckBox()
+                cb.setChecked(dev.overridden_absent)
+                cb.toggled.connect(
+                    lambda checked, did=dev.device_id:
+                        self._on_toggle_absent(did, checked))
+                self._tree.setItemWidget(item, 3, cb)
 
-            cb = QCheckBox()
-            cb.setChecked(dev.overridden_absent)
-            cb.toggled.connect(
-                lambda checked, did=dev.device_id:
-                    self._on_toggle_absent(did, checked))
-            self._tree.setItemWidget(item, 3, cb)
+            # Beep button — disabled if device is unusable
+            beep_btn = QPushButton('🔊 Beep')
+            beep_btn.setEnabled(dev.is_usable())
+            beep_btn.clicked.connect(
+                lambda _checked=False, did=dev.device_id:
+                    self._on_test_beep(did))
+            self._tree.setItemWidget(item, 4, beep_btn)
 
             if selected_id == dev.device_id:
                 item.setSelected(True)
@@ -124,6 +137,21 @@ class AudioDeviceDebugDialog(QDialog):
         # _refresh is also called via the devices_changed signal but doing
         # it here keeps the UI snappy on click.
         self._refresh()
+
+    def _on_test_beep(self, device_id: str):
+        dev = self._mgr.find_by_id(device_id)
+        if dev is None:
+            return
+        self._mgr.play_test_beep(dev)
+
+    def _on_beep_all(self):
+        """Beep through every present device, staggered ~600 ms apart so
+        you can identify which physical output is which."""
+        present = [d for d in self._mgr.devices() if d.is_usable()]
+        for i, dev in enumerate(present):
+            QTimer.singleShot(
+                i * 600,
+                lambda d=dev: self._mgr.play_test_beep(d))
 
     # ── Cleanup ──────────────────────────────────────────
 

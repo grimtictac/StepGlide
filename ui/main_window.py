@@ -587,6 +587,12 @@ class MainWindow(QMainWindow):
             self._debug_clear_device_overrides)
         debug_menu.addAction(clear_overrides_action)
 
+        debug_menu.addSeparator()
+
+        beep_all_action = QAction('🔊 &Beep All Audio Devices', self)
+        beep_all_action.triggered.connect(self._debug_beep_all_devices)
+        debug_menu.addAction(beep_all_action)
+
     def _build_status_bar(self):
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
@@ -2488,6 +2494,17 @@ class MainWindow(QMainWindow):
     def _debug_clear_device_overrides(self):
         self._output_mgr.debug_clear_overrides()
         self.statusBar().showMessage('Forced-absent overrides cleared', 2000)
+
+    def _debug_beep_all_devices(self):
+        """Play a 880 Hz beep through every present device, staggered by
+        ~600 ms so you can identify which physical output is which."""
+        present = [d for d in self._output_mgr.devices() if d.is_usable()]
+        for i, dev in enumerate(present):
+            QTimer.singleShot(
+                i * 600,
+                lambda d=dev: self._output_mgr.play_test_beep(d))
+        self.statusBar().showMessage(
+            f'Beeping {len(present)} audio device(s)...', 3000)
 
     # ── Preview ──────────────────────────────────────────
 

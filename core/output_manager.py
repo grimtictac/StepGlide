@@ -97,6 +97,10 @@ class OutputManager(QObject):
 
         self._scan_timer: Optional[QTimer] = None
 
+        # Test-beep state (held references so libvlc isn't GC'd mid-tone).
+        self._active_beeps: List = []
+        self._beep_cache: dict = {}
+
     # ── Enumeration ──────────────────────────────────────
 
     def _enumerate_raw(self) -> List[Tuple[str, str]]:
@@ -366,3 +370,117 @@ class OutputManager(QObject):
                 self.device_appeared.emit(d.device_id, d.description)
         if any_cleared:
             self.devices_changed.emit()
+
+    # ── Test beep ────────────────────────────────────────
+
+    def play_test_beep(self, device, freq_hz: int = 880,
+                       duration_ms: int = 400) -> bool:
+        """Play a short sine-wave beep through the given device.
+
+        Synthesises a small WAV in the system temp dir on first call and
+        reuses it.  Each invocation creates a fresh dedicated MediaPlayer
+        on the shared vlc.Instance so it doesn't interfere with the main
+        playback player or any previous beep that's still ringing out.
+
+        The MediaPlayer is parked on self until the beep ends, then
+        released; this prevents the GC from killing libvlc mid-playback.
+        Returns True if playback was started.
+        """
+        if device is None or not device.is_usable():
+            self._debug_log(
+                'WARN',
+                'play_test_beep: refusing to beep unusable device',
+            )
+            return False
+
+        wav_path = self._ensure_beep_wav(freq_hz, duration_ms)
+        if wav_path is None:
+            return False
+
+        try:
+            mp = self._instance.media_player_new()
+            mp.audio_output_device_set(None, device.device_id)
+            media = self._instance.media_new(wav_path)
+            mp.set_media(media)
+            mp.play()
+        except Exception as e:
+            self._debug_log(
+                'ERROR', f'play_test_beep: vlc raised: {e}')
+            return False
+
+        # Hold a reference until the tone finishes so libvlc isn't GC'd.
+        self._active_beeps.append(mp)
+        shown_id = device.device_id or 'default'
+        self._debug_log(
+            'INFO',
+            f'play_test_beep: {freq_hz} Hz / {duration_ms} ms → '
+            f'{device.description!r} ({shown_id!r})',
+        )
+        # Schedule release a little after the tone ends so we don't cut
+        # the tail off (libvlc may still be flushing the audio buffer).
+        QTimer.singleShot(duration_ms + 600,
+                          lambda m=mp: self._release_beep(m))
+        return True
+
+    def _release_beep(self, mp) -> None:
+        try:
+            mp.stop()
+        except Exception:
+            pass
+        try:
+            self._active_beeps.remove(mp)
+        except ValueError:
+            pass
+
+    def _ensure_beep_wav(self, freq_hz: int, duration_ms: int):
+        """Lazily synthesise a WAV file for the given tone, cached on disk.
+
+        Cached per (freq, duration) combination so repeated beeps don't
+        re-encode.  Returns the absolute path or None on failure.
+        """
+        key = (int(freq_hz), int(duration_ms))
+        cached = self._beep_cache.get(key)
+        if cached:
+            return cached
+
+        import math
+        import os
+        import struct
+        import tempfile
+        import wave
+
+        try:
+            sample_rate = 44100
+            n_frames = int(sample_rate * duration_ms / 1000)
+            # Short attack/release envelope to avoid clicks.
+            attack = max(1, int(sample_rate * 0.005))   # 5 ms
+            release = max(1, int(sample_rate * 0.020))  # 20 ms
+            amp = 0.35  # peak amplitude (avoid clipping headroom)
+            two_pi_f = 2.0 * math.pi * freq_hz / sample_rate
+
+            frames = bytearray()
+            for i in range(n_frames):
+                env = 1.0
+                if i < attack:
+                    env = i / attack
+                elif i > n_frames - release:
+                    env = max(0.0, (n_frames - i) / release)
+                sample = int(amp * env * math.sin(two_pi_f * i) * 32767)
+                frames += struct.pack('<h', sample)
+
+            tmpdir = tempfile.gettempdir()
+            path = os.path.join(
+                tmpdir, f'stepglide_beep_{freq_hz}hz_{duration_ms}ms.wav')
+            with wave.open(path, 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(sample_rate)
+                wf.writeframes(bytes(frames))
+            self._beep_cache[key] = path
+            self._debug_log(
+                'DEBUG', f'play_test_beep: synthesised {path}')
+            return path
+        except Exception as e:
+            self._debug_log(
+                'ERROR', f'play_test_beep: failed to synth WAV: {e}')
+            return None
