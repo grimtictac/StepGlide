@@ -284,7 +284,7 @@ class Database:
             }
             tracks.append(entry)
             genres.add(entry['genre'])
-            if progress_cb and (idx % 50 == 0 or idx == total - 1):
+            if progress_cb and (idx % 200 == 0 or idx == total - 1):
                 progress_cb(idx + 1, total)
 
         return tracks, all_voters, genres

@@ -41,12 +41,15 @@ class SplashScreen(QSplashScreen):
         QApplication.processEvents()
 
     def set_status_text(self, text: str):
-        """Update only the status text without advancing the progress bar."""
+        """Update only the status text without advancing the progress bar.
+
+        Cheap: schedules a repaint via update() (deferred, coalesced) and
+        does NOT call processEvents.  Callers that need the UI to actually
+        refresh on screen should occasionally pump events themselves.
+        """
         self._status = text
         self._dot_count = 0
-        self.repaint()
-        from PySide6.QtWidgets import QApplication
-        QApplication.processEvents()
+        self.update()
 
     def set_progress(self, step: int):
         """Manually set the progress step (1-based)."""

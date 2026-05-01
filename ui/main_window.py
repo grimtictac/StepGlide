@@ -571,9 +571,21 @@ class MainWindow(QMainWindow):
         """Load all tracks from DB and populate the table model."""
         splash = self._splash
 
+        # Throttle splash updates: at most ~5 per second to avoid the
+        # repaint+processEvents round-trip dominating load time.
+        last_update = [0.0]
+
         def _on_progress(current, total):
-            if splash is not None:
-                splash.set_status_text(f'Loading tracks ({current:,} / {total:,})')
+            if splash is None:
+                return
+            now = time.monotonic()
+            # Always show the final tick; otherwise rate-limit
+            if current < total and (now - last_update[0]) < 0.2:
+                return
+            last_update[0] = now
+            splash.set_status_text(f'Loading tracks ({current:,} / {total:,})')
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
 
         tracks, voters, genres = self.db.load_all_tracks(progress_cb=_on_progress)
         self._debug_log('INFO', f'Loaded {len(tracks)} tracks from database')
