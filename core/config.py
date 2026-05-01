@@ -73,8 +73,10 @@ class AppConfig:
         self.fade_tick_threshold = 120
 
         # Audio device routing
-        self.main_audio_device = ''      # '' = system default
-        self.preview_audio_device = ''   # '' = system default
+        self.main_audio_device = ''               # '' = system default
+        self.main_audio_device_description = ''   # human label, used as fallback
+        self.preview_audio_device = ''            # '' = system default
+        self.preview_audio_device_description = ''  # human label, used as fallback
 
         # Waveform scrub bar
         self.waveform_enabled = True     # False = plain slider fallback
@@ -272,9 +274,17 @@ class AppConfig:
             md = audio_el.find('main_device')
             if md is not None and md.text:
                 self.main_audio_device = md.text
+            if md is not None:
+                desc = md.get('description', '')
+                if desc:
+                    self.main_audio_device_description = desc
             pd = audio_el.find('preview_device')
             if pd is not None and pd.text:
                 self.preview_audio_device = pd.text
+            if pd is not None:
+                desc = pd.get('description', '')
+                if desc:
+                    self.preview_audio_device_description = desc
             wf = audio_el.find('waveform_enabled')
             if wf is not None and wf.text:
                 self.waveform_enabled = wf.text.lower() != 'false'
@@ -386,8 +396,12 @@ class AppConfig:
         audio_el = ET.SubElement(root, 'audio')
         md = ET.SubElement(audio_el, 'main_device')
         md.text = self.main_audio_device or ''
+        if self.main_audio_device_description:
+            md.set('description', self.main_audio_device_description)
         pd = ET.SubElement(audio_el, 'preview_device')
         pd.text = self.preview_audio_device or ''
+        if self.preview_audio_device_description:
+            pd.set('description', self.preview_audio_device_description)
         wf = ET.SubElement(audio_el, 'waveform_enabled')
         wf.text = str(self.waveform_enabled).lower()
 

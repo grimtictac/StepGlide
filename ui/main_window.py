@@ -33,8 +33,10 @@ from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackTableModel
 from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
 
 from core.audio_devices import list_audio_devices
+from core.output_manager import OutputManager
 from core.perf import perf
 from core.waveform import WaveformWorker, deserialise_waveform, serialise_waveform
+from ui.device_debug_dialog import AudioDeviceDebugDialog
 from ui.waveform_bar import WaveformScrubBar
 from ui.waveform_legend import WaveformLegend
 from ui.waveform_settings_panel import WaveformSettingsPanel
@@ -163,6 +165,25 @@ class MainWindow(QMainWindow):
 
         # ── Build the UI ─────────────────────────────────
         self._build_ui()
+
+        # ── OutputManager: bedrock for audio device routing ──
+        # Created after _build_ui so that _debug_log (which writes to the
+        # debug panel) is available.  Built before the menu bar so the
+        # Audio sub-menus can populate from manager state.
+        self._output_mgr = OutputManager(
+            self.vlc_instance, debug_log_fn=self._debug_log, parent=self,
+        )
+        self._output_mgr.scan(reason='startup')
+        self._output_mgr.devices_changed.connect(self._refresh_audio_device_menus)
+        self._output_mgr.device_disappeared.connect(self._on_device_disappeared)
+        self._output_mgr.device_appeared.connect(self._on_device_appeared)
+        # Start hot-plug polling slightly after startup so it doesn't
+        # contend with first-paint work.
+        QTimer.singleShot(2000,
+                          lambda: self._output_mgr.start_periodic_scan(3000))
+
+        self._device_debug_dialog = None  # lazily created
+
         self._build_menu_bar()
         self._build_status_bar()
 
@@ -483,13 +504,6 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
-        debug_action = QAction('&Debug Log', self)
-        debug_action.setShortcut('F10')
-        debug_action.triggered.connect(self._toggle_debug_panel)
-        view_menu.addAction(debug_action)
-
-        view_menu.addSeparator()
-
         self._waveform_action = QAction('&Waveform Scrub Bar', self)
         self._waveform_action.setCheckable(True)
         self._waveform_action.setChecked(self.config.waveform_enabled)
@@ -548,6 +562,30 @@ class MainWindow(QMainWindow):
         audit_action = QAction('&Audit Log...', self)
         audit_action.triggered.connect(self._show_audit_log)
         tools_menu.addAction(audit_action)
+
+        # ── Debug menu ──────────────────────────────────
+        debug_menu = menu_bar.addMenu('&Debug')
+
+        debug_log_action = QAction('Debug &Log Panel', self)
+        debug_log_action.setShortcut('F10')
+        debug_log_action.triggered.connect(self._toggle_debug_panel)
+        debug_menu.addAction(debug_log_action)
+
+        debug_menu.addSeparator()
+
+        force_scan_action = QAction('Force &Scan Audio Devices', self)
+        force_scan_action.triggered.connect(self._debug_force_scan_devices)
+        debug_menu.addAction(force_scan_action)
+
+        device_status_action = QAction('Audio Device &Status...', self)
+        device_status_action.triggered.connect(self._debug_show_device_dialog)
+        debug_menu.addAction(device_status_action)
+
+        clear_overrides_action = QAction(
+            '&Clear Forced-Absent Overrides', self)
+        clear_overrides_action.triggered.connect(
+            self._debug_clear_device_overrides)
+        debug_menu.addAction(clear_overrides_action)
 
     def _build_status_bar(self):
         self._status_bar = QStatusBar()
@@ -2343,8 +2381,13 @@ class MainWindow(QMainWindow):
     # ── Audio device routing ─────────────────────────────
 
     def _refresh_audio_device_menus(self):
-        """(Re)populate the Audio → Main Output / Preview Output sub-menus."""
-        devices = list_audio_devices(self.vlc_instance)
+        """(Re)populate the Audio → Main Output / Preview Output sub-menus.
+
+        Driven entirely by OutputManager state.  Absent devices are still
+        listed so the user can see what was previously selected, but they
+        are disabled and labelled "(not present)".
+        """
+        devices = self._output_mgr.devices()
 
         for sub, current_id, setter in [
             (self._audio_main_sub, self.config.main_audio_device,
@@ -2353,34 +2396,98 @@ class MainWindow(QMainWindow):
              self._set_preview_audio_device),
         ]:
             sub.clear()
-            for dev_id, label in devices:
-                prefix = '\u2713  ' if dev_id == current_id else '     '
+            for dev in devices:
+                prefix = '\u2713  ' if dev.device_id == current_id else '     '
                 action = sub.addAction(
-                    f'{prefix}{label}',
-                    lambda d=dev_id, s=setter: s(d),
+                    f'{prefix}{dev.label()}',
+                    lambda d=dev.device_id, s=setter: s(d),
                 )
-                action.setData(dev_id)
+                action.setData(dev.device_id)
+                if not dev.is_usable():
+                    action.setEnabled(False)
 
     def _set_main_audio_device(self, device_id):
         self.config.main_audio_device = device_id
+        dev = self._output_mgr.find_by_id(device_id)
+        self.config.main_audio_device_description = dev.description if dev else ''
         self._apply_main_audio_device()
         self._refresh_audio_device_menus()
         self.config.save()
-        label = 'System Default' if not device_id else device_id
+        label = dev.description if dev else (device_id or 'System Default')
         self._debug_log('INFO', f'Main audio output → {label}')
 
     def _set_preview_audio_device(self, device_id):
         self.config.preview_audio_device = device_id
+        dev = self._output_mgr.find_by_id(device_id)
+        self.config.preview_audio_device_description = dev.description if dev else ''
         self._refresh_audio_device_menus()
         self.config.save()
-        label = 'System Default' if not device_id else device_id
+        label = dev.description if dev else (device_id or 'System Default')
         self._debug_log('INFO', f'Preview audio output → {label}')
 
     def _apply_main_audio_device(self):
-        """Route the main VLC media player to the configured device."""
-        dev = self.config.main_audio_device
-        if dev:
-            self._vlc_mp().audio_output_device_set(None, dev)
+        """Route the main VLC media player to the configured device.
+
+        Routed through OutputManager.resolve() so an absent device is
+        refused rather than silently falling back to the system default.
+        """
+        device = self._output_mgr.resolve(
+            self.config.main_audio_device,
+            getattr(self.config, 'main_audio_device_description', ''),
+        )
+        if device is None:
+            self._debug_log(
+                'WARN',
+                'Configured main audio device unavailable — '
+                'leaving libvlc on its previous routing',
+            )
+            return
+        self._output_mgr.apply_to_player(self._vlc_mp(), device)
+
+    def _on_device_disappeared(self, device_id, description):
+        """React to hot-plug removal of an audio device."""
+        # If the missing device was the one driving main playback, warn loudly.
+        if device_id == self.config.main_audio_device:
+            self._debug_log(
+                'WARN',
+                f'Main output device disappeared: {description or device_id}',
+            )
+            self.statusBar().showMessage(
+                f'Audio device unplugged: {description or device_id}', 5000)
+        if device_id == self.config.preview_audio_device:
+            self._debug_log(
+                'WARN',
+                f'Preview output device disappeared: {description or device_id}',
+            )
+
+    def _on_device_appeared(self, device_id, description):
+        """React to hot-plug arrival of an audio device."""
+        # If a previously-configured device just reappeared, re-apply it.
+        if device_id == self.config.main_audio_device:
+            self._debug_log(
+                'INFO',
+                f'Configured main device reappeared — re-applying: {description}',
+            )
+            self._apply_main_audio_device()
+
+    # ── Debug menu actions ───────────────────────────────
+
+    def _debug_force_scan_devices(self):
+        self._output_mgr.scan(reason='debug-menu-force-scan')
+        self.statusBar().showMessage('Audio devices rescanned', 2000)
+
+    def _debug_show_device_dialog(self):
+        if self._device_debug_dialog is None or not self._device_debug_dialog.isVisible():
+            self._device_debug_dialog = AudioDeviceDebugDialog(
+                self._output_mgr, parent=self,
+            )
+        self._device_debug_dialog.show()
+        self._device_debug_dialog.raise_()
+        self._device_debug_dialog.activateWindow()
+
+    def _debug_clear_device_overrides(self):
+        self._output_mgr.debug_clear_overrides()
+        self.statusBar().showMessage('Forced-absent overrides cleared', 2000)
 
     # ── Preview ──────────────────────────────────────────
 
