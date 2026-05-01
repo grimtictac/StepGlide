@@ -208,19 +208,29 @@ class OutputManager(QObject):
         """Re-enumerate devices, update presence flags, emit signals.
 
         Called periodically (via start_periodic_scan) and on demand from
-        the Debug menu.  Logs at INFO for the trigger and DEBUG for each
-        observed device; logs INFO for any add/remove transition.
+        the Debug menu.
+
+        Logging policy: routine periodic polls log at DEBUG only (so the
+        debug panel doesn't fill with 'still 2 devices' lines every 3 s).
+        Any membership change — APPEARED / DISAPPEARED / NEW — always
+        logs at INFO/WARN regardless of trigger.  Manually-triggered
+        scans (Debug menu, startup) always log at INFO too.
         """
         raw = self._enumerate_raw()
-        # Normalise to dict {id: description}
         seen = {dev_id: desc for dev_id, desc in raw}
 
+        is_periodic = (reason == 'periodic')
+        summary_level = 'DEBUG' if is_periodic else 'INFO'
         self._debug_log(
-            'INFO',
+            summary_level,
             f'OutputManager scan ({reason}): {len(seen)} device(s) enumerated',
         )
-        for dev_id, desc in raw:
-            self._debug_log('DEBUG', f'  device: id={dev_id!r}  desc={desc!r}')
+        # Per-device dump only for non-periodic scans (otherwise far too
+        # noisy).  Periodic scans rely on APPEARED/DISAPPEARED edge logs.
+        if not is_periodic:
+            for dev_id, desc in raw:
+                self._debug_log(
+                    'DEBUG', f'  device: id={dev_id!r}  desc={desc!r}')
 
         changed = False
 

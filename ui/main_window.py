@@ -2452,9 +2452,14 @@ class MainWindow(QMainWindow):
 
         Routed through OutputManager.resolve() so an absent device is
         refused rather than silently falling back to the system default.
-        If resolve() falls back via description match (USB port move /
-        sink-name churn), we persist the new device id back to config so
-        the next launch hits the fast exact-id path.
+
+        Note: if resolve() falls back via fuzzy description match (USB
+        port move / sink-name churn), we deliberately do NOT auto-rewrite
+        the saved config.  The fuzzy match is cheap to redo each launch
+        and persisting it could silently lock in a wrong-but-similar
+        device ('USB Audio Device' vs 'USB Audio Device 2.0').  The user
+        can re-confirm via the Audio menu, which goes through the
+        explicit setter and does persist.
         """
         configured_id = self.config.main_audio_device
         configured_desc = getattr(self.config, 'main_audio_device_description', '')
@@ -2466,23 +2471,6 @@ class MainWindow(QMainWindow):
                 'leaving libvlc on its previous routing',
             )
             return
-
-        # If resolve() picked a different id (description fallback fired),
-        # persist the new id+desc so subsequent launches don't have to
-        # fall back again.  Skip for system default.
-        if (device.device_id and device.device_id != configured_id):
-            self._debug_log(
-                'INFO',
-                f'Persisting newly-resolved main device id: '
-                f'{configured_id!r} → {device.device_id!r}',
-            )
-            self.config.main_audio_device = device.device_id
-            self.config.main_audio_device_description = device.description
-            try:
-                self.config.save()
-            except Exception as e:
-                self._debug_log('ERROR', f'config.save() failed: {e}')
-
         self._output_mgr.apply_to_player(self._vlc_mp(), device)
 
     def _on_device_disappeared(self, device_id, description):
