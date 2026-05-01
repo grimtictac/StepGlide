@@ -2091,7 +2091,8 @@ class MainWindow(QMainWindow):
                 self._waveform_bar.set_position(0)
                 self._transport.set_time_labels(0, 0)
 
-        # Auto-advance: VLC finished playing and we were in 'playing' state
+        # Auto-advance: VLC finished playing and we were in 'playing' state.
+        # Behaviour: only follow the play queue. If the queue is empty, stop.
         if not is_playing and self._last_action == 'playing' and not self.is_paused:
             # Guard: don't auto-advance within 1.5s of play (VLC async startup)
             if time.time() - self._play_started_at < 1.5:
@@ -2099,10 +2100,13 @@ class MainWindow(QMainWindow):
             if self._consecutive_skips >= 3:
                 self._consecutive_skips = 0
                 self._stop()
-            elif len(self.playlist) > 1:
+            elif self._queue_panel._queue:
+                # Queue has items — advance via _next_track (queue-aware)
                 self._consecutive_skips += 1
                 self._next_track()
-            elif self.playlist:
+            else:
+                # No queue → stop instead of auto-playing the next library track
+                self._consecutive_skips = 0
                 self._stop()
 
     # ── Keyboard shortcuts ─────────────────────────────

@@ -92,16 +92,25 @@ class SidebarWidget(QWidget):
 
     # ── UI construction ──────────────────────────────────
 
+
     def _init_ui(self):
+        from PySide6.QtWidgets import QSplitter, QFrame
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # ── Genre section ────────────────────────────────
+        splitter = QSplitter(Qt.Vertical)
+        splitter.setChildrenCollapsible(False)
+
+        # Genre panel
+        genre_panel = QFrame()
+        genre_layout = QVBoxLayout(genre_panel)
+        genre_layout.setContentsMargins(0, 0, 0, 0)
+        genre_layout.setSpacing(2)
         genre_header = QLabel('Genres')
         genre_header.setStyleSheet(
             f'color: {COLORS["fg_dim"]}; font-weight: bold; font-size: 12px;')
-        layout.addWidget(genre_header)
+        genre_layout.addWidget(genre_header)
 
         self._genre_list = QListWidget()
         self._genre_list.setSelectionMode(QListWidget.SingleSelection)
@@ -110,9 +119,15 @@ class SidebarWidget(QWidget):
         self._genre_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._genre_list.customContextMenuRequested.connect(
             self._on_genre_right_click)
-        layout.addWidget(self._genre_list, stretch=3)
+        genre_layout.addWidget(self._genre_list)
 
-        # ── Playlist section ─────────────────────────────
+        splitter.addWidget(genre_panel)
+
+        # Playlist panel
+        playlist_panel = QFrame()
+        playlist_layout = QVBoxLayout(playlist_panel)
+        playlist_layout.setContentsMargins(0, 0, 0, 0)
+        playlist_layout.setSpacing(2)
         pl_header_row = QHBoxLayout()
         pl_label = QLabel('Playlists')
         pl_label.setStyleSheet(
@@ -137,7 +152,7 @@ class SidebarWidget(QWidget):
         btn_new_smart.clicked.connect(self._create_smart_playlist)
         pl_header_row.addWidget(btn_new_smart)
 
-        layout.addLayout(pl_header_row)
+        playlist_layout.addLayout(pl_header_row)
 
         self._playlist_list = _PlaylistDropListWidget()
         self._playlist_list.setSelectionMode(QListWidget.SingleSelection)
@@ -146,7 +161,13 @@ class SidebarWidget(QWidget):
         self._playlist_list.customContextMenuRequested.connect(
             self._on_playlist_right_click)
         self._playlist_list.tracks_dropped.connect(self._on_tracks_dropped)
-        layout.addWidget(self._playlist_list, stretch=1)
+        playlist_layout.addWidget(self._playlist_list)
+
+        splitter.addWidget(playlist_panel)
+        splitter.setStretchFactor(0, 8)
+        splitter.setStretchFactor(1, 2)
+
+        layout.addWidget(splitter)
 
     # ── Public API ───────────────────────────────────────
 
