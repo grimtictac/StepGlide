@@ -593,6 +593,22 @@ class MainWindow(QMainWindow):
         beep_all_action.triggered.connect(self._debug_beep_all_devices)
         debug_menu.addAction(beep_all_action)
 
+        # Per-device beep submenu — populated dynamically just before
+        # it's shown so it always reflects current OutputManager state.
+        self._beep_device_menu = debug_menu.addMenu('🔊 Beep &Device')
+        self._beep_device_menu.aboutToShow.connect(
+            self._populate_beep_device_menu)
+
+    def _populate_beep_device_menu(self):
+        """Rebuild the 'Beep Device' submenu from current device list."""
+        self._beep_device_menu.clear()
+        for dev in self._output_mgr.devices():
+            action = QAction(dev.label(), self)
+            action.setEnabled(dev.is_usable())
+            action.triggered.connect(
+                lambda _checked=False, d=dev: self._output_mgr.play_test_beep(d))
+            self._beep_device_menu.addAction(action)
+
     def _build_status_bar(self):
         self._status_bar = QStatusBar()
         self.setStatusBar(self._status_bar)
