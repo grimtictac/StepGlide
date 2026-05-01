@@ -101,6 +101,81 @@ class OutputManager(QObject):
         self._active_beeps: List = []
         self._beep_cache: dict = {}
 
+        # Active audio output module name (e.g. 'pulse'/'alsa' on Linux,
+        # 'mmdevice'/'directsound'/'waveout' on Windows).  Detected once
+        # at startup and passed *explicitly* to every audio_output_device_set
+        # call, instead of relying on libvlc's "None means current module"
+        # convention which is documented but not always reliable on Windows.
+        self._aout_module: Optional[str] = self._detect_aout_module()
+        self._debug_log(
+            'INFO',
+            f'OutputManager: active audio output module = '
+            f'{self._aout_module!r}',
+        )
+
+    def _detect_aout_module(self) -> Optional[str]:
+        """Probe libvlc for the name of the current/default audio output
+        module.  Returns the module name string, or None if detection
+        fails (in which case callers fall back to passing None to libvlc,
+        which historically also works).
+
+        We deliberately do NOT pick the first module returned by
+        audio_output_list_get(): on most builds that's 'amem' (audio-to-
+        memory, for capture/visualisation), which would silently swallow
+        playback.  Instead we walk the list and pick the first that
+        matches a known-good playback module for this platform.
+        """
+        # Per-platform preference order.  Earlier = more preferred.
+        import sys
+        if sys.platform.startswith('win'):
+            preferred = ('mmdevice', 'directsound', 'waveout', 'wasapi')
+        elif sys.platform == 'darwin':
+            preferred = ('auhal', 'coreaudio')
+        else:  # Linux / *BSD
+            preferred = ('pulse', 'pipewire', 'alsa', 'jack', 'oss')
+
+        try:
+            outs = vlc.libvlc_audio_output_list_get(self._instance)
+        except Exception as e:
+            self._debug_log(
+                'WARN', f'_detect_aout_module: list_get raised: {e}')
+            return None
+        if not outs:
+            return None
+        try:
+            head = outs
+            available: List[str] = []
+            while head:
+                name = head.contents.name
+                if isinstance(name, bytes):
+                    name = name.decode('utf-8', errors='replace')
+                available.append(name)
+                head = head.contents.next
+            self._debug_log(
+                'DEBUG',
+                f'_detect_aout_module: available modules = {available}',
+            )
+            for cand in preferred:
+                if cand in available:
+                    return cand
+            # No preferred module matched.  Fall back to the first
+            # available that isn't an obvious non-playback module.
+            blacklist = {'amem', 'afile', 'adummy', 'file', 'dummy'}
+            for name in available:
+                if name not in blacklist:
+                    self._debug_log(
+                        'WARN',
+                        f'_detect_aout_module: no preferred module found, '
+                        f'falling back to {name!r}',
+                    )
+                    return name
+            return None
+        finally:
+            try:
+                vlc.libvlc_audio_output_list_release(outs)
+            except Exception:
+                pass
+
     # ── Enumeration ──────────────────────────────────────
 
     def _enumerate_raw(self) -> List[Tuple[str, str]]:
@@ -313,12 +388,14 @@ class OutputManager(QObject):
             )
             return False
         try:
-            media_player.audio_output_device_set(None, device.device_id)
+            media_player.audio_output_device_set(
+                self._aout_module, device.device_id)
             shown_id = device.device_id or 'default'
             self._debug_log(
                 'INFO',
                 f'OutputManager.apply_to_player: routed to '
-                f'{device.description!r} ({shown_id!r})',
+                f'{device.description!r} ({shown_id!r}) '
+                f'via module {self._aout_module!r}',
             )
             return True
         except Exception as e:
@@ -399,7 +476,7 @@ class OutputManager(QObject):
 
         try:
             mp = self._instance.media_player_new()
-            mp.audio_output_device_set(None, device.device_id)
+            mp.audio_output_device_set(self._aout_module, device.device_id)
             media = self._instance.media_new(wav_path)
             mp.set_media(media)
             mp.play()
