@@ -557,40 +557,92 @@ class OutputManager(QObject):
         if wav_path is None:
             return False
 
+        # libvlc's audio_output_device_set() is silently broken on this
+        # host's pulse plugin — calls succeed but audio still goes to
+        # the system default sink.  The only thing that actually pins
+        # output to a chosen sink is PULSE_SINK at vlc.Instance()
+        # construction time (the pulse aout reads it once on init).
+        # So on Linux we spawn a fresh dedicated instance per beep,
+        # bound to the target sink via env-var, and tear it down when
+        # the tone ends.  On other platforms we keep the legacy path.
+        import os
+        import sys
+
+        beep_instance = None
         try:
-            mp = self._instance.media_player_new()
-            mp.audio_output_device_set(self._aout_module, device.device_id)
-            media = self._instance.media_new(wav_path)
+            if (sys.platform.startswith('linux')
+                    and self._aout_module == 'pulse'):
+                prev = os.environ.get('PULSE_SINK')
+                if device.device_id:
+                    os.environ['PULSE_SINK'] = device.device_id
+                else:
+                    # System default: ensure no override is in scope.
+                    os.environ.pop('PULSE_SINK', None)
+                try:
+                    beep_instance = vlc.Instance()
+                finally:
+                    if prev is None:
+                        os.environ.pop('PULSE_SINK', None)
+                    else:
+                        os.environ['PULSE_SINK'] = prev
+                mp = beep_instance.media_player_new()
+                media = beep_instance.media_new(wav_path)
+            else:
+                # Non-Pulse path: trust the documented API (untested
+                # against the same kind of breakage on Windows/macOS).
+                mp = self._instance.media_player_new()
+                mp.audio_output_device_set(
+                    self._aout_module, device.device_id)
+                media = self._instance.media_new(wav_path)
             mp.set_media(media)
             mp.play()
         except Exception as e:
             self._debug_log(
                 'ERROR', f'play_test_beep: vlc raised: {e}')
+            if beep_instance is not None:
+                try:
+                    beep_instance.release()
+                except Exception:
+                    pass
             return False
 
-        # Hold a reference until the tone finishes so libvlc isn't GC'd.
-        self._active_beeps.append(mp)
+        # Hold references (player AND its dedicated instance, if any)
+        # until the tone finishes so libvlc isn't GC'd mid-playback.
+        self._active_beeps.append((mp, beep_instance))
         shown_id = device.device_id or 'default'
+        routing_path = ('PULSE_SINK env'
+                        if beep_instance is not None
+                        else 'audio_output_device_set')
         self._debug_log(
             'INFO',
             f'play_test_beep: {freq_hz} Hz / {duration_ms} ms → '
-            f'{device.description!r} ({shown_id!r})',
+            f'{device.description!r} ({shown_id!r}) [{routing_path}]',
         )
         # Schedule release a little after the tone ends so we don't cut
         # the tail off (libvlc may still be flushing the audio buffer).
         QTimer.singleShot(duration_ms + 600,
-                          lambda m=mp: self._release_beep(m))
+                          lambda m=mp, i=beep_instance: self._release_beep(m, i))
         return True
 
-    def _release_beep(self, mp) -> None:
+    def _release_beep(self, mp, beep_instance=None) -> None:
         try:
             mp.stop()
         except Exception:
             pass
         try:
-            self._active_beeps.remove(mp)
-        except ValueError:
+            mp.release()
+        except Exception:
             pass
+        if beep_instance is not None:
+            try:
+                beep_instance.release()
+            except Exception:
+                pass
+        # Find and remove the matching tuple.
+        for i, entry in enumerate(self._active_beeps):
+            if entry[0] is mp:
+                del self._active_beeps[i]
+                break
 
     def _ensure_beep_wav(self, freq_hz: int, duration_ms: int):
         """Lazily synthesise a WAV file for the given tone, cached on disk.
