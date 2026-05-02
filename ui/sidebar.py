@@ -119,6 +119,12 @@ class SidebarWidget(QWidget):
         self._genre_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self._genre_list.customContextMenuRequested.connect(
             self._on_genre_right_click)
+        # Tighter row spacing — the global QListWidget::item padding in
+        # theme.py is set for the playlist/queue lists; genres benefit
+        # from a denser layout because there are typically dozens.
+        self._genre_list.setStyleSheet(
+            'QListWidget::item { padding: 1px 22px 1px 8px; }'
+        )
         genre_layout.addWidget(self._genre_list)
 
         splitter.addWidget(genre_panel)
