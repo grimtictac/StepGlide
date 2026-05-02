@@ -661,6 +661,10 @@ class MainWindow(QMainWindow):
         scan_missing_action.triggered.connect(self._scan_missing_files)
         tools_menu.addAction(scan_missing_action)
 
+        unhide_present_action = QAction('&Unhide Tracks Present on Disk', self)
+        unhide_present_action.triggered.connect(self._unhide_present_files)
+        tools_menu.addAction(unhide_present_action)
+
         tools_menu.addSeparator()
 
         audit_action = QAction('&Audit Log...', self)
@@ -2269,6 +2273,84 @@ class MainWindow(QMainWindow):
                 f'{missing_count} missing file(s) hidden — see debug log',
                 8000)
             self._apply_filters()
+
+    def _unhide_present_files(self):
+        """Scan all hidden tracks; unhide any whose file is on disk.
+
+        Counterpart to 'Scan for Missing Files' — that tool hides
+        tracks whose files have vanished, this one undoes the hide
+        when the file has come back (e.g. external drive reconnected
+        or library moved).
+        """
+        # Query the DB directly so we catch hidden rows even if they
+        # were filtered out of self.playlist for some reason.
+        con = self.db.connect()
+        cur = con.execute(
+            "SELECT file_path, title, comment FROM tracks WHERE hidden = 1"
+        )
+        rows = cur.fetchall()
+        con.close()
+
+        if not rows:
+            QMessageBox.information(
+                self, 'Unhide Tracks',
+                'No hidden tracks in the database.')
+            return
+
+        # Confirm before doing anything destructive-ish.
+        reply = QMessageBox.question(
+            self, 'Unhide Tracks Present on Disk',
+            f'Scan {len(rows)} hidden track(s) and unhide any whose '
+            f'file currently exists on disk?\n\n'
+            f'The "[HIDDEN] ..." marker will be stripped from the comment.',
+            QMessageBox.Yes | QMessageBox.Cancel,
+            QMessageBox.Yes,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        unhidden = 0
+        still_missing = 0
+        for rel_path, title, comment in rows:
+            abs_path = self._abs_path(rel_path)
+            if not os.path.isfile(abs_path):
+                still_missing += 1
+                continue
+
+            # Strip any "[HIDDEN] ..." trailers we appended at hide time.
+            new_comment = comment or ''
+            marker = '[HIDDEN]'
+            if marker in new_comment:
+                new_comment = new_comment.split(marker, 1)[0].rstrip(' ')
+
+            self.db.set_track_hidden(rel_path, False, new_comment)
+
+            # Sync the in-memory playlist entry too, if present, so
+            # the user doesn't need to reload to see the change.
+            pl_idx = self._path_to_idx.get(rel_path)
+            if pl_idx is not None:
+                entry = self.playlist[pl_idx]
+                entry['hidden'] = False
+                entry['comment'] = new_comment
+                try:
+                    self._track_model.update_row(pl_idx)
+                except Exception:
+                    pass
+
+            unhidden += 1
+            self._debug_log('INFO', f'Unhidden (file present): {title or rel_path}')
+
+        if unhidden:
+            self._apply_filters()
+
+        QMessageBox.information(
+            self, 'Unhide Tracks',
+            f'Unhidden: {unhidden}\n'
+            f'Still missing on disk (left hidden): {still_missing}',
+        )
+        self.statusBar().showMessage(
+            f'Unhide scan complete — {unhidden} unhidden, '
+            f'{still_missing} still missing', 6000)
 
     def _on_play_from_queue(self, playlist_idx):
         """Handle double-click on a queue item — play immediately."""
