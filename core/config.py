@@ -78,6 +78,12 @@ class AppConfig:
         self.preview_audio_device = ''            # '' = system default
         self.preview_audio_device_description = ''  # human label, used as fallback
 
+        # Active output (RUNTIME ONLY — deliberately not persisted).
+        # Always defaults to 'speaker' on launch. The active-output indicator
+        # in the menu bar drives this; it controls where the main transport
+        # routes its audio. Values: 'speaker' | 'headphones'.
+        self.active_output = 'speaker'
+
         # Waveform scrub bar
         self.waveform_enabled = True     # False = plain slider fallback
 

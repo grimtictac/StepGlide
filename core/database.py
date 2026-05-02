@@ -130,6 +130,19 @@ class Database:
                 con.execute(sql)
                 con.commit()
 
+        # track_plays column migrations
+        cur = con.execute("PRAGMA table_info(track_plays)")
+        play_cols = [row[1] for row in cur.fetchall()]
+        for col, sql in [
+            # Which audio output the play was routed through at the time.
+            # 'speaker' = main output (counts toward play_count, default).
+            # 'headphones' = preview/cue output (does not count, future use).
+            ('via', "ALTER TABLE track_plays ADD COLUMN via TEXT NOT NULL DEFAULT 'speaker'"),
+        ]:
+            if col not in play_cols:
+                con.execute(sql)
+                con.commit()
+
         con.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -385,15 +398,27 @@ class Database:
     # ── Play recording ───────────────────────────────────
 
     @perf.track
-    def record_play(self, path):
-        """Record a play event. Returns (play_count, first_played, last_played) or None."""
+    def record_play(self, path, via='speaker'):
+        """Record a play event.
+
+        Args:
+            path: track file path.
+            via:  audio output the play was routed through. 'speaker' (main,
+                  default — counts toward stats) or 'headphones' (preview/cue,
+                  reserved for future use; today only 'speaker' is written).
+
+        Returns (play_count, first_played, last_played) or None.
+        """
         now = datetime.now(tz=timezone.utc).isoformat()
         track_id = self.get_track_id(path)
         if not track_id:
             return None
         con = self.connect()
         cur = con.cursor()
-        cur.execute('INSERT INTO track_plays (track_id, played_at) VALUES (?, ?)', (track_id, now))
+        cur.execute(
+            'INSERT INTO track_plays (track_id, played_at, via) VALUES (?, ?, ?)',
+            (track_id, now, via),
+        )
         cur.execute(
             'UPDATE tracks SET play_count = play_count + 1,'
             ' first_played = COALESCE(first_played, ?),'
