@@ -235,6 +235,12 @@ class MainWindow(QMainWindow):
 
         self._device_debug_dialog = None  # lazily created
 
+        # Waveform-scrub visibility is intentionally not persisted —
+        # every session starts with the normal scrub bar regardless of
+        # the previous session.  Force False before _build_menu_bar so
+        # the View → Waveform check state matches.
+        self.config.waveform_enabled = False
+
         self._build_menu_bar()
         self._build_status_bar()
 
@@ -322,13 +328,15 @@ class MainWindow(QMainWindow):
         # Transport bar (buttons + time labels; plain slider fallback only)
         self._transport = TransportBar(self)
         self._transport.setStyleSheet(f'background-color: {COLORS["bg_dark"]};')
-        if self.config.waveform_enabled:
-            self._transport.swap_scrub_mode(False)  # use plain slider internally
-            self._waveform_bar.show()
-            self._waveform_legend.show()
-        else:
-            self._waveform_bar.hide()
-            self._waveform_legend.hide()
+        # Always start with the plain (thick) TickSlider in the transport
+        # row — TransportBar's default is a WaveformScrubBar which, with
+        # no data loaded, paints as a thin midpoint line and looks like
+        # a half-broken progress bar.  The standalone waveform widget
+        # above is what the View menu toggles.  config.waveform_enabled
+        # is already forced False earlier in __init__.
+        self._transport.swap_scrub_mode(False)
+        self._waveform_bar.hide()
+        self._waveform_legend.hide()
         self._connect_transport()
 
         # Jump-to-playing button (next to stop in transport row)
@@ -2440,16 +2448,13 @@ class MainWindow(QMainWindow):
     def _toggle_waveform_scrub(self, checked):
         """Switch between waveform moodbar and plain slider.
 
-        Persists the choice immediately so the next launch reflects it
-        — previously the value lived only in memory until some other
-        save side-effect (e.g. changing audio device) flushed it, which
-        meant a quick toggle-and-quit would be silently lost.
+        Intentionally not persisted — every session starts with the
+        normal scrub bar regardless of the previous session's choice.
         """
         self.config.waveform_enabled = checked
         if checked:
             self._waveform_bar.show()
             self._waveform_legend.show()
-            self._transport.swap_scrub_mode(False)  # plain slider hidden behind waveform
             if self.current_index is not None:
                 self._start_waveform(self.current_index)
         else:
@@ -2458,7 +2463,6 @@ class MainWindow(QMainWindow):
             self._waveform_bar.clear()
             self._waveform_settings_panel.hide()
             self._cancel_waveform()
-        self.config.save()
         self.statusBar().showMessage(
             'Waveform scrub bar ' + ('enabled' if checked else 'disabled'), 3000)
 
