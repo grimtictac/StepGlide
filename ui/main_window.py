@@ -2438,7 +2438,13 @@ class MainWindow(QMainWindow):
             self._debug_panel.show()
 
     def _toggle_waveform_scrub(self, checked):
-        """Switch between waveform moodbar and plain slider."""
+        """Switch between waveform moodbar and plain slider.
+
+        Persists the choice immediately so the next launch reflects it
+        — previously the value lived only in memory until some other
+        save side-effect (e.g. changing audio device) flushed it, which
+        meant a quick toggle-and-quit would be silently lost.
+        """
         self.config.waveform_enabled = checked
         if checked:
             self._waveform_bar.show()
@@ -2451,8 +2457,8 @@ class MainWindow(QMainWindow):
             self._waveform_legend.hide()
             self._waveform_bar.clear()
             self._waveform_settings_panel.hide()
-            self._transport.swap_scrub_mode(False)  # ensure plain slider visible
             self._cancel_waveform()
+        self.config.save()
         self.statusBar().showMessage(
             'Waveform scrub bar ' + ('enabled' if checked else 'disabled'), 3000)
 
