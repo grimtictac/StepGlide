@@ -106,6 +106,17 @@ class AudioRouter(QObject):
     _one_shot_requested = Signal(object, str)
     _detach_requested = Signal(object)
 
+    #: True iff this backend can reliably move an *already playing*
+    #: stream to a different output device without artefacts (gap,
+    #: wrong-device leakage, hard hang).  Callers should consult this
+    #: before issuing ``move_player`` mid-track; if False they should
+    #: stop playback instead and let the user re-trigger play after
+    #: the switch has settled.  Linux/pulse via ``pactl move-sink-input``
+    #: is reliable; libvlc's ``audio_output_device_set`` on Windows
+    #: mmdevice is not (the new device is honoured only on the *next*
+    #: play() call, not on the in-flight stream).
+    supports_live_move: bool = False
+
     def __init__(self, debug_log_fn=None, parent=None):
         super().__init__(parent)
         self._log = debug_log_fn or (lambda lvl, msg: None)
@@ -179,6 +190,10 @@ class LinuxPulseRouter(AudioRouter):
     reference (the caller owns the player's lifetime).  We cache the
     discovered sink-input id and re-use it across pin/move calls.
     """
+
+    # pactl move-sink-input on the running stream is reliable and
+    # instant — verified empirically.  Mid-track switches just work.
+    supports_live_move = True
 
     # Polling schedule (milliseconds) for discovering a brand-new
     # sink-input after play().  PA registers the new client almost

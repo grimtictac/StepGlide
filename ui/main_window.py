@@ -206,6 +206,18 @@ class MainWindow(QMainWindow):
         self._debug_log('INFO', f'AudioRouter backend: {self._router.name()}')
         self._output_mgr.set_router(self._router)
         self._router.attach(self._vlc_mp(), label='main')
+        # Pre-pin the configured device on the persistent player so
+        # backends that honour audio_output_device_set only on the
+        # *next* play (Windows mmdevice) have it in place before the
+        # user's first click on play.  On pulse this is a near no-op
+        # (no sink-input exists yet so it just records the desired
+        # sink for the next pin call).
+        try:
+            self._router.pin_player(self._vlc_mp(), self._active_sink_id())
+        except Exception as e:
+            self._debug_log(
+                'WARN',
+                f'Initial pre-pin failed (harmless, will retry on first play): {e}')
         # Re-pin every time playback starts (handles new tracks creating
         # new sink-inputs, which can happen if libvlc tears down/re-creates
         # its pulse stream between media items).
@@ -2595,11 +2607,18 @@ class MainWindow(QMainWindow):
     def _on_active_output_changed(self, which: str):
         """Handle a click on the active-output indicator.
 
-        Tells the AudioRouter to move the main player's pulse stream
-        to the chosen device's sink — instant, no media reload, no
-        seek, no audio gap (~50 ms while ``pactl move-sink-input``
-        executes).  See ``core/audio_router.py`` for why we don't
-        use libvlc's audio_output_device_set API.
+        On backends where the router can move a *live* stream
+        reliably (Linux/pulse via ``pactl move-sink-input``) we do an
+        instant in-place move — no media reload, no seek, ~50 ms gap.
+
+        On backends where live-move is unreliable (Windows mmdevice —
+        ``audio_output_device_set`` is honoured only on the *next*
+        play(), not on the in-flight stream) we instead **stop**
+        playback.  The next time the user hits play, the new device
+        will be picked up cleanly.  This trades a small amount of
+        convenience for predictable behaviour — the alternative is
+        the stream silently keeping the old output, which is what
+        prompted this change.
         """
         if which == self.config.active_output:
             return
@@ -2615,18 +2634,49 @@ class MainWindow(QMainWindow):
             return
 
         self.config.active_output = which
-        self._router.move_player(self._vlc_mp(), target.device_id or '')
+        target_id = target.device_id or ''
+        was_playing = bool(self.is_playing or self.is_paused)
+
+        if self._router.supports_live_move:
+            self._router.move_player(self._vlc_mp(), target_id)
+            self._debug_log(
+                'INFO',
+                f'Active output -> {which} '
+                f'({target.description or target.device_id})',
+            )
+        else:
+            # Pre-pin so the *next* play() lands on the new device,
+            # then stop any in-flight stream — switching mid-track is
+            # unreliable on this backend.
+            self._router.pin_player(self._vlc_mp(), target_id)
+            if was_playing:
+                self._stop()
+                self.statusBar().showMessage(
+                    f'Output changed to {which} — playback stopped. '
+                    f'Press play to resume.', 5000)
+                self._debug_log(
+                    'INFO',
+                    f'Active output -> {which} '
+                    f'({target.description or target.device_id}); '
+                    f'playback stopped (live-move unsupported on this backend)',
+                )
+            else:
+                self._debug_log(
+                    'INFO',
+                    f'Active output -> {which} '
+                    f'({target.description or target.device_id})',
+                )
+
         self._active_output_indicator.set_output(which)
-        self._debug_log(
-            'INFO',
-            f'Active output -> {which} '
-            f'({target.description or target.device_id})',
-        )
 
     def _set_main_audio_device(self, device_id):
         """Persist the new Main Output choice and re-route the main
         player to it (only if the user is currently on 'speaker' —
         otherwise the change takes effect next time they switch back).
+
+        On backends without reliable live-move (Windows mmdevice) we
+        stop in-flight playback rather than attempt a mid-stream
+        re-pin; the new device will be honoured on the next play().
         """
         old_id = self.config.main_audio_device
         self.config.main_audio_device = device_id
@@ -2635,6 +2685,12 @@ class MainWindow(QMainWindow):
         if (old_id != device_id
                 and self.config.active_output == 'speaker'):
             self._router.pin_player(self._vlc_mp(), device_id or '')
+            if (not self._router.supports_live_move
+                    and (self.is_playing or self.is_paused)):
+                self._stop()
+                self.statusBar().showMessage(
+                    'Main output device changed — playback stopped. '
+                    'Press play to resume.', 5000)
         self._refresh_audio_device_menus()
         self.config.save()
         label = dev.description if dev else (device_id or 'System Default')
@@ -2643,8 +2699,9 @@ class MainWindow(QMainWindow):
     def _set_preview_audio_device(self, device_id):
         """Persist the new Preview Output choice.  If main playback is
         currently routed via the headphones segment of the indicator,
-        re-pin to the new sink immediately.  The preview dock (when
-        open) will pick up the new sink on next play.
+        re-pin to the new sink immediately (or stop, on backends
+        without reliable live-move).  The preview dock (when open)
+        will pick up the new sink on next play.
         """
         old_id = self.config.preview_audio_device
         self.config.preview_audio_device = device_id
@@ -2653,6 +2710,12 @@ class MainWindow(QMainWindow):
         if (old_id != device_id
                 and self.config.active_output == 'headphones'):
             self._router.pin_player(self._vlc_mp(), device_id or '')
+            if (not self._router.supports_live_move
+                    and (self.is_playing or self.is_paused)):
+                self._stop()
+                self.statusBar().showMessage(
+                    'Preview output device changed — playback stopped. '
+                    'Press play to resume.', 5000)
         self._refresh_audio_device_menus()
         self.config.save()
         label = dev.description if dev else (device_id or 'System Default')
