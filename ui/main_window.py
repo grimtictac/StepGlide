@@ -445,6 +445,51 @@ class MainWindow(QMainWindow):
 
     def _build_menu_bar(self):
         menu_bar = self.menuBar()
+
+        # ── Active output indicator ─────────────────────
+        # Owner-driven segmented Speaker|Headphones toggle.  Click emits
+        # output_changed(which); we apply the routing in
+        # _on_active_output_changed and only then commit the visual.
+        from ui.active_output_indicator import ActiveOutputIndicator
+        self._active_output_indicator = ActiveOutputIndicator(self)
+        self._active_output_indicator.output_changed.connect(
+            self._on_active_output_changed)
+
+        # Replace the standard menu bar with a custom container that
+        # absolutely-positions the indicator at the horizontal centre of
+        # the window, regardless of how wide the menus are on the left.
+        # A simple HBoxLayout with stretches centres in the *remaining*
+        # space, which shifts as the menu bar grows — manual positioning
+        # gives true window-centring.
+        class _CenteringMenuContainer(QWidget):
+            def __init__(self, mb, indicator, parent=None):
+                super().__init__(parent)
+                self._mb = mb
+                self._indicator = indicator
+                mb.setParent(self)
+                indicator.setParent(self)
+
+            def sizeHint(self):
+                return self._mb.sizeHint().expandedTo(
+                    self._indicator.sizeHint())
+
+            def resizeEvent(self, _ev):
+                w = self.width()
+                h = max(self._mb.sizeHint().height(),
+                        self._indicator.sizeHint().height())
+                self.setFixedHeight(h)
+                self._mb.setGeometry(0, 0, w, h)
+                ind_w = self._indicator.sizeHint().width()
+                ind_h = self._indicator.sizeHint().height()
+                x = (w - ind_w) // 2
+                y = (h - ind_h) // 2
+                self._indicator.setGeometry(x, y, ind_w, ind_h)
+                self._indicator.raise_()
+
+        menu_container = _CenteringMenuContainer(
+            menu_bar, self._active_output_indicator, self)
+        self.setMenuWidget(menu_container)
+
         file_menu = menu_bar.addMenu('&File')
 
         add_files_action = QAction('Add &Files...', self)
@@ -2177,6 +2222,11 @@ class MainWindow(QMainWindow):
         if is_playing and self._consecutive_skips > 0:
             self._consecutive_skips = 0
 
+        # Pulse the active-output LED only while audio is actually flowing.
+        ind = getattr(self, '_active_output_indicator', None)
+        if ind is not None:
+            ind.set_playing(bool(is_playing))
+
         # Update scrub slider and time labels
         scrubbing = self._transport.is_user_scrubbing or self._wf_user_scrubbing
         if not scrubbing:
@@ -2427,6 +2477,83 @@ class MainWindow(QMainWindow):
                 action.setData(dev.device_id)
                 if not dev.is_usable():
                     action.setEnabled(False)
+
+        # Refresh the active-output indicator's per-segment usability.
+        self._refresh_active_output_indicator()
+
+    def _resolve_output_device(self, which: str):
+        """Resolve the device for one side of the segmented toggle.
+
+        Returns an ``AudioDevice`` if usable, else ``None``.  Honours
+        OutputManager.resolve()'s strict semantics — an absent or
+        unconfigured device returns ``None``.
+        """
+        if which == 'speaker':
+            return self._output_mgr.resolve(
+                self.config.main_audio_device,
+                getattr(self.config, 'main_audio_device_description', ''),
+            )
+        if which == 'headphones':
+            return self._output_mgr.resolve(
+                self.config.preview_audio_device,
+                getattr(self.config, 'preview_audio_device_description', ''),
+            )
+        return None
+
+    def _refresh_active_output_indicator(self):
+        """Grey out segments whose device is unconfigured or absent."""
+        ind = getattr(self, '_active_output_indicator', None)
+        if ind is None:
+            return
+        for which, friendly in (
+            ('speaker', 'Speaker'), ('headphones', 'Headphones'),
+        ):
+            dev = self._resolve_output_device(which)
+            usable = dev is not None
+            tooltip = ''
+            if not usable:
+                pretty = 'main output' if which == 'speaker' else 'preview output'
+                tooltip = (
+                    f'No {pretty} configured or device unavailable.\n'
+                    f'Configure via Audio menu.'
+                )
+            ind.set_segment_usable(which, usable, tooltip)
+
+    def _on_active_output_changed(self, which: str):
+        """Handle a click on the active-output indicator.
+
+        Resolves the target device, mid-stream re-routes the main media
+        player, and only commits the visual state on success.  On
+        failure the pill snaps back and a status-bar warning explains.
+        """
+        if which == self.config.active_output:
+            return
+        device = self._resolve_output_device(which)
+        if device is None:
+            self._debug_log(
+                'WARN',
+                f'Cannot switch active output to {which}: device unavailable',
+            )
+            self.statusBar().showMessage(
+                f'Cannot switch to {which}: device unavailable', 4000)
+            # Indicator's _output is still the previous value (we never
+            # called set_output) so it's already visually correct.
+            self._refresh_active_output_indicator()
+            return
+        try:
+            self._output_mgr.apply_to_player(self._vlc_mp(), device)
+        except Exception as e:
+            self._debug_log(
+                'WARN', f'Failed to apply {which} routing: {e}')
+            self.statusBar().showMessage(
+                f'Failed to switch audio output: {e}', 4000)
+            return
+        self.config.active_output = which
+        self._active_output_indicator.set_output(which)
+        self._debug_log(
+            'INFO',
+            f'Active output → {which} ({device.description or device.device_id})',
+        )
 
     def _set_main_audio_device(self, device_id):
         self.config.main_audio_device = device_id
