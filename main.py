@@ -87,12 +87,27 @@ def main():
     worker.finished.connect(thread.quit)
     worker.finished.connect(worker.deleteLater)
     thread.finished.connect(thread.deleteLater)
-    # Make sure the thread is asked to stop before the app tears down
-    # — otherwise Qt warns about a still-running QThread on exit.
+
+    # Track whether the thread has been deleted on the C++ side so the
+    # quit handler doesn't poke at a freed QThread.  The backfill
+    # typically completes long before the user quits, at which point
+    # thread.deleteLater() has already run — calling .quit() on the
+    # bound shiboken wrapper then raises 'Internal C++ object already
+    # deleted'.
+    thread_alive = [True]
+    thread.destroyed.connect(lambda *_: thread_alive.__setitem__(0, False))
+
     def _on_about_to_quit():
         stop_flag[0] = True
-        thread.quit()
-        thread.wait(2000)
+        if not thread_alive[0]:
+            return
+        try:
+            thread.quit()
+            thread.wait(2000)
+        except RuntimeError:
+            # Thread torn down between the alive check and the call —
+            # benign, nothing left to clean up.
+            pass
     app.aboutToQuit.connect(_on_about_to_quit)
     thread.start()
 

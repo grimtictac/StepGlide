@@ -95,12 +95,22 @@ class _Segment(QFrame):
 
         self._icon_lbl = QLabel(icon)
         f = QFont(self._icon_lbl.font())
-        f.setPointSizeF(f.pointSizeF() * 3.20)
+        # On Windows the inherited app font is set in pixels, so
+        # pointSizeF() returns -1.  Fall back to scaling the pixel
+        # size when that happens, otherwise Qt warns
+        # "QFont::setPointSize: Point size <= 0 (-1)".
+        if f.pointSizeF() > 0:
+            f.setPointSizeF(f.pointSizeF() * 3.20)
+        else:
+            f.setPixelSize(max(1, int(f.pixelSize() * 3.20)))
         self._icon_lbl.setFont(f)
 
         self._text_lbl = QLabel(label)
         f2 = QFont(self._text_lbl.font())
-        f2.setPointSizeF(f2.pointSizeF() * 1.85)
+        if f2.pointSizeF() > 0:
+            f2.setPointSizeF(f2.pointSizeF() * 1.85)
+        else:
+            f2.setPixelSize(max(1, int(f2.pixelSize() * 1.85)))
         f2.setBold(True)
         self._text_lbl.setFont(f2)
 
