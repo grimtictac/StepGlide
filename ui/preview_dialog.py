@@ -1,6 +1,24 @@
 """
-Preview dialog — modeless dialog that plays a track on a separate VLC
-media player routed to the preview audio output device.
+PreviewDock - modeless, dockable preview/cue panel.
+
+Always routes to the **headphones** (preview) audio output via
+OutputManager - never the speakers.  Designed for the "party flow":
+the user is monitoring their next pick on headphones while the main
+transport keeps playing on speakers, and decides whether to slot the
+preview track in via Play Now / Play Next / Add to Queue.
+
+Caller contract (MainWindow):
+- Pre-flight: refuse to open the dock when the active output is
+  already 'headphones' (no point cueing the same channel that's
+  playing) or when no headphones device resolves.  This dock assumes
+  the caller has already checked.
+- Provides the action triggers as Qt Signals; the dock itself does
+  not touch the main transport or the queue.
+- Calls ``stop_and_release()`` to tear down VLC resources cleanly
+  (also done automatically on closeEvent).
+
+Preview playback deliberately does NOT write to ``track_plays`` -
+this dock is for evaluation, not for inflating the play count.
 """
 
 import os
@@ -10,7 +28,8 @@ import qtawesome as qta
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout,
+    QDockWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+    QSlider, QVBoxLayout, QWidget,
 )
 
 from ui.theme import COLORS
@@ -26,35 +45,43 @@ def _fmt_ms(ms):
     return f'{s // 60}:{s % 60:02d}'
 
 
-class PreviewDialog(QDialog):
-    """Modeless dialog that previews a single track on a secondary output."""
+class PreviewDock(QDockWidget):
+    """Modeless, dockable, headphones-only preview/cue surface."""
 
-    # Emitted when the dialog is closed (for cleanup in MainWindow)
+    play_now_requested = Signal()
+    play_next_requested = Signal()
+    add_to_queue_requested = Signal()
     closed = Signal()
 
-    def __init__(self, track_entry, device_id='', waveform_data=None, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle('Preview')
-        self.setMinimumSize(420, 200)
-        self.resize(480, 210)
-        self.setWindowFlags(
-            self.windowFlags()
-            | Qt.WindowStaysOnTopHint
-            | Qt.Dialog
+    def __init__(self, track_entry, output_mgr, headphones_device,
+                 waveform_data=None, parent=None):
+        super().__init__('Preview (Headphones)', parent)
+        self.setObjectName('PreviewDock')
+        self.setFeatures(
+            QDockWidget.DockWidgetClosable
+            | QDockWidget.DockWidgetMovable
+            | QDockWidget.DockWidgetFloatable,
+        )
+        self.setAllowedAreas(
+            Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea
+            | Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea,
         )
         self.setAttribute(Qt.WA_DeleteOnClose)
 
         self._track = track_entry
-        self._device_id = device_id
+        self._output_mgr = output_mgr
+        self._headphones_device = headphones_device
         self._waveform_data = waveform_data
 
-        # ── Own VLC instance + player ────────────────────
+        # Separate VLC instance keeps the preview's audio routing fully
+        # independent of the main transport (no shared aout state).
         self._vlc_instance = vlc.Instance()
         self._vlc_player = self._vlc_instance.media_player_new()
-
-        # Route to preview device
-        if device_id:
-            self._vlc_player.audio_output_device_set(None, device_id)
+        try:
+            self._output_mgr.apply_to_player(
+                self._vlc_player, self._headphones_device)
+        except Exception:
+            pass
 
         self._is_playing = False
         self._user_scrubbing = False
@@ -63,7 +90,6 @@ class PreviewDialog(QDialog):
         self._build_ui()
         self._load_and_play()
 
-        # Generate waveform in background if not provided
         if not self._waveform_data:
             abs_path = self._track.get('_abs_path', '')
             if abs_path and os.path.isfile(abs_path):
@@ -72,28 +98,34 @@ class PreviewDialog(QDialog):
                 self._waveform_worker.finished.connect(self._on_waveform_ready)
                 self._waveform_worker.start()
 
-        # ── Poll timer ───────────────────────────────────
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(250)
         self._poll_timer.timeout.connect(self._poll)
         self._poll_timer.start()
 
-    # ── UI ───────────────────────────────────────────────
-
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        body = QWidget(self)
+        body.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        layout = QVBoxLayout(body)
         layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
 
-        # Title
-        title = self._track.get('title', self._track.get('basename', ''))
-        self._lbl_title = QLabel(f'\U0001f3a7  {title}')
+        title = self._track.get('title', self._track.get('basename', '')) or '?'
+        artist = self._track.get('artist', '')
+        header_text = f'\U0001f3a7  {title}'
+        if artist:
+            header_text += f'  -  {artist}'
+        self._lbl_title = QLabel(header_text)
         self._lbl_title.setStyleSheet(
             f'color: {COLORS["cyan"]}; font-size: 13px; font-weight: bold;')
         self._lbl_title.setWordWrap(True)
         layout.addWidget(self._lbl_title)
 
-        # Scrub row
+        dest = self._headphones_device.description or self._headphones_device.device_id
+        sub = QLabel(f'Routing to: {dest}')
+        sub.setStyleSheet(f'color: {COLORS["fg_dim"]}; font-size: 10px;')
+        layout.addWidget(sub)
+
         scrub_row = QHBoxLayout()
         scrub_row.setSpacing(6)
 
@@ -121,20 +153,19 @@ class PreviewDialog(QDialog):
 
         layout.addLayout(scrub_row)
 
-        # Controls row
         ctrl_row = QHBoxLayout()
         ctrl_row.setSpacing(8)
 
         self._btn_play = QPushButton()
         self._icon_play = qta.icon('mdi6.play', color='white')
         self._icon_pause = qta.icon('mdi6.pause', color='white')
-        self._btn_play.setIcon(self._icon_pause)  # starts playing
+        self._btn_play.setIcon(self._icon_pause)
         self._btn_play.setFixedSize(42, 32)
         self._btn_play.setIconSize(self._btn_play.size() * 0.6)
         self._btn_play.setStyleSheet(
             f'QPushButton {{ background-color: {COLORS["accent"]}; border-radius: 4px; }}'
             f'QPushButton:hover {{ background-color: {COLORS["accent_hover"]}; }}')
-        self._btn_play.setToolTip('Play / Pause')
+        self._btn_play.setToolTip('Play / Pause preview')
         self._btn_play.clicked.connect(self._toggle_play)
         ctrl_row.addWidget(self._btn_play)
 
@@ -148,7 +179,6 @@ class PreviewDialog(QDialog):
 
         ctrl_row.addSpacing(12)
 
-        # Volume
         vol_icon = QLabel()
         vol_icon.setPixmap(
             qta.icon('mdi6.volume-high', color=COLORS['fg_dim']).pixmap(16, 16))
@@ -164,15 +194,53 @@ class PreviewDialog(QDialog):
 
         ctrl_row.addStretch()
 
-        # Close
-        self._btn_close = QPushButton('Close')
-        self._btn_close.setFixedSize(60, 32)
-        self._btn_close.clicked.connect(self.close)
-        ctrl_row.addWidget(self._btn_close)
-
         layout.addLayout(ctrl_row)
 
-    # ── Playback ─────────────────────────────────────────
+        # Action row - these route through the MAIN transport / queue.
+        action_row = QHBoxLayout()
+        action_row.setSpacing(6)
+
+        self._btn_play_now = QPushButton('\u25b6  Play Now')
+        self._btn_play_now.setToolTip(
+            'Stop the preview and play this track on the main output now.')
+        self._btn_play_now.clicked.connect(self._on_play_now)
+        action_row.addWidget(self._btn_play_now)
+
+        self._btn_play_next = QPushButton('\u23ed  Play Next')
+        self._btn_play_next.setToolTip(
+            'Insert this track at the front of the queue. '
+            'Preview keeps playing.')
+        self._btn_play_next.clicked.connect(self._on_play_next)
+        action_row.addWidget(self._btn_play_next)
+
+        self._btn_add_queue = QPushButton('\U0001f4cb  Add to Queue')
+        self._btn_add_queue.setToolTip(
+            'Append this track to the end of the queue. '
+            'Preview keeps playing.')
+        self._btn_add_queue.clicked.connect(self._on_add_to_queue)
+        action_row.addWidget(self._btn_add_queue)
+
+        action_row.addStretch()
+
+        self._btn_close = QPushButton('Close')
+        self._btn_close.setFixedHeight(32)
+        self._btn_close.clicked.connect(self.close)
+        action_row.addWidget(self._btn_close)
+
+        layout.addLayout(action_row)
+
+        self.setWidget(body)
+
+    def _on_play_now(self):
+        self._stop()
+        self.play_now_requested.emit()
+        self.close()
+
+    def _on_play_next(self):
+        self.play_next_requested.emit()
+
+    def _on_add_to_queue(self):
+        self.add_to_queue_requested.emit()
 
     def _load_and_play(self):
         path = self._track.get('_abs_path', '')
@@ -205,8 +273,6 @@ class PreviewDialog(QDialog):
     def _on_volume(self, val):
         self._vlc_player.audio_set_volume(val)
 
-    # ── Scrub ────────────────────────────────────────────
-
     def _on_scrub_pressed(self):
         self._user_scrubbing = True
 
@@ -215,8 +281,6 @@ class PreviewDialog(QDialog):
         length = self._vlc_player.get_length()
         if length > 0:
             self._vlc_player.set_position(pos)
-
-    # ── Poll ─────────────────────────────────────────────
 
     def _poll(self):
         if not self._user_scrubbing:
@@ -227,30 +291,30 @@ class PreviewDialog(QDialog):
                 self._lbl_cur.setText(_fmt_ms(int(pos * length)))
                 self._lbl_total.setText(_fmt_ms(length))
 
-        # Auto-close when track finishes
         if (self._is_playing
                 and not self._vlc_player.is_playing()
                 and self._vlc_player.get_position() >= 0.99):
             self._is_playing = False
             self._btn_play.setIcon(self._icon_play)
 
-    # ── Waveform ──────────────────────────────────────────
-
     def _on_waveform_ready(self, _file_path, data):
-        """Background waveform generation finished."""
         self._waveform_worker = None
         if data:
             self._scrub.set_waveform(data)
         else:
             self._scrub.set_loading(False)
 
-    # ── Cleanup ──────────────────────────────────────────
-
     def stop_and_release(self):
-        """Stop playback and release VLC resources. Safe to call multiple times."""
-        self._poll_timer.stop()
+        """Stop playback and release VLC resources. Idempotent."""
+        try:
+            self._poll_timer.stop()
+        except Exception:
+            pass
         if self._waveform_worker is not None:
-            self._waveform_worker.cancel()
+            try:
+                self._waveform_worker.cancel()
+            except Exception:
+                pass
             self._waveform_worker = None
         try:
             self._vlc_player.stop()

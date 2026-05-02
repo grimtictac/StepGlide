@@ -23,7 +23,7 @@ from ui.debug_panel import DebugPanel
 from ui.eq_dialog import EqualizerDialog, apply_eq_for_track
 from ui.misc_dialogs import AuditLogDialog, RandomQueueDialog
 from ui.play_log_panel import PlayLogPanel
-from ui.preview_dialog import PreviewDialog
+from ui.preview_dialog import PreviewDock
 from ui.queue_panel import QueuePanel
 from ui.settings_dialog import SettingsDialog
 from ui.sidebar import SidebarWidget
@@ -1692,6 +1692,13 @@ class MainWindow(QMainWindow):
         btn_box.addButton(btn_next, QDialogButtonBox.ActionRole)
         btn_box.addButton(btn_preview, QDialogButtonBox.ActionRole)
         btn_box.addButton(QDialogButtonBox.Cancel)
+
+        # Disable Preview when it isn't actionable (matches context-menu).
+        ok, reason = self._preview_available()
+        if not ok:
+            btn_preview.setEnabled(False)
+            btn_preview.setToolTip(reason)
+
         layout.addWidget(btn_box)
 
         result = {'choice': 'cancel'}
@@ -1743,11 +1750,18 @@ class MainWindow(QMainWindow):
         entry = self.playlist[playlist_idx]
         multi = len(selected) > 1
         menu = QMenu(self)
+        menu.setToolTipsVisible(True)
 
         # Play
         if not multi:
             menu.addAction('\u25b6  Play', lambda: self._play_index(playlist_idx))
-            menu.addAction('\U0001f3a7  Preview', lambda: self._preview_track(playlist_idx))
+            preview_act = menu.addAction(
+                '\U0001f3a7  Preview',
+                lambda: self._preview_track(playlist_idx))
+            ok, reason = self._preview_available()
+            if not ok:
+                preview_act.setEnabled(False)
+                preview_act.setToolTip(reason)
 
         # Add to queue
         q_label = f'\U0001f4cb  Add {len(selected)} to Queue' if multi else '\U0001f4cb  Add to Queue'
@@ -2665,12 +2679,43 @@ class MainWindow(QMainWindow):
 
     # ── Preview ──────────────────────────────────────────
 
+    def _preview_available(self):
+        """Why (or whether) the Preview action is available right now.
+
+        Returns ``(ok, reason)`` where ``reason`` is empty when ok and
+        otherwise a short user-facing explanation suitable for tooltips
+        and status-bar warnings.
+        """
+        if self.config.active_output == 'headphones':
+            return (False,
+                    'Preview is only available when Speaker is the active '
+                    'output (preview always plays on Headphones).')
+        if self._resolve_output_device('headphones') is None:
+            return (False,
+                    'No Headphones output configured or device unavailable. '
+                    'Configure via Audio menu.')
+        return (True, '')
+
     def _preview_track(self, playlist_idx):
-        """Open the modeless preview dialog for the given track."""
+        """Open (or replace) the headphones preview dock for a track."""
+        ok, reason = self._preview_available()
+        if not ok:
+            self.statusBar().showMessage(reason, 4000)
+            self._debug_log('INFO', f'Preview blocked: {reason}')
+            return
+
         self._close_preview()
+
+        headphones = self._resolve_output_device('headphones')
+        if headphones is None:
+            # Lost between the check and now (hot-unplug); abort silently.
+            self.statusBar().showMessage(
+                'Headphones device went away — preview cancelled.', 4000)
+            return
+
         entry = self.playlist[playlist_idx]
 
-        # Try to pass cached waveform data to the preview dialog
+        # Try to pass cached waveform data through.
         wf_data = None
         rel_path = entry.get('path', '')
         cached = self.db.get_waveform(rel_path)
@@ -2680,19 +2725,39 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        self._preview_dialog = PreviewDialog(
+        dock = PreviewDock(
             track_entry=entry,
-            device_id=self.config.preview_audio_device,
+            output_mgr=self._output_mgr,
+            headphones_device=headphones,
             waveform_data=wf_data,
             parent=self,
         )
-        self._preview_dialog.closed.connect(self._on_preview_closed)
-        self._preview_dialog.show()
+        # Default to floating so it doesn't shove the rest of the UI around;
+        # user can dock it into any side via drag.
+        self.addDockWidget(Qt.RightDockWidgetArea, dock)
+        dock.setFloating(True)
+
+        # Wire the three action triggers to the existing main-transport /
+        # queue routes, scoped to *this* track.
+        dock.play_now_requested.connect(
+            lambda idx=playlist_idx: self._play_index(idx))
+        dock.play_next_requested.connect(
+            lambda idx=playlist_idx: self._queue_panel.add_next(idx))
+        dock.add_to_queue_requested.connect(
+            lambda idx=playlist_idx: self._queue_panel.add(idx))
+
+        dock.closed.connect(self._on_preview_closed)
+        self._preview_dialog = dock
+        dock.show()
         self._debug_log('INFO',
                         f'Preview: {entry.get("title", entry.get("basename", "?"))}')
 
     def _preview_selected(self):
         """Preview the first selected track (P shortcut)."""
+        ok, reason = self._preview_available()
+        if not ok:
+            self.statusBar().showMessage(reason, 4000)
+            return
         selected = self._get_selected_indices()
         if selected:
             self._preview_track(selected[0])
