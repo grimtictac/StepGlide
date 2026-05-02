@@ -206,16 +206,24 @@ class SidebarWidget(QWidget):
 
     def _build_genre_list(self):
         """Populate the genre QListWidget."""
+        from PySide6.QtCore import QSize
         self._genre_list.blockSignals(True)
         self._genre_list.clear()
         self._genre_label_map = {}
         counts = self._genre_counts
+
+        # Tighter rows than the global QListWidget::item padding gives.
+        # Stylesheet overrides at the widget level lose to the global
+        # rule due to selector specificity, so we set the size hint
+        # explicitly on every item — guaranteed to win.
+        row_h = self._genre_list.fontMetrics().height() + 4
 
         # "All" entry — total track count
         total = sum(counts.values()) if counts else 0
         all_label = f'All  ({total})' if total else 'All'
         item = QListWidgetItem(all_label)
         item.setData(Qt.UserRole, ('all', 'All'))
+        item.setSizeHint(QSize(0, row_h))
         self._genre_list.addItem(item)
 
         # Visible genres, alphabetical
@@ -226,6 +234,7 @@ class SidebarWidget(QWidget):
             label = f'{genre}  ({c})' if c else genre
             gi = QListWidgetItem(label)
             gi.setData(Qt.UserRole, ('genre', genre))
+            gi.setSizeHint(QSize(0, row_h))
             self._genre_list.addItem(gi)
 
         # Hidden genres (shown in yellow when _show_hidden is True)
@@ -236,6 +245,7 @@ class SidebarWidget(QWidget):
                 gi = QListWidgetItem(label)
                 gi.setData(Qt.UserRole, ('genre', genre))
                 gi.setForeground(QColor(COLORS['yellow']))
+                gi.setSizeHint(QSize(0, row_h))
                 self._genre_list.addItem(gi)
 
         # Select "All" by default
