@@ -1363,7 +1363,14 @@ class MainWindow(QMainWindow):
         if self.current_index is None:
             return
         path = self.playlist[self.current_index]['path']
-        stats = self.db.record_play(path)
+        # Tag the play with the active output so analytics can later
+        # distinguish "real" speaker plays from headphone preview/cue
+        # plays.  Today this is only ever 'speaker' in practice (the
+        # main transport always plays via the active output, and the
+        # forthcoming PreviewDialog will route directly to headphones
+        # without writing to track_plays at all).
+        via = getattr(self.config, 'active_output', 'speaker') or 'speaker'
+        stats = self.db.record_play(path, via=via)
         if stats:
             entry = self.playlist[self.current_index]
             entry['play_count'] = stats[0]
