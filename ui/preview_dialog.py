@@ -73,15 +73,24 @@ class PreviewDock(QDockWidget):
         self._headphones_device = headphones_device
         self._waveform_data = waveform_data
 
-        # Separate VLC instance keeps the preview's audio routing fully
-        # independent of the main transport (no shared aout state).
-        self._vlc_instance = vlc.Instance()
-        self._vlc_player = self._vlc_instance.media_player_new()
-        try:
-            self._output_mgr.apply_to_player(
-                self._vlc_player, self._headphones_device)
-        except Exception:
-            pass
+        # ── Own VLC instance, routed to headphones ───────
+        # Empirical reality (verified on this host's libvlc): the
+        # API call ``audio_output_device_set('pulse', sink_name)``
+        # silently falls back to the system default sink, both
+        # before AND during playback.  The ONLY reliable way to
+        # bind a libvlc instance to a specific PulseAudio sink is
+        # to set ``PULSE_SINK`` in the environment BEFORE the
+        # instance is created — the pulse aout reads it once at
+        # plugin-load time.  We set it, create the instance, then
+        # unset it so subsequent VLC instances (e.g. another
+        # preview) aren't accidentally pinned to the same sink.
+        # The MAIN instance (created earlier by MainWindow) is
+        # unaffected — its aout is already bound to its sink.
+        #
+        # On non-Pulse aout modules (mmdevice on Windows, auhal on
+        # macOS, alsa) we fall back to the API call.  Routing on
+        # those platforms is untested at the time of writing.
+        self._vlc_instance, self._vlc_player = self._spawn_routed_instance()
 
         self._is_playing = False
         self._user_scrubbing = False
@@ -252,6 +261,42 @@ class PreviewDock(QDockWidget):
         self._vlc_player.audio_set_volume(self._vol_slider.value())
         self._vlc_player.play()
         self._is_playing = True
+
+    def _spawn_routed_instance(self):
+        """Create a vlc.Instance + media_player bound to the headphones sink.
+
+        See the long comment at the call site in __init__ for why we
+        use the ``PULSE_SINK`` env var instead of the obvious-looking
+        ``audio_output_device_set`` API: that API silently fails on
+        this host's libvlc.  Returns ``(instance, player)``.
+        """
+        device_id = self._headphones_device.device_id or ''
+        aout_module = getattr(self._output_mgr, '_aout_module', None)
+
+        if aout_module == 'pulse' and device_id:
+            prev = os.environ.get('PULSE_SINK')
+            os.environ['PULSE_SINK'] = device_id
+            try:
+                inst = vlc.Instance()
+            finally:
+                # Restore env immediately — instance has already read it.
+                if prev is None:
+                    os.environ.pop('PULSE_SINK', None)
+                else:
+                    os.environ['PULSE_SINK'] = prev
+            mp = inst.media_player_new()
+            return inst, mp
+
+        # Non-Pulse fallback: try the API even though it's known to be
+        # flaky.  Better than nothing on Windows/macOS until we can
+        # validate the platform-specific approach.
+        inst = vlc.Instance()
+        mp = inst.media_player_new()
+        try:
+            self._output_mgr.apply_to_player(mp, self._headphones_device)
+        except Exception:
+            pass
+        return inst, mp
 
     def _toggle_play(self):
         if self._is_playing:
