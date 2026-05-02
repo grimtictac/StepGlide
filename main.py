@@ -56,6 +56,46 @@ def main():
     splash.finish_splash(window)
     window.show()
 
+    # ── Kick off deferred mutagen backfills off the UI thread ──
+    # These used to run inside Database.init_schema(), which on a
+    # large library re-walked thousands of files via mutagen on every
+    # launch and held the splash hostage for tens of seconds.  They're
+    # now one-shot per row (see tracks.backfill_done) and run in the
+    # background after the UI is up.
+    from PySide6.QtCore import QThread, QObject, Signal
+
+    class _BackfillWorker(QObject):
+        finished = Signal()
+
+        def __init__(self, db, stop_flag):
+            super().__init__()
+            self._db = db
+            self._stop_flag = stop_flag
+
+        def run(self):
+            try:
+                self._db.run_deferred_backfills(
+                    should_stop=lambda: self._stop_flag[0])
+            finally:
+                self.finished.emit()
+
+    stop_flag = [False]
+    thread = QThread()
+    worker = _BackfillWorker(db, stop_flag)
+    worker.moveToThread(thread)
+    thread.started.connect(worker.run)
+    worker.finished.connect(thread.quit)
+    worker.finished.connect(worker.deleteLater)
+    thread.finished.connect(thread.deleteLater)
+    # Make sure the thread is asked to stop before the app tears down
+    # — otherwise Qt warns about a still-running QThread on exit.
+    def _on_about_to_quit():
+        stop_flag[0] = True
+        thread.quit()
+        thread.wait(2000)
+    app.aboutToQuit.connect(_on_about_to_quit)
+    thread.start()
+
     sys.exit(app.exec())
 
 

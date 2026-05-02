@@ -125,6 +125,14 @@ class Database:
             ('length', "ALTER TABLE tracks ADD COLUMN length REAL"),
             ('waveform', "ALTER TABLE tracks ADD COLUMN waveform BLOB"),
             ('hidden', "ALTER TABLE tracks ADD COLUMN hidden INTEGER DEFAULT 0"),
+            # Bitmask of which deferred backfills have already run for
+            # this row.  Bit 0 = artist/album, bit 1 = length, bit 2 =
+            # genre/comment.  Once set we never re-scan the file —
+            # historical behaviour was to retry every launch for any
+            # track whose tag legitimately had an empty field, which
+            # turned init_schema into a per-launch O(library) mutagen
+            # walk.  See run_deferred_backfills().
+            ('backfill_done', "ALTER TABLE tracks ADD COLUMN backfill_done INTEGER NOT NULL DEFAULT 0"),
         ]:
             if col not in columns:
                 con.execute(sql)
@@ -191,23 +199,73 @@ class Database:
                 self._debug_log('WARN', f'Failed to create index: {e} ({idx_sql})')
         con.commit()
 
-        # Run backfills
-        self._backfill_genres(con)
-        self._backfill_lengths(con)
-        self._backfill_artist_album(con)
+        # Backfills are no longer run here — they used to do a
+        # mutagen walk over every row with NULL/empty fields on each
+        # launch, blocking the splash for thousands of file reads.
+        # init_schema() now stays light; call run_deferred_backfills()
+        # from a background thread after the UI is up.
         con.close()
 
-    def _backfill_genres(self, con):
+    # ── Deferred backfills (call from a worker thread) ───
+
+    # backfill_done bitmask layout
+    _BF_ARTIST_ALBUM = 1 << 0
+    _BF_LENGTH       = 1 << 1
+    _BF_GENRE        = 1 << 2
+
+    def run_deferred_backfills(self, should_stop=None, progress_cb=None):
+        """Run all mutagen-touching backfills.  Safe to call from a
+        background thread — opens its own SQLite connection.
+
+        ``should_stop`` is an optional zero-arg callable returning True
+        to abort early (e.g. on app shutdown).  ``progress_cb`` is
+        called as ``progress_cb(stage, done, total)`` for UI hooks.
+
+        Each row is marked in ``tracks.backfill_done`` once its file
+        has been inspected, so subsequent launches skip it entirely
+        regardless of whether mutagen returned anything useful.
+        """
         if MutagenFile is None:
             return
-        cur = con.execute("SELECT COUNT(*) FROM tracks WHERE genre != 'Unknown'")
-        has_real = cur.fetchone()[0]
-        cur = con.execute("SELECT COUNT(*) FROM tracks")
-        total = cur.fetchone()[0]
-        if has_real > 0 or total == 0:
+        try:
+            con = sqlite3.connect(self.db_path)
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute("PRAGMA synchronous=NORMAL")
+            try:
+                self._backfill_artist_album(con, should_stop, progress_cb)
+                self._backfill_lengths(con, should_stop, progress_cb)
+                self._backfill_genres(con, should_stop, progress_cb)
+            finally:
+                con.close()
+        except Exception as e:
+            self._debug_log('ERROR', f'Deferred backfill aborted: {e}')
+
+    def _bf_should_stop(self, should_stop):
+        try:
+            return bool(should_stop and should_stop())
+        except Exception:
+            return False
+
+    def _backfill_genres(self, con, should_stop=None, progress_cb=None):
+        if MutagenFile is None:
             return
-        cur = con.execute("SELECT id, file_path, title FROM tracks")
-        for track_id, fpath, db_title in cur.fetchall():
+        # Genre/comment backfill is gated on the legacy "no real genres
+        # anywhere" condition — a one-time post-migration sweep.
+        cur = con.execute("SELECT COUNT(*) FROM tracks WHERE genre != 'Unknown'")
+        if cur.fetchone()[0] > 0:
+            return
+        cur = con.execute(
+            "SELECT id, file_path, title FROM tracks "
+            "WHERE (backfill_done & ?) = 0",
+            (self._BF_GENRE,),
+        )
+        rows = cur.fetchall()
+        total = len(rows)
+        if not total:
+            return
+        for idx, (track_id, fpath, db_title) in enumerate(rows):
+            if self._bf_should_stop(should_stop):
+                return
             genre = 'Unknown'
             comment = ''
             title = db_title
@@ -220,16 +278,36 @@ class Database:
                     comment = str(c) if c else ''
             except Exception as e:
                 self._debug_log('WARN', f'Backfill genre/comment failed for {fpath}: {e}')
-            con.execute("UPDATE tracks SET genre = ?, comment = ?, title = ? WHERE id = ?",
-                        (genre, comment, title, track_id))
+            con.execute(
+                "UPDATE tracks SET genre = ?, comment = ?, title = ?, "
+                "backfill_done = backfill_done | ? WHERE id = ?",
+                (genre, comment, title, self._BF_GENRE, track_id),
+            )
+            if (idx + 1) % 100 == 0:
+                con.commit()
+                if progress_cb:
+                    try: progress_cb('genre', idx + 1, total)
+                    except Exception: pass
         con.commit()
+        if progress_cb:
+            try: progress_cb('genre', total, total)
+            except Exception: pass
 
-    def _backfill_lengths(self, con):
+    def _backfill_lengths(self, con, should_stop=None, progress_cb=None):
         if MutagenFile is None:
             return
-        cur = con.execute("SELECT id, file_path FROM tracks WHERE length IS NULL")
+        cur = con.execute(
+            "SELECT id, file_path FROM tracks "
+            "WHERE length IS NULL AND (backfill_done & ?) = 0",
+            (self._BF_LENGTH,),
+        )
         rows = cur.fetchall()
-        for track_id, fpath in rows:
+        total = len(rows)
+        if not total:
+            return
+        for idx, (track_id, fpath) in enumerate(rows):
+            if self._bf_should_stop(should_stop):
+                return
             length = None
             try:
                 audio = MutagenFile(self._abs_path(fpath))
@@ -237,17 +315,47 @@ class Database:
                     length = audio.info.length
             except Exception as e:
                 self._debug_log('WARN', f'Backfill length failed for {fpath}: {e}')
+            # Always mark the row scanned; only update length if we got
+            # a real value (NULL stays NULL rather than being clobbered
+            # to 0, which would skew duration sorts).
             if length is not None:
-                con.execute("UPDATE tracks SET length = ? WHERE id = ?", (length, track_id))
-        if rows:
-            con.commit()
+                con.execute(
+                    "UPDATE tracks SET length = ?, "
+                    "backfill_done = backfill_done | ? WHERE id = ?",
+                    (length, self._BF_LENGTH, track_id),
+                )
+            else:
+                con.execute(
+                    "UPDATE tracks SET backfill_done = backfill_done | ? "
+                    "WHERE id = ?",
+                    (self._BF_LENGTH, track_id),
+                )
+            if (idx + 1) % 100 == 0:
+                con.commit()
+                if progress_cb:
+                    try: progress_cb('length', idx + 1, total)
+                    except Exception: pass
+        con.commit()
+        if progress_cb:
+            try: progress_cb('length', total, total)
+            except Exception: pass
 
-    def _backfill_artist_album(self, con):
+    def _backfill_artist_album(self, con, should_stop=None, progress_cb=None):
         if MutagenFile is None:
             return
-        cur = con.execute("SELECT id, file_path FROM tracks WHERE artist IS NULL OR artist = ''")
+        cur = con.execute(
+            "SELECT id, file_path FROM tracks "
+            "WHERE (artist IS NULL OR artist = '') "
+            "AND (backfill_done & ?) = 0",
+            (self._BF_ARTIST_ALBUM,),
+        )
         rows = cur.fetchall()
-        for track_id, fpath in rows:
+        total = len(rows)
+        if not total:
+            return
+        for idx, (track_id, fpath) in enumerate(rows):
+            if self._bf_should_stop(should_stop):
+                return
             artist = album = ''
             try:
                 tags = MutagenFile(self._abs_path(fpath), easy=True)
@@ -256,12 +364,29 @@ class Database:
                     album = tags.get('album', [''])[0] or ''
             except Exception as e:
                 self._debug_log('WARN', f'Backfill artist/album failed for {fpath}: {e}')
+            # Mark scanned in every case so we don't re-walk this file
+            # on the next launch when it legitimately has no tags.
             if artist or album:
-                con.execute("UPDATE tracks SET artist = ?, album = ? WHERE id = ?",
-                            (artist, album, track_id))
-        if rows:
-            con.commit()
-
+                con.execute(
+                    "UPDATE tracks SET artist = ?, album = ?, "
+                    "backfill_done = backfill_done | ? WHERE id = ?",
+                    (artist, album, self._BF_ARTIST_ALBUM, track_id),
+                )
+            else:
+                con.execute(
+                    "UPDATE tracks SET backfill_done = backfill_done | ? "
+                    "WHERE id = ?",
+                    (self._BF_ARTIST_ALBUM, track_id),
+                )
+            if (idx + 1) % 100 == 0:
+                con.commit()
+                if progress_cb:
+                    try: progress_cb('artist_album', idx + 1, total)
+                    except Exception: pass
+        con.commit()
+        if progress_cb:
+            try: progress_cb('artist_album', total, total)
+            except Exception: pass
     # ── Track CRUD ───────────────────────────────────────
 
     @perf.track
