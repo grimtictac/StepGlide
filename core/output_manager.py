@@ -78,11 +78,13 @@ class OutputManager(QObject):
         self,
         vlc_instance,
         debug_log_fn: Optional[Callable[[str, str], None]] = None,
+        router=None,
         parent=None,
     ):
         super().__init__(parent)
         self._instance = vlc_instance
         self._debug_log = debug_log_fn or (lambda lvl, msg: None)
+        self._router = router  # set later via set_router() if not yet built
 
         # Stable list of devices.  System default is always first and always
         # considered usable (libvlc will route somewhere even if all devices
@@ -533,17 +535,23 @@ class OutputManager(QObject):
 
     # ── Test beep ────────────────────────────────────────
 
+    def set_router(self, router) -> None:
+        """Inject the AudioRouter (after construction).  Beeps will
+        use it to pin to the chosen device's sink.  If unset, beeps
+        fall back to libvlc's audio_output_device_set (which is known
+        to be unreliable on linux/pulse — better than nothing)."""
+        self._router = router
+
     def play_test_beep(self, device, freq_hz: int = 880,
                        duration_ms: int = 400) -> bool:
         """Play a short sine-wave beep through the given device.
 
         Synthesises a small WAV in the system temp dir on first call and
         reuses it.  Each invocation creates a fresh dedicated MediaPlayer
-        on the shared vlc.Instance so it doesn't interfere with the main
-        playback player or any previous beep that's still ringing out.
+        on the shared vlc.Instance.  Routing is delegated to the
+        AudioRouter (set via set_router()) so the same per-OS strategy
+        used for main and preview playback applies here too.
 
-        The MediaPlayer is parked on self until the beep ends, then
-        released; this prevents the GC from killing libvlc mid-playback.
         Returns True if playback was started.
         """
         if device is None or not device.is_usable():
@@ -557,74 +565,49 @@ class OutputManager(QObject):
         if wav_path is None:
             return False
 
-        # libvlc's audio_output_device_set() is silently broken on this
-        # host's pulse plugin — calls succeed but audio still goes to
-        # the system default sink.  The only thing that actually pins
-        # output to a chosen sink is PULSE_SINK at vlc.Instance()
-        # construction time (the pulse aout reads it once on init).
-        # So on Linux we spawn a fresh dedicated instance per beep,
-        # bound to the target sink via env-var, and tear it down when
-        # the tone ends.  On other platforms we keep the legacy path.
-        import os
-        import sys
-
-        beep_instance = None
         try:
-            if (sys.platform.startswith('linux')
-                    and self._aout_module == 'pulse'):
-                prev = os.environ.get('PULSE_SINK')
-                if device.device_id:
-                    os.environ['PULSE_SINK'] = device.device_id
-                else:
-                    # System default: ensure no override is in scope.
-                    os.environ.pop('PULSE_SINK', None)
-                try:
-                    beep_instance = vlc.Instance()
-                finally:
-                    if prev is None:
-                        os.environ.pop('PULSE_SINK', None)
-                    else:
-                        os.environ['PULSE_SINK'] = prev
-                mp = beep_instance.media_player_new()
-                media = beep_instance.media_new(wav_path)
-            else:
-                # Non-Pulse path: trust the documented API (untested
-                # against the same kind of breakage on Windows/macOS).
-                mp = self._instance.media_player_new()
-                mp.audio_output_device_set(
-                    self._aout_module, device.device_id)
-                media = self._instance.media_new(wav_path)
+            mp = self._instance.media_player_new()
+            media = self._instance.media_new(wav_path)
             mp.set_media(media)
             mp.play()
         except Exception as e:
             self._debug_log(
                 'ERROR', f'play_test_beep: vlc raised: {e}')
-            if beep_instance is not None:
-                try:
-                    beep_instance.release()
-                except Exception:
-                    pass
             return False
 
-        # Hold references (player AND its dedicated instance, if any)
-        # until the tone finishes so libvlc isn't GC'd mid-playback.
-        self._active_beeps.append((mp, beep_instance))
+        # Pin via router if available.  pin_one_shot polls for the new
+        # sink-input and moves it; we don't need to register the player
+        # because it'll be released as soon as the tone ends.
+        if self._router is not None and device.device_id:
+            try:
+                self._router.pin_one_shot(mp, device.device_id)
+            except Exception as e:
+                self._debug_log(
+                    'ERROR', f'play_test_beep: router.pin_one_shot raised: {e}')
+        elif self._router is None:
+            # Legacy fallback if the router was never wired in.
+            try:
+                mp.audio_output_device_set(
+                    self._aout_module, device.device_id)
+            except Exception:
+                pass
+
+        # Hold a reference until the tone finishes so libvlc isn't GC'd.
+        self._active_beeps.append(mp)
         shown_id = device.device_id or 'default'
-        routing_path = ('PULSE_SINK env'
-                        if beep_instance is not None
-                        else 'audio_output_device_set')
+        routed_via = 'router' if self._router is not None else 'legacy'
         self._debug_log(
             'INFO',
             f'play_test_beep: {freq_hz} Hz / {duration_ms} ms → '
-            f'{device.description!r} ({shown_id!r}) [{routing_path}]',
+            f'{device.description!r} ({shown_id!r}) [via {routed_via}]',
         )
         # Schedule release a little after the tone ends so we don't cut
         # the tail off (libvlc may still be flushing the audio buffer).
         QTimer.singleShot(duration_ms + 600,
-                          lambda m=mp, i=beep_instance: self._release_beep(m, i))
+                          lambda m=mp: self._release_beep(m))
         return True
 
-    def _release_beep(self, mp, beep_instance=None) -> None:
+    def _release_beep(self, mp) -> None:
         try:
             mp.stop()
         except Exception:
@@ -633,16 +616,10 @@ class OutputManager(QObject):
             mp.release()
         except Exception:
             pass
-        if beep_instance is not None:
-            try:
-                beep_instance.release()
-            except Exception:
-                pass
-        # Find and remove the matching tuple.
-        for i, entry in enumerate(self._active_beeps):
-            if entry[0] is mp:
-                del self._active_beeps[i]
-                break
+        try:
+            self._active_beeps.remove(mp)
+        except ValueError:
+            pass
 
     def _ensure_beep_wav(self, freq_hz: int, duration_ms: int):
         """Lazily synthesise a WAV file for the given tone, cached on disk.

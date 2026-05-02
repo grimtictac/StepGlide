@@ -33,6 +33,7 @@ from ui.track_table import ALL_COLUMNS, DEFAULT_VISIBLE_COLUMNS, TrackTableModel
 from ui.transport_bar import TransportBar, VolumePanel, VolumeStrip
 
 from core.audio_devices import list_audio_devices
+from core.audio_router import make_router
 from core.output_manager import OutputManager
 from core.perf import perf
 from core.waveform import WaveformWorker, deserialise_waveform, serialise_waveform
@@ -160,35 +161,21 @@ class MainWindow(QMainWindow):
         # Instantiated eagerly: by the time the window appears the app
         # must be fully play-ready, with no first-play hitch.
         #
-        # DUAL-INSTANCE design: libvlc's audio_output_device_set() is
-        # silently broken on this host's pulse plugin (sets succeed but
-        # audio still goes to the system default sink).  The only way
-        # to bind a libvlc instance to a chosen PulseAudio sink is to
-        # set PULSE_SINK in the env BEFORE the instance is created.
-        # We therefore keep TWO instances — one bound to the speaker
-        # sink, one (lazily) bound to the headphones sink — and swap
-        # ``self.vlc_instance``/``self.vlc_player``/``self.vlc_media_list``
-        # between them when the active-output indicator is clicked.
-        # Existing code that touches ``self.vlc_*`` directly keeps
-        # working unchanged; ``self._vlc_mp()`` always returns the
-        # active player.
-        (self._speaker_instance,
-         self._speaker_player,
-         self._speaker_media_list) = self._spawn_instance_for_sink(
-             self.config.main_audio_device)
-        # Headphones instance is lazy — created on first switch so
-        # startup cost is unchanged for the common (speaker-only)
-        # case.  This also lets us spawn it AFTER OutputManager has
-        # detected the aout module and validated the device.
-        self._headphones_instance = None
-        self._headphones_player = None
-        self._headphones_media_list = None
-
-        # Active-side aliases — the rest of MainWindow only ever talks
-        # to these, so it doesn't have to know there are two transports.
-        self.vlc_instance = self._speaker_instance
-        self.vlc_player = self._speaker_player
-        self.vlc_media_list = self._speaker_media_list
+        # Single instance — audio routing is handled OUT-OF-BAND by
+        # AudioRouter (which on Linux uses ``pactl move-sink-input``
+        # because libvlc 3's audio_output_device_set is silently
+        # broken on the pulse/pipewire-pulse backend).  See
+        # ``core/audio_router.py`` for the full story.
+        self.vlc_instance = vlc.Instance()
+        self.vlc_player = self.vlc_instance.media_list_player_new()
+        self.vlc_media_list = self.vlc_instance.media_list_new()
+        # Cache the underlying media-player wrapper.  python-vlc returns
+        # a NEW Python wrapper object each time you call
+        # ``media_list_player.get_media_player()`` even though it points
+        # to the same underlying libvlc object.  We need a stable
+        # identity for AudioRouter (which keys per-player state by
+        # ``id(player)``) and for event-manager hooks.
+        self._main_mp = self.vlc_player.get_media_player()
 
         # ── Build the UI ─────────────────────────────────
         self._build_ui()
@@ -208,6 +195,31 @@ class MainWindow(QMainWindow):
         # contend with first-paint work.
         QTimer.singleShot(2000,
                           lambda: self._output_mgr.start_periodic_scan(3000))
+
+        # ── AudioRouter: actually pins streams to their target sinks ──
+        # Sits next to OutputManager (which decides WHICH device to
+        # talk to) and handles the HOW.  See core/audio_router.py for
+        # the per-OS strategy.  Beep-test (OutputManager) and preview
+        # (PreviewDock) also share this single router instance.
+        self._router = make_router(debug_log_fn=self._debug_log,
+                                   parent=self)
+        self._debug_log('INFO', f'AudioRouter backend: {self._router.name()}')
+        self._output_mgr.set_router(self._router)
+        self._router.attach(self._vlc_mp(), label='main')
+        # Re-pin every time playback starts (handles new tracks creating
+        # new sink-inputs, which can happen if libvlc tears down/re-creates
+        # its pulse stream between media items).
+        try:
+            em = self._vlc_mp().event_manager()
+            em.event_attach(
+                vlc.EventType.MediaPlayerPlaying,
+                lambda evt: self._router.pin_player(
+                    self._vlc_mp(), self._active_sink_id()),
+            )
+        except Exception as e:
+            self._debug_log(
+                'ERROR',
+                f'Failed to attach MediaPlayerPlaying event for routing: {e}')
 
         self._device_debug_dialog = None  # lazily created
 
@@ -1325,67 +1337,21 @@ class MainWindow(QMainWindow):
     # ── VLC helpers ──────────────────────────────────────
 
     def _vlc_mp(self):
-        """Shortcut to the underlying media player."""
-        return self.vlc_player.get_media_player()
+        """Shortcut to the underlying media player.  Returns the
+        cached wrapper so identity is stable (see __init__ for why)."""
+        return self._main_mp
 
-    def _spawn_instance_for_sink(self, sink_id):
-        """Create a (vlc.Instance, media_list_player, media_list) bound
-        to a specific PulseAudio sink via the PULSE_SINK env-var trick.
+    def _active_sink_id(self) -> str:
+        """The pulse sink id the MAIN transport should currently be on,
+        respecting the active-output indicator (speaker vs headphones).
 
-        Empty/None ``sink_id`` means "system default" — no env override.
-
-        Non-Pulse platforms (Windows mmdevice, macOS auhal): we skip
-        the env trick and let libvlc default; per-instance pinning on
-        those platforms isn't tested yet.  We detect Linux-pulse by
-        platform rather than by querying OutputManager, because at
-        first-instance time OutputManager doesn't exist yet (chicken-
-        and-egg: it needs an instance to enumerate devices).
+        Returns '' (system default) only if the configured device is
+        empty — falling back to whatever PA picks is better than dead
+        audio.
         """
-        import sys as _sys
-        is_pulse_platform = _sys.platform.startswith('linux')
-        use_pulse_env = is_pulse_platform and bool(sink_id)
-
-        if use_pulse_env:
-            prev = os.environ.get('PULSE_SINK')
-            os.environ['PULSE_SINK'] = sink_id
-            try:
-                inst = vlc.Instance()
-            finally:
-                # Restore env immediately — instance has already read it.
-                if prev is None:
-                    os.environ.pop('PULSE_SINK', None)
-                else:
-                    os.environ['PULSE_SINK'] = prev
-        else:
-            inst = vlc.Instance()
-        player = inst.media_list_player_new()
-        media_list = inst.media_list_new()
-        return inst, player, media_list
-
-    def _ensure_headphones_transport(self, device_id):
-        """Lazily build the headphones transport, bound to ``device_id``.
-
-        If the previously-built transport is bound to a different sink
-        (user changed Preview Output in the menu), tear it down and
-        rebuild — PULSE_SINK can only be set at instance-construction
-        time, so re-binding requires a fresh instance.
-        """
-        existing_id = getattr(self, '_headphones_sink_id', None)
-        if (self._headphones_instance is not None
-                and existing_id == device_id):
-            return  # already good
-        # Tear down stale instance, if any.
-        if self._headphones_instance is not None:
-            try:
-                self._headphones_player.stop()
-                self._headphones_player.release()
-                self._headphones_instance.release()
-            except Exception:
-                pass
-        (self._headphones_instance,
-         self._headphones_player,
-         self._headphones_media_list) = self._spawn_instance_for_sink(device_id)
-        self._headphones_sink_id = device_id
+        if self.config.active_output == 'headphones':
+            return self.config.preview_audio_device or ''
+        return self.config.main_audio_device or ''
 
     def _sync_vlc_volume(self):
         """Push the current slider volume into VLC.
@@ -2629,21 +2595,11 @@ class MainWindow(QMainWindow):
     def _on_active_output_changed(self, which: str):
         """Handle a click on the active-output indicator.
 
-        Swaps the active VLC transport between the speaker- and
-        headphones-bound instances.  Preserves the current track and
-        playback position across the swap so it feels like a routing
-        change rather than a stop+restart.
-
-        Why not just call ``audio_output_device_set()``?  Because on
-        this host's libvlc/pulse the API silently falls back to the
-        system default sink — verified empirically.  PULSE_SINK at
-        instance-construction time is the only thing that actually
-        moves audio.  See ``_spawn_instance_for_sink`` for details.
-
-        The swap incurs a brief audio gap (~150-300 ms) while the
-        joining instance loads the media and seeks.  Acceptable for
-        the rare-switch use case (class flow picks once and forgets;
-        party flow swaps occasionally to monitor on cans).
+        Tells the AudioRouter to move the main player's pulse stream
+        to the chosen device's sink — instant, no media reload, no
+        seek, no audio gap (~50 ms while ``pactl move-sink-input``
+        executes).  See ``core/audio_router.py`` for why we don't
+        use libvlc's audio_output_device_set API.
         """
         if which == self.config.active_output:
             return
@@ -2658,215 +2614,56 @@ class MainWindow(QMainWindow):
             self._refresh_active_output_indicator()
             return
 
-        # Snapshot current playback state BEFORE we touch anything.
-        leaving_mp = self._vlc_mp()
-        was_playing = bool(leaving_mp.is_playing())
-        was_paused = bool(self.is_paused)
-        # get_position returns -1 / 0.0 when no media; guard.
-        try:
-            pos = leaving_mp.get_position()
-            if pos is None or pos < 0:
-                pos = 0.0
-        except Exception:
-            pos = 0.0
-        current_path = None
-        if (self.current_index is not None
-                and 0 <= self.current_index < len(self.playlist)):
-            current_path = self.playlist[self.current_index].get('_abs_path')
-
-        # Stop the leaving transport (do this BEFORE rebinding aliases
-        # so the stop affects the right player).
-        try:
-            self.vlc_player.stop()
-        except Exception:
-            pass
-
-        # Bring up the joining transport.
-        if which == 'headphones':
-            try:
-                self._ensure_headphones_transport(target.device_id)
-            except Exception as e:
-                self._debug_log(
-                    'ERROR',
-                    f'Failed to spawn headphones VLC instance: {e}',
-                )
-                self.statusBar().showMessage(
-                    f'Failed to switch to headphones: {e}', 4000)
-                # Restart speaker side so we don't leave audio dead.
-                if was_playing and current_path:
-                    self._reload_and_resume(
-                        current_path, pos, was_paused=False)
-                return
-            self.vlc_instance = self._headphones_instance
-            self.vlc_player = self._headphones_player
-            self.vlc_media_list = self._headphones_media_list
-        else:
-            self.vlc_instance = self._speaker_instance
-            self.vlc_player = self._speaker_player
-            self.vlc_media_list = self._speaker_media_list
-
-        # Re-load the current track on the joining transport (if any)
-        # and seek/resume to mimic a routing change.
-        if current_path and os.path.isfile(current_path):
-            self._reload_and_resume(current_path, pos, was_paused=was_paused,
-                                    autoplay=was_playing)
-
-        # Commit visible state.
         self.config.active_output = which
+        self._router.move_player(self._vlc_mp(), target.device_id or '')
         self._active_output_indicator.set_output(which)
         self._debug_log(
             'INFO',
             f'Active output -> {which} '
-            f'({target.description or target.device_id}) '
-            f'[transport swapped, pos={pos:.3f}, was_playing={was_playing}]',
+            f'({target.description or target.device_id})',
         )
 
-    def _reload_and_resume(self, abs_path, position, was_paused=False,
-                           autoplay=True):
-        """Load a media file on the active transport, optionally seek
-        and resume.  Used by the active-output transport swap.
-        """
-        try:
-            media = self.vlc_instance.media_new(abs_path)
-            new_list = self.vlc_instance.media_list_new()
-            new_list.add_media(media)
-            self.vlc_media_list = new_list
-            self.vlc_player.set_media_list(self.vlc_media_list)
-        except Exception as e:
-            self._debug_log(
-                'ERROR', f'_reload_and_resume: failed to set media: {e}')
-            return
-        if not autoplay:
-            return
-        self.vlc_player.play()
-        # Seek must wait until the aout is up and length is known —
-        # otherwise set_position is a silent no-op.
-        def _seek():
-            mp = self._vlc_mp()
-            try:
-                if mp.get_length() > 0 and 0.0 < position < 1.0:
-                    mp.set_position(position)
-            except Exception:
-                pass
-        QTimer.singleShot(150, _seek)
-        # Re-sync volume (libvlc doesn't always carry it across a
-        # set_media_list).
-        QTimer.singleShot(180, self._sync_vlc_volume)
-        if was_paused:
-            QTimer.singleShot(200, self.vlc_player.pause)
-
     def _set_main_audio_device(self, device_id):
-        # Changing the speaker sink requires rebuilding the speaker
-        # vlc.Instance with PULSE_SINK at construction time — see
-        # _spawn_instance_for_sink.  Calling audio_output_device_set
-        # would silently fall back to the system default.
+        """Persist the new Main Output choice and re-route the main
+        player to it (only if the user is currently on 'speaker' —
+        otherwise the change takes effect next time they switch back).
+        """
         old_id = self.config.main_audio_device
         self.config.main_audio_device = device_id
         dev = self._output_mgr.find_by_id(device_id)
         self.config.main_audio_device_description = dev.description if dev else ''
-        if old_id != device_id:
-            self._rebuild_speaker_transport(device_id)
+        if (old_id != device_id
+                and self.config.active_output == 'speaker'):
+            self._router.pin_player(self._vlc_mp(), device_id or '')
         self._refresh_audio_device_menus()
         self.config.save()
         label = dev.description if dev else (device_id or 'System Default')
         self._debug_log('INFO', f'Main audio output -> {label}')
 
     def _set_preview_audio_device(self, device_id):
-        # Changing the headphones sink invalidates the lazy headphones
-        # transport (if any).  Drop it; it'll be rebuilt on next switch.
+        """Persist the new Preview Output choice.  If main playback is
+        currently routed via the headphones segment of the indicator,
+        re-pin to the new sink immediately.  The preview dock (when
+        open) will pick up the new sink on next play.
+        """
         old_id = self.config.preview_audio_device
         self.config.preview_audio_device = device_id
         dev = self._output_mgr.find_by_id(device_id)
         self.config.preview_audio_device_description = dev.description if dev else ''
         if (old_id != device_id
-                and self._headphones_instance is not None):
-            self._teardown_headphones_transport()
+                and self.config.active_output == 'headphones'):
+            self._router.pin_player(self._vlc_mp(), device_id or '')
         self._refresh_audio_device_menus()
         self.config.save()
         label = dev.description if dev else (device_id or 'System Default')
         self._debug_log('INFO', f'Preview audio output -> {label}')
 
-    def _rebuild_speaker_transport(self, device_id):
-        """Rebuild the speaker transport, preserving playback state.
-
-        Used when the user picks a different Main Output device — we
-        can't reroute libvlc in place, so we tear down the speaker
-        instance and spawn a new one bound to the new sink, then
-        reload the current track and seek back if we were playing on
-        the speaker side.
-        """
-        was_active = (self.config.active_output == 'speaker')
-        # Snapshot if speaker was the active transport.
-        pos = 0.0
-        was_playing = False
-        was_paused = False
-        current_path = None
-        if was_active:
-            mp = self._vlc_mp()
-            try:
-                pos = max(0.0, mp.get_position() or 0.0)
-            except Exception:
-                pos = 0.0
-            was_playing = bool(mp.is_playing())
-            was_paused = bool(self.is_paused)
-            if (self.current_index is not None
-                    and 0 <= self.current_index < len(self.playlist)):
-                current_path = self.playlist[self.current_index].get('_abs_path')
-            try:
-                self._speaker_player.stop()
-            except Exception:
-                pass
-
-        # Tear down old speaker instance.
-        try:
-            if not was_active:
-                # Even if we weren't active, stop just in case.
-                self._speaker_player.stop()
-            self._speaker_player.release()
-            self._speaker_instance.release()
-        except Exception:
-            pass
-
-        # Spawn fresh.
-        (self._speaker_instance,
-         self._speaker_player,
-         self._speaker_media_list) = self._spawn_instance_for_sink(device_id)
-
-        if was_active:
-            # Re-bind aliases to the new instance.
-            self.vlc_instance = self._speaker_instance
-            self.vlc_player = self._speaker_player
-            self.vlc_media_list = self._speaker_media_list
-            if current_path and os.path.isfile(current_path):
-                self._reload_and_resume(
-                    current_path, pos, was_paused=was_paused,
-                    autoplay=was_playing)
-
-    def _teardown_headphones_transport(self):
-        """Drop the lazy headphones instance (e.g. after sink change)."""
-        try:
-            if self._headphones_player is not None:
-                self._headphones_player.stop()
-                self._headphones_player.release()
-            if self._headphones_instance is not None:
-                self._headphones_instance.release()
-        except Exception:
-            pass
-        self._headphones_instance = None
-        self._headphones_player = None
-        self._headphones_media_list = None
-        self._headphones_sink_id = None
-
     def _apply_main_audio_device(self):
-        """Startup-time validation hook.
+        """Startup hook: log whether the configured device is present.
 
-        With the dual-instance design the speaker transport is already
-        bound to the configured sink at construction time (see
-        _spawn_instance_for_sink), so there is no separate "apply"
-        step at startup — we just log whether the configured device
-        was actually present.  If the device is gone we leave the
-        speaker bound to the system default sink (libvlc's behaviour
-        when PULSE_SINK names a non-existent sink).
+        Actual routing happens via the AudioRouter's
+        MediaPlayerPlaying event hook (set up in __init__) the first
+        time playback starts, so there's nothing to push to libvlc here.
         """
         configured_id = self.config.main_audio_device
         configured_desc = getattr(self.config, 'main_audio_device_description', '')
@@ -2875,13 +2672,13 @@ class MainWindow(QMainWindow):
             self._debug_log(
                 'WARN',
                 'Configured main audio device unavailable - '
-                'speaker transport will fall back to the system default sink',
+                'falling back to system default sink',
             )
             return
         self._debug_log(
             'INFO',
-            f'Speaker transport bound to {device.description!r} '
-            f'(sink: {device.device_id!r}) at construction time',
+            f'Main audio device configured: {device.description!r} '
+            f'(sink: {device.device_id!r})',
         )
 
     def _on_device_disappeared(self, device_id, description):
@@ -2992,6 +2789,7 @@ class MainWindow(QMainWindow):
             track_entry=entry,
             output_mgr=self._output_mgr,
             headphones_device=headphones,
+            router=self._router,
             waveform_data=wf_data,
             parent=self,
         )
@@ -3153,10 +2951,12 @@ class MainWindow(QMainWindow):
         self._cancel_waveform()
         self._close_preview()
         self.vlc_player.stop()
-        # Release the lazy headphones transport (if it was ever spawned)
-        # so PulseAudio drops our sink-input and there are no orphan
-        # libvlc threads at process exit.
-        self._teardown_headphones_transport()
+        # Detach the main player from the AudioRouter so its cached
+        # sink-input id doesn't outlive us.
+        try:
+            self._router.detach(self._vlc_mp())
+        except Exception:
+            pass
         self.config.visible_columns = self._track_table.get_visible_columns()
         self.config.save()
         # Persist queue
